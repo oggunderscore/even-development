@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EvenPilot</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main>
+
+      <header>
+        <h1>EvenPilot</h1>
+        <span id="status-badge" class="badge badge-warn">Initializing</span>
+      </header>
+
+      <!-- ── HUD layout editor ─────────────────────────────── -->
+      <section class="panel drag-panel">
+        <div class="drag-panel-header">
+          <h2>HUD Layout</h2>
+          <button id="reset-layout" class="btn-reset">Reset</button>
+        </div>
+
+        <!--
+          Three flex rows, each a grid of left | center | right.
+          Components hug the edge they're placed on.
+          Empty slots are invisible — only show during active drag.
+        -->
+        <div id="hud-canvas" class="hud-canvas">
+          <div class="hud-row">
+            <div class="hud-slot" data-pos="tl"></div>
+            <div class="hud-slot" data-pos="tc"></div>
+            <div class="hud-slot" data-pos="tr"></div>
+          </div>
+          <div class="hud-row">
+            <div class="hud-slot" data-pos="ml"></div>
+            <div class="hud-slot" data-pos="mc"></div>
+            <div class="hud-slot" data-pos="mr"></div>
+          </div>
+          <div class="hud-row">
+            <div class="hud-slot" data-pos="bl"></div>
+            <div class="hud-slot" data-pos="bc"></div>
+            <div class="hud-slot" data-pos="br"></div>
+          </div>
+        </div>
+
+        <p class="hint">Drag to rearrange &nbsp;·&nbsp; tap glasses: toggle mph/kmh &nbsp;·&nbsp; double-tap: exit</p>
+      </section>
+
+      <!-- ── GPS + Log ─────────────────────────────────────── -->
+      <div class="bottom-grid">
+
+        <section class="panel">
+          <h2>GPS &nbsp;<span id="gps-badge" class="badge badge-error">No signal</span></h2>
+          <table class="data-table">
+            <tr><td>Speed</td>    <td id="gps-speed">--</td></tr>
+            <tr><td>Heading</td>  <td id="gps-heading">--</td></tr>
+            <tr><td>Position</td> <td id="gps-coords">--</td></tr>
+            <tr><td>Accuracy</td> <td id="gps-accuracy">--</td></tr>
+          </table>
+        </section>
+
+        <section class="panel">
+          <h2>Activity Log</h2>
+          <div id="log-entries" class="log-entries"></div>
+        </section>
+
+      </div>
+
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

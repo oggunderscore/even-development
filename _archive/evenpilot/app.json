@@ -1,0 +1,18 @@
+{
+  "package_id": "com.kevin.evenpilot",
+  "edition": "202606",
+  "name": "EvenPilot",
+  "version": "0.1.0",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.10",
+  "entrypoint": "index.html",
+  "permissions": ["network", "location"],
+  "network": {
+    "whitelist": [
+      "nominatim.openstreetmap.org",
+      "overpass-api.de",
+      "overpass.kumi.systems"
+    ]
+  },
+  "supported_languages": ["en"]
+}
