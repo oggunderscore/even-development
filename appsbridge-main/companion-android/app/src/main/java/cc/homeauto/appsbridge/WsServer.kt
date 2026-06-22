@@ -1,10 +1,12 @@
 package cc.homeauto.appsbridge
 
+import android.content.Context
 import org.java_websocket.WebSocket
 import org.java_websocket.handshake.ClientHandshake
 import org.java_websocket.server.WebSocketServer
 import org.json.JSONObject
 import java.net.InetSocketAddress
+import java.nio.ByteBuffer
 import java.util.Collections
 import java.util.WeakHashMap
 import java.util.Timer
@@ -23,6 +25,7 @@ class WsServer(port: Int) : WebSocketServer(InetSocketAddress("127.0.0.1", port)
 
     companion object {
         @Volatile var instance: WsServer? = null
+        @Volatile var appContext: Context? = null
         private const val PING_INTERVAL_MS = 30_000L
         private const val CONNECTION_LOST_TIMEOUT = 10  // seconds
         private const val LEGACY_IDENTIFY_GRACE_MS = 750L
@@ -90,42 +93,76 @@ class WsServer(port: Int) : WebSocketServer(InetSocketAddress("127.0.0.1", port)
         if (count == 0) onLastClient?.invoke()
     }
 
+    override fun onMessage(conn: WebSocket, message: ByteBuffer) {
+        // Binary frames are raw PCM chunks from the G2 mic — forward to Deepgram
+        try {
+            val bytes = ByteArray(message.remaining())
+            message.get(bytes)
+            DeepgramProxy.instance?.sendChunk(bytes)
+        } catch (e: Exception) {
+            android.util.Log.w("AppsBridge/WS", "binary frame forward failed: ${e.message}")
+        }
+    }
+
     override fun onMessage(conn: WebSocket, message: String) {
         try {
             val json = JSONObject(message)
-            if (json.optString("type") == "client_hello") {
-                clientRequests[conn] = parseClientHello(json)
-                updateClientState()
-                return
-            }
-            if (json.optString("type") == "client_heartbeat") {
-                clientRequests[conn] = parseClientHeartbeat(conn, json)
-                updateClientState()
-                return
-            }
-            if (json.optString("type") == "client_goodbye") {
-                clientRequests[conn] = inactiveClientRequest(conn, json)
-                updateClientState()
-                return
-            }
-            if (json.optString("type") == "cc_state") {
-                clientRequests[conn] = legacyRequest("live_cc", "CC Live")
-                SharedState.ccEnabled = json.optBoolean("capturing", false)
-                SharedState.ccCapturing = json.optBoolean("capturing", false)
-                SharedState.ccMode = json.optString("mode", SharedState.ccMode)
-                SharedState.ccSource = "g2_webview"
-                updateClientState()
-                return
-            }
-            if (json.optString("type") != "cc_command") return
-            clientRequests[conn] = legacyRequest("live_cc", "CC Live")
-            updateClientState()
-            val command = json.optString("command")
-            val mode = json.optString("mode")
-            if (mode != CaptionMode.PHONE_AUDIO.wireValue) return
-            when (command) {
-                "start" -> MainActivity.requestPhoneAudioFromClient()
-                "stop" -> MainActivity.stopPhoneAudioFromClient(json.optString("reason", "user_stopped"))
+            when (json.optString("type")) {
+                "client_hello" -> {
+                    clientRequests[conn] = parseClientHello(json)
+                    updateClientState()
+                    return
+                }
+                "client_heartbeat" -> {
+                    clientRequests[conn] = parseClientHeartbeat(conn, json)
+                    updateClientState()
+                    return
+                }
+                "client_goodbye" -> {
+                    clientRequests[conn] = inactiveClientRequest(conn, json)
+                    updateClientState()
+                    return
+                }
+                "audio_start" -> {
+                    val id = json.optString("id")
+                    DeepgramProxy.instance?.start(id) { text, isFinal ->
+                        broadcastRaw(transcriptFrame(id, text, isFinal))
+                    }
+                    return
+                }
+                "audio_stop" -> {
+                    DeepgramProxy.instance?.stop()
+                    return
+                }
+                "send_reply" -> {
+                    val id   = json.optString("id")
+                    val body = json.optString("body")
+                    val ctx  = appContext
+                    val ok   = if (ctx != null) ReplyManager.sendReply(id, body, ctx) else false
+                    broadcastRaw("""{"type":"reply_result","id":"$id","success":$ok}""")
+                    return
+                }
+                "cc_state" -> {
+                    clientRequests[conn] = legacyRequest("live_cc", "CC Live")
+                    SharedState.ccEnabled = json.optBoolean("capturing", false)
+                    SharedState.ccCapturing = json.optBoolean("capturing", false)
+                    SharedState.ccMode = json.optString("mode", SharedState.ccMode)
+                    SharedState.ccSource = "g2_webview"
+                    updateClientState()
+                    return
+                }
+                "cc_command" -> {
+                    clientRequests[conn] = legacyRequest("live_cc", "CC Live")
+                    updateClientState()
+                    val command = json.optString("command")
+                    val mode = json.optString("mode")
+                    if (mode != CaptionMode.PHONE_AUDIO.wireValue) return
+                    when (command) {
+                        "start" -> MainActivity.requestPhoneAudioFromClient()
+                        "stop" -> MainActivity.stopPhoneAudioFromClient(json.optString("reason", "user_stopped"))
+                    }
+                    return
+                }
             }
         } catch (e: Exception) {
             android.util.Log.w("AppsBridge/WS", "command parse failed: ${e.message}")
@@ -155,6 +192,15 @@ class WsServer(port: Int) : WebSocketServer(InetSocketAddress("127.0.0.1", port)
     fun broadcastMedia() = push("media", buildMediaJson())
     fun broadcastNav()   = push("nav",   buildNavJson())
     fun broadcastRaw(json: String) = pushRaw(json)
+
+    fun broadcastNotification(
+        id: String, app: String, from: String, body: String,
+        phone: String, replyable: Boolean,
+    ) {
+        val esc = { s: String -> s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") }
+        val data = """{"id":"${esc(id)}","app":"${esc(app)}","from":"${esc(from)}","body":"${esc(body)}","phone":"${esc(phone)}","replyable":$replyable,"timestamp":${System.currentTimeMillis()}}"""
+        pushRaw("""{"type":"notification","data":$data}""")
+    }
 
     fun shutdown() {
         pingTimer?.cancel()
@@ -360,6 +406,11 @@ class WsServer(port: Int) : WebSocketServer(InetSocketAddress("127.0.0.1", port)
     }
 
     private fun frame(type: String, json: String) = """{"type":"$type","data":$json}"""
+
+    private fun transcriptFrame(id: String, text: String, isFinal: Boolean): String {
+        val escaped = text.replace("\\", "\\\\").replace("\"", "\\\"")
+        return """{"type":"transcript","id":"$id","text":"$escaped","is_final":$isFinal}"""
+    }
 
     private fun buildGpsJson() = JSONObject().apply {
         put("speed",    SharedState.gpsSpeed)

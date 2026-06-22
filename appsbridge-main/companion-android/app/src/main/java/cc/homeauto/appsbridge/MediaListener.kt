@@ -3,6 +3,7 @@ package cc.homeauto.appsbridge
 import android.app.Notification
 import android.content.ComponentName
 import android.media.AudioManager
+import java.util.UUID
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
@@ -35,6 +36,29 @@ class MediaListener : NotificationListenerService() {
         private const val NAV_SCAN_MS = 2000L
         private const val ARRIVAL_INACTIVE_DELAY_MS = 10_000L
         private const val NO_ACTIVE_NAV = "No active Navigation"
+
+        // Packages that carry direct-message notifications
+        private val MESSAGE_PACKAGES = setOf(
+            "com.google.android.apps.messaging",
+            "com.samsung.android.messaging",
+            "com.android.mms",
+            "com.whatsapp",
+            "com.facebook.orca",
+            "org.thoughtcrime.securesms",   // Signal
+            "com.instagram.android",
+            "com.snapchat.android",
+        )
+
+        private val MESSAGE_APP_NAMES = mapOf(
+            "com.google.android.apps.messaging" to "Messages",
+            "com.samsung.android.messaging"     to "Messages",
+            "com.android.mms"                   to "Messages",
+            "com.whatsapp"                      to "WhatsApp",
+            "com.facebook.orca"                 to "Messenger",
+            "org.thoughtcrime.securesms"        to "Signal",
+            "com.instagram.android"             to "Instagram",
+            "com.snapchat.android"              to "Snapchat",
+        )
 
         // Packages whose active notifications carry turn-by-turn nav data
         private val NAV_PACKAGES = setOf(
@@ -107,11 +131,43 @@ class MediaListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
+        if (SharedState.notificationsActive && sbn != null) maybePostMessage(sbn)
         if (!SharedState.mediaActive && !SharedState.navActive) return
         if (SharedState.mediaActive) refresh()
         // Scan ALL active notifications — Maps sometimes updates its notification
         // in-place without the posted SBN being the nav notification itself.
         if (SharedState.navActive) scanActiveNavNotifications()
+    }
+
+    private fun maybePostMessage(sbn: StatusBarNotification) {
+        if (sbn.packageName !in MESSAGE_PACKAGES) return
+        val extras = sbn.notification?.extras ?: return
+        val from = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: return
+        val body = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim() ?: return
+        if (from.isEmpty() || body.isEmpty()) return
+
+        // Skip group summary notifications (no user-visible body)
+        if (sbn.notification?.flags?.and(Notification.FLAG_GROUP_SUMMARY) != 0) return
+
+        val app = MESSAGE_APP_NAMES[sbn.packageName] ?: sbn.packageName
+        val replyable = sbn.notification?.actions?.any { action ->
+            action.semanticAction == android.app.Notification.Action.SEMANTIC_ACTION_REPLY ||
+            action.remoteInputs?.isNotEmpty() == true
+        } ?: false
+
+        // Use the notification key as a stable way to track it for reply
+        val id = UUID.randomUUID().toString()
+        if (replyable) ReplyManager.register(id, sbn)
+
+        android.util.Log.d("AppsBridge/Notif", "message from=$from app=$app replyable=$replyable")
+        WsServer.instance?.broadcastNotification(
+            id = id,
+            app = app,
+            from = from,
+            body = body,
+            phone = "",   // Android doesn't reliably expose the phone number via notification extras
+            replyable = replyable,
+        )
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {

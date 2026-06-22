@@ -50,6 +50,9 @@ class BridgeService : Service() {
         super.onCreate()
         createChannel()
 
+        WsServer.appContext = applicationContext
+        DeepgramProxy.instance = DeepgramProxy(applicationContext)
+
         // Start in standby — only the WS server runs until a HUD client connects.
         wsServer = WsServer(WS_PORT).also { ws ->
             ws.onFirstClient = { handler.post { onHudClientConnected() } }
@@ -132,6 +135,7 @@ class BridgeService : Service() {
         )
         SharedState.captionsActive = components.contains(BridgeComponent.CAPTIONS)
         SharedState.phoneAudioRequested = components.contains(BridgeComponent.PHONE_AUDIO)
+        SharedState.notificationsActive = components.contains(BridgeComponent.NOTIFICATIONS)
         if (gpsRequested) {
             val locationForegroundReady = startOrUpdateForeground(components)
             val gpsStarted = setGpsActive(true)

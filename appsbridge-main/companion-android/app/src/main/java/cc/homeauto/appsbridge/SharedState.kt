@@ -43,6 +43,9 @@ object SharedState {
     @Volatile var wsActiveModule: String = ""
     @Volatile var wsActiveModuleLabel: String = ""
 
+    // Notifications
+    @Volatile var notificationsActive: Boolean = false
+
     // CC Live
     @Volatile var ccEnabled: Boolean = false
     @Volatile var ccCapturing: Boolean = false

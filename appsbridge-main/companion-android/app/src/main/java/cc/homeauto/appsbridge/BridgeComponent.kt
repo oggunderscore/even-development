@@ -6,7 +6,8 @@ enum class BridgeComponent(val wireValue: String) {
     NAV("nav"),
     HTTP("http"),
     CAPTIONS("captions"),
-    PHONE_AUDIO("phone_audio");
+    PHONE_AUDIO("phone_audio"),
+    NOTIFICATIONS("notifications");
 
     companion object {
         fun fromWireValue(value: String): BridgeComponent? {

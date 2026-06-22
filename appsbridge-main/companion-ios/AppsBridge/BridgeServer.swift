@@ -62,6 +62,13 @@ final class BridgeServer {
             MediaManager.shared.send(.next);  return noContent()
         case ("POST", "/media/prev"):
             MediaManager.shared.send(.prev);  return noContent()
+        case ("POST", "/notifications"):
+            let bodyData = extractBody(from: raw)
+            if !bodyData.isEmpty,
+               let notifJson = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any] {
+                NotificationBridge.shared.received(notification: notifJson)
+            }
+            return noContent()
         case ("OPTIONS", _):
             return options()
         default:
@@ -70,6 +77,13 @@ final class BridgeServer {
     }
 
     // MARK: - Response builders
+
+    // Extract HTTP body — everything after the blank line (\r\n\r\n)
+    private func extractBody(from raw: String) -> Data {
+        guard let range = raw.range(of: "\r\n\r\n") else { return Data() }
+        let bodyStr = String(raw[range.upperBound...])
+        return bodyStr.data(using: .utf8) ?? Data()
+    }
 
     private let cors: [(String, String)] = [
         ("Access-Control-Allow-Origin",  "*"),

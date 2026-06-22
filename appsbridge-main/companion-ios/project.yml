@@ -37,6 +37,8 @@ targets:
         NSLocationAlwaysUsageDescription: >
           APPS Bridge collects GPS data (speed, heading, coordinates) and
           serves it as JSON on localhost:7070 for homeauto.cc apps.
+    dependencies:
+      - sdk: MessageUI.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: cc.homeauto.appsbridge.ios
