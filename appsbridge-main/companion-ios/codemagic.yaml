@@ -1,0 +1,62 @@
+workflows:
+  ios-sideload:
+    name: iOS — Sideload Build
+    max_build_duration: 30
+    environment:
+      xcode: latest
+      # Set DEVELOPMENT_TEAM in Codemagic Environment Variables (team ID from developer.apple.com)
+      vars:
+        DEVELOPMENT_TEAM: ""  # e.g. "ABC1234DEF"
+
+    scripts:
+      - name: Install XcodeGen
+        script: brew install xcodegen
+
+      - name: Generate Xcode project
+        script: |
+          cd companion-ios
+          xcodegen generate
+
+      - name: Archive
+        script: |
+          cd companion-ios
+          xcodebuild \
+            -project AppsBridge.xcodeproj \
+            -scheme AppsBridge \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath "$CM_BUILD_DIR/AppsBridge.xcarchive" \
+            archive \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            CODE_SIGN_STYLE=Automatic
+
+      - name: Export IPA
+        script: |
+          cat > /tmp/export.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>development</string>
+            <key>teamID</key>
+            <string>$DEVELOPMENT_TEAM</string>
+          </dict>
+          </plist>
+          EOF
+
+          xcodebuild -exportArchive \
+            -archivePath "$CM_BUILD_DIR/AppsBridge.xcarchive" \
+            -exportOptionsPlist /tmp/export.plist \
+            -exportPath "$CM_BUILD_DIR/ipa"
+
+    artifacts:
+      - $CM_BUILD_DIR/ipa/*.ipa
+      - $CM_BUILD_DIR/AppsBridge.xcarchive/**
+
+    # Trigger on pushes to companion-ios changes
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main

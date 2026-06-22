@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Native Android port of Even Toolkit phone UI tokens.
+        Credit: Even Toolkit by fabioglimb, MIT licensed.
+        Reference: even-toolkit/web/theme/tokens-light.css
+    -->
+    <color name="app_bg">#EEEEEE</color>
+    <color name="app_surface">#FFFFFF</color>
+    <color name="app_surface_light">#F6F6F6</color>
+    <color name="app_surface_lighter">#E4E4E4</color>
+    <color name="app_border">#E4E4E4</color>
+    <color name="app_border_light">#EEEEEE</color>
+    <color name="app_text">#232323</color>
+    <color name="app_text_dim">#7B7B7B</color>
+    <color name="app_text_muted">#7B7B7B</color>
+    <color name="app_text_faint">#7B7B7B</color>
+    <color name="app_accent">#232323</color>
+    <color name="app_accent_text">#FFFFFF</color>
+    <color name="app_accent_alpha">#14232323</color>
+    <color name="app_input_bg">#14232323</color>
+    <color name="app_positive">#4BB956</color>
+    <color name="app_positive_alpha">#264BB956</color>
+    <color name="app_warning">#FEF991</color>
+    <color name="app_negative">#FF453A</color>
+    <color name="app_negative_alpha">#26FF453A</color>
+</resources>

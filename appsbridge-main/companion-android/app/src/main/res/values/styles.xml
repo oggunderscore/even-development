@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.AppsBridge" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">@color/app_bg</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">@color/app_bg</item>
+        <item name="android:statusBarColor">@color/app_bg</item>
+        <item name="android:forceDarkAllowed">false</item>
+        <item name="colorAccent">@color/app_accent</item>
+        <item name="colorPrimary">@color/app_accent</item>
+        <item name="colorPrimaryDark">@color/app_bg</item>
+        <item name="android:textColorPrimary">@color/app_text</item>
+        <item name="android:textColorSecondary">@color/app_text_dim</item>
+        <item name="android:colorAccent">@color/app_accent</item>
+    </style>
+
+    <!-- Native Android text scale ported from even-toolkit/web/theme/typography.css.
+         FK Grotesk is referenced by the toolkit CSS, but the npm package does not ship font files. -->
+    <style name="EvenText">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:fontWeight">400</item>
+    </style>
+
+    <style name="EvenText.VLargeTitle">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:textSize">24sp</item>
+        <item name="android:textColor">@color/app_text</item>
+        <item name="android:fontWeight">400</item>
+    </style>
+
+    <style name="EvenText.LargeTitle">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:textColor">@color/app_text</item>
+        <item name="android:fontWeight">400</item>
+    </style>
+
+    <style name="EvenText.MediumTitle">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:textSize">17sp</item>
+        <item name="android:textColor">@color/app_text</item>
+        <item name="android:fontWeight">400</item>
+    </style>
+
+    <style name="EvenText.NormalTitle">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">@color/app_text</item>
+        <item name="android:fontWeight">400</item>
+    </style>
+
+    <style name="EvenText.Subtitle">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">@color/app_text_dim</item>
+        <item name="android:fontWeight">400</item>
+    </style>
+
+    <style name="EvenText.Detail">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:textColor">@color/app_text_dim</item>
+        <item name="android:fontWeight">400</item>
+    </style>
+</resources>

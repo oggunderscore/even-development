@@ -1,0 +1,46 @@
+name: AppsBridge
+options:
+  bundleIdPrefix: cc.homeauto
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "15"
+  createIntermediateGroups: true
+
+targets:
+  AppsBridge:
+    type: application
+    platform: iOS
+    sources:
+      - AppsBridge
+    info:
+      path: AppsBridge/Info.plist
+      properties:
+        # background-location: keeps HTTP server + NWListener alive while GPS is running.
+        # bluetooth-central: keeps BLE link to Flipper alive while backgrounded,
+        #   and keeps NWListener accepting new WebSocket connections.
+        UIBackgroundModes:
+          - location
+          - bluetooth-central
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations: {}
+        NSBluetoothAlwaysUsageDescription: >
+          APPS Bridge connects to Flipper Zero over Bluetooth to mirror its
+          screen on the Even G2 glasses.
+        NSLocationAlwaysAndWhenInUseUsageDescription: >
+          APPS Bridge collects GPS data (speed, heading, coordinates) and
+          serves it as JSON on localhost:7070 for homeauto.cc apps.
+        NSLocationWhenInUseUsageDescription: >
+          APPS Bridge collects GPS data (speed, heading, coordinates) and
+          serves it as JSON on localhost:7070 for homeauto.cc apps.
+        NSLocationAlwaysUsageDescription: >
+          APPS Bridge collects GPS data (speed, heading, coordinates) and
+          serves it as JSON on localhost:7070 for homeauto.cc apps.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cc.homeauto.appsbridge.ios
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: $(DEVELOPMENT_TEAM)
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"

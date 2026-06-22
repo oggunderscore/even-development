@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Ported from Even Toolkit web theme spacing/radius tokens.
+        Credit: Even Toolkit by fabioglimb, MIT licensed.
+        Source: ../motohud2/node_modules/even-toolkit/web/theme/tokens-light.css
+    -->
+    <dimen name="et_radius_default">6dp</dimen>
+    <dimen name="et_spacing_margin">12dp</dimen>
+    <dimen name="et_spacing_card">16dp</dimen>
+    <dimen name="et_spacing_same">6dp</dimen>
+    <dimen name="et_spacing_cross">12dp</dimen>
+    <dimen name="et_spacing_section">24dp</dimen>
+    <dimen name="et_button_sm_height">36dp</dimen>
+    <dimen name="et_button_default_height">48dp</dimen>
+    <dimen name="et_button_icon_size">36dp</dimen>
+    <dimen name="et_button_padding_x">16dp</dimen>
+    <dimen name="et_list_item_padding">16dp</dimen>
+    <dimen name="et_checkbox_size">20dp</dimen>
+    <dimen name="et_radio_size">20dp</dimen>
+</resources>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Native Android dark override for the Even Toolkit phone UI token port.
+        Credit: Even Toolkit by fabioglimb, MIT licensed.
+    -->
+    <color name="app_bg">#181818</color>
+    <color name="app_surface">#232323</color>
+    <color name="app_surface_light">#2e2e2e</color>
+    <color name="app_surface_lighter">#3a3a3a</color>
+    <color name="app_border">#3a3a3a</color>
+    <color name="app_border_light">#2e2e2e</color>
+    <color name="app_text">#eeeeee</color>
+    <color name="app_text_dim">#a8a8a8</color>
+    <color name="app_text_muted">#a8a8a8</color>
+    <color name="app_text_faint">#a8a8a8</color>
+    <color name="app_accent">#eeeeee</color>
+    <color name="app_accent_text">#232323</color>
+    <color name="app_accent_alpha">#1AEEEEEE</color>
+    <color name="app_input_bg">#1AEEEEEE</color>
+    <color name="app_positive">#4BB956</color>
+    <color name="app_positive_alpha">#264BB956</color>
+    <color name="app_warning">#FEF991</color>
+    <color name="app_negative">#ef5350</color>
+    <color name="app_negative_alpha">#26EF5350</color>
+</resources>

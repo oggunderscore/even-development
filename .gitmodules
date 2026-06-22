@@ -1,0 +1,6 @@
+[submodule "even-flipper"]
+	path = even-flipper
+	url = git@github.com:cola-collabs/even-flipper.git
+[submodule "even-toolkit"]
+	path = even-toolkit
+	url = git@github.com:fabioglimb/even-toolkit.git

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>APPS Bridge connects to Flipper Zero over Bluetooth to mirror its screen on the Even G2 glasses.
+</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>APPS Bridge collects GPS data (speed, heading, coordinates) and serves it as JSON on localhost:7070 for homeauto.cc apps.
+</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>APPS Bridge collects GPS data (speed, heading, coordinates) and serves it as JSON on localhost:7070 for homeauto.cc apps.
+</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>APPS Bridge collects GPS data (speed, heading, coordinates) and serves it as JSON on localhost:7070 for homeauto.cc apps.
+</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict/>
+	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>bluetooth-central</string>
+	</array>
+	<key>UILaunchScreen</key>
+	<dict/>
+</dict>
+</plist>

@@ -1,0 +1,21 @@
+# Old APK versions (keep only current)
+appsbridge-1.1.27.apk
+appsbridge-1.1.28.apk
+appsbridge-1.1.29.apk
+
+# Android build artifacts
+companion-android/build/
+companion-android/.gradle/
+companion-android/local.properties
+companion-android/*.iml
+companion-android/.idea/
+
+# iOS build artifacts
+companion-ios/build/
+companion-ios/DerivedData/
+companion-ios/*.xcodeproj/
+companion-ios/*.xcworkspace/
+
+# System
+.DS_Store
+.claude/
