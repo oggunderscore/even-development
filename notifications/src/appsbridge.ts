@@ -25,24 +25,33 @@ export interface ReplyResultData {
 type NotificationCb = (data: NotificationData) => void
 type TranscriptCb = (data: TranscriptData) => void
 type ReplyResultCb = (data: ReplyResultData) => void
+type VoidCb = () => void
 
 export class AppsBridgeClient {
   private ws: WebSocket | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private _connected = false
 
   private notificationCb: NotificationCb | null = null
-  private transcriptCb: TranscriptCb | null = null
-  private replyResultCb: ReplyResultCb | null = null
+  private transcriptCb:   TranscriptCb   | null = null
+  private replyResultCb:  ReplyResultCb  | null = null
+  private connectCb:      VoidCb         | null = null
+  private disconnectCb:   VoidCb         | null = null
 
   onNotification(cb: NotificationCb) { this.notificationCb = cb }
-  onTranscript(cb: TranscriptCb) { this.transcriptCb = cb }
-  onReplyResult(cb: ReplyResultCb) { this.replyResultCb = cb }
+  onTranscript(cb: TranscriptCb)     { this.transcriptCb   = cb }
+  onReplyResult(cb: ReplyResultCb)   { this.replyResultCb  = cb }
+  onConnect(cb: VoidCb)              { this.connectCb      = cb }
+  onDisconnect(cb: VoidCb)           { this.disconnectCb   = cb }
+
+  get isConnected() { return this._connected }
 
   connect() {
     this.ws = new WebSocket(WS_URL)
     this.ws.binaryType = 'arraybuffer'
 
     this.ws.onopen = () => {
+      this._connected = true
       this.ws!.send(JSON.stringify({
         type: 'client_hello',
         module: 'notifications',
@@ -50,6 +59,7 @@ export class AppsBridgeClient {
         components: ['notifications'],
         managedLifecycle: true,
       }))
+      this.connectCb?.()
     }
 
     this.ws.onmessage = (event) => {
@@ -70,7 +80,11 @@ export class AppsBridgeClient {
       }
     }
 
-    this.ws.onclose = () => this.scheduleReconnect()
+    this.ws.onclose = () => {
+      this._connected = false
+      this.disconnectCb?.()
+      this.scheduleReconnect()
+    }
     this.ws.onerror = () => {}
   }
 
