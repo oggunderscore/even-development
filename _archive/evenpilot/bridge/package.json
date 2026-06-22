@@ -1,0 +1,30 @@
+{
+  "name": "warp-g2-bridge",
+  "version": "0.1.0",
+  "description": "WebSocket + MCP bridge between Even Realities G2 glasses and Warp terminal",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "clean": "rm -rf dist",
+    "mock": "node mock-bridge.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "express": "^4.21.2",
+    "node-pty": "^1.1.0",
+    "ws": "^8.21.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

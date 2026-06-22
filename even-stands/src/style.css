@@ -1,0 +1,37 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+  --green: #8fffaa;
+  --bg: #0b0f0c;
+  --border: #1e2e22;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--green);
+  padding: 2rem;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.badge-ok { color: #8fffaa; border-color: #2e5a3a; }
+.badge-warn { color: #f5d77a; border-color: #5a4a2e; }
+.badge-error { color: #ff8f8f; border-color: #5a2e2e; }
+
+.log-entries {
+  margin-top: 1rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}

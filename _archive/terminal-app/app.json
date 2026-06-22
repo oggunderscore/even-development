@@ -1,0 +1,17 @@
+{
+  "package_id": "com.kevin.evenapp",
+  "edition": "202601",
+  "name": "Even G2 App",
+  "version": "0.2.0",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.10",
+  "entrypoint": "index.html",
+  "permissions": ["microphone", "network"],
+  "network": {
+    "whitelist": [
+      "api.openai.com",
+      "192.168.1.100"
+    ]
+  },
+  "supported_languages": ["en"]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "even-g2-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "simulator": "evenhub-simulator http://localhost:5173",
+    "qr": "evenhub qr --http --port 5173",
+    "pack": "npm run build && evenhub pack app.json dist -o even-g2-app.ehpk"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "^0.0.10",
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "@evenrealities/evenhub-cli": "^0.1.12",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  },
+  "engines": {
+    "node": "^20.0.0 || >=22.0.0"
+  }
+}
