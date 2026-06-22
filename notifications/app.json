@@ -1,0 +1,21 @@
+{
+  "package_id": "com.homeauto.notifications",
+  "edition": "202601",
+  "name": "Notifications",
+  "version": "0.1.0",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.10",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Connects to APPS Bridge on the local network for notifications and audio transcription.",
+      "whitelist": ["http://127.0.0.1:7070", "ws://127.0.0.1:7071"]
+    },
+    {
+      "name": "g2-microphone",
+      "desc": "Records voice replies that are transcribed and sent as message replies."
+    }
+  ],
+  "supported_languages": ["en"]
+}

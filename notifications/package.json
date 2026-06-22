@@ -1,0 +1,22 @@
+{
+  "name": "notifications",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "simulator": "evenhub-simulator",
+    "qr": "evenhub qr",
+    "pack": "npm run build && evenhub pack app.json dist -o notifications.ehpk"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "^0.0.10"
+  },
+  "devDependencies": {
+    "@evenrealities/evenhub-cli": "^0.1.12",
+    "@evenrealities/evenhub-simulator": "^0.7.2",
+    "typescript": "^5.4.0",
+    "vite": "^5.2.0"
+  }
+}
