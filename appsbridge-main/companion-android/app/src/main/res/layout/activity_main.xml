@@ -233,7 +233,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Reads now-playing media (song, artist, play state) and live turn-by-turn navigation from Maps, Waze, OsmAnd."
+                        android:text="Reads media (song, artist, play state), navigation from Maps/Waze/OsmAnd, and message notifications from SMS, WhatsApp, Signal, Telegram, Gmail, and Messenger."
                         style="@style/EvenText.Detail"
                         android:lineSpacingMultiplier="1.35" />
                 </LinearLayout>
@@ -303,6 +303,144 @@
                     android:paddingStart="@dimen/et_spacing_cross"
                     android:paddingEnd="@dimen/et_spacing_cross" />
             </LinearLayout>
+        </LinearLayout>
+
+        <!-- ── Notifications card ────────────────────────────────────────────── -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/card_bg"
+            android:padding="@dimen/et_spacing_card"
+            android:layout_marginBottom="@dimen/et_spacing_card">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="NOTIFICATIONS"
+                style="@style/EvenText.Detail"
+                android:textAllCaps="true"
+                android:layout_marginBottom="@dimen/et_spacing_same" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Relay incoming messages to your G2 glasses and reply by voice."
+                style="@style/EvenText.Detail"
+                android:layout_marginBottom="@dimen/et_spacing_card" />
+
+            <!-- Deepgram key tile -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/even_tile_bg"
+                android:padding="@dimen/et_spacing_cross"
+                android:layout_marginBottom="@dimen/et_spacing_same">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Deepgram API Key"
+                    style="@style/EvenText.NormalTitle"
+                    android:layout_marginBottom="2dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Required for voice-to-text replies. Free tier at deepgram.com/console."
+                    style="@style/EvenText.Detail"
+                    android:lineSpacingMultiplier="1.35"
+                    android:layout_marginBottom="@dimen/et_spacing_cross" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="@dimen/et_spacing_same">
+
+                    <EditText
+                        android:id="@+id/et_deepgram_key"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="Paste key here…"
+                        android:inputType="textVisiblePassword"
+                        android:fontFamily="monospace"
+                        android:textSize="12sp"
+                        android:textColor="@color/app_text"
+                        android:textColorHint="@color/app_text_muted"
+                        android:background="@drawable/even_input_bg"
+                        android:padding="@dimen/et_spacing_cross"
+                        android:layout_marginEnd="@dimen/et_spacing_cross"
+                        android:singleLine="true"
+                        android:imeOptions="actionDone" />
+
+                    <Button
+                        android:id="@+id/btn_save_deepgram"
+                        android:layout_width="wrap_content"
+                        android:layout_height="@dimen/et_button_sm_height"
+                        android:text="Save"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:textSize="12sp"
+                        android:paddingStart="@dimen/et_spacing_cross"
+                        android:paddingEnd="@dimen/et_spacing_cross" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tv_deepgram_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="No key set — voice replies disabled"
+                    style="@style/EvenText.Detail" />
+            </LinearLayout>
+
+            <!-- G2 connection status tile -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/even_tile_bg"
+                android:padding="@dimen/et_spacing_cross"
+                android:layout_marginBottom="@dimen/et_spacing_same">
+
+                <View
+                    android:id="@+id/dot_notif_ws"
+                    android:layout_width="8dp"
+                    android:layout_height="8dp"
+                    android:background="@drawable/status_dot"
+                    android:layout_marginEnd="@dimen/et_spacing_cross" />
+
+                <TextView
+                    android:id="@+id/tv_notif_ws"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Waiting for G2 glasses…"
+                    style="@style/EvenText.Detail" />
+            </LinearLayout>
+
+            <!-- Test notification -->
+            <Button
+                android:id="@+id/btn_test_notif"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/et_button_sm_height"
+                android:text="Send Test Notification"
+                android:minHeight="0dp"
+                android:textAllCaps="false"
+                android:textSize="14sp"
+                android:layout_marginBottom="@dimen/et_spacing_same" />
+
+            <!-- Android message source note -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Android relays messages from SMS, WhatsApp, Signal, Telegram, Gmail, and Messenger automatically — no extra setup needed once Notification Access is granted in the Setup section above."
+                style="@style/EvenText.Detail"
+                android:lineSpacingMultiplier="1.35" />
         </LinearLayout>
 
         <!-- ── Modules card (expandable, open by default) ───────────────────── -->

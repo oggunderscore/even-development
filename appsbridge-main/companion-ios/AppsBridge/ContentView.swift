@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var vm = AppViewModel()
+    @State private var shortcutsExpanded = false
 
     var body: some View {
         NavigationStack {
@@ -22,6 +23,83 @@ struct ContentView: View {
                         vm.toggle()
                     }
                     .foregroundStyle(vm.snapshot.running ? .red : .accentColor)
+                }
+
+                // Notifications
+                Section("Notifications") {
+                    // G2 connection status
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(vm.notifWsClientCount > 0 ? Color.green : Color.secondary.opacity(0.4))
+                            .frame(width: 8, height: 8)
+                        if vm.snapshot.running {
+                            Text(vm.notifWsClientCount > 0
+                                 ? "\(vm.notifWsClientCount) G2 glasses connected"
+                                 : "Waiting for G2 glasses…")
+                                .foregroundStyle(vm.notifWsClientCount > 0 ? .primary : .secondary)
+                        } else {
+                            Text("Bridge is stopped — tap Start above")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    // Deepgram API key
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Deepgram API Key")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField(
+                            vm.deepgramKeySaved ? "Saved — paste to update" : "Paste your key here…",
+                            text: $vm.deepgramKeyDraft
+                        )
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .onSubmit { vm.saveDeepgramKey() }
+                        HStack(spacing: 12) {
+                            Button("Save Key") { vm.saveDeepgramKey() }
+                                .disabled(vm.deepgramKeyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                            if vm.deepgramKeySaved {
+                                Label("Key saved", systemImage: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                    .font(.caption)
+                            }
+                        }
+                        Link("Get a free key at console.deepgram.com →",
+                             destination: URL(string: "https://console.deepgram.com")!)
+                            .font(.caption)
+                    }
+
+                    // iOS Shortcuts setup guide
+                    DisclosureGroup(isExpanded: $shortcutsExpanded) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("iOS doesn't expose all notifications to apps. Use the Shortcuts app to automatically forward incoming messages:")
+                                .foregroundStyle(.secondary)
+                            Divider()
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("1. Open **Shortcuts** → Automations → +")
+                                Text("2. Choose **Message** as the trigger")
+                                Text("3. Enable **Run Immediately**, disable **Notify**")
+                                Text("4. Add action: **Get Contents of URL**")
+                                Text("   • URL: `http://127.0.0.1:7070/notifications`")
+                                Text("   • Method: **POST** · Body type: **JSON**")
+                                Text("   • Add fields: `from` = [Sender Name]")
+                                Text("                `body` = [Message Content]")
+                            }
+                            .font(.caption)
+                        }
+                        .padding(.top, 4)
+                    } label: {
+                        Label("iOS Shortcuts Setup", systemImage: "arrow.triangle.branch")
+                            .font(.subheadline)
+                    }
+
+                    // Test notification button
+                    if vm.snapshot.running {
+                        Button("Send Test Notification") {
+                            vm.sendTestNotification()
+                        }
+                        .foregroundStyle(.accentColor)
+                    }
                 }
 
                 // GPS

@@ -17,7 +17,9 @@ import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
@@ -53,6 +55,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvMedia:        TextView
     private lateinit var tvNav:          TextView
     private lateinit var tvAbout:        TextView
+    private lateinit var etDeepgramKey:  EditText
+    private lateinit var btnSaveDeepgram: Button
+    private lateinit var tvDeepgramStatus: TextView
+    private lateinit var dotNotifWs:     View
+    private lateinit var tvNotifWs:      TextView
+    private lateinit var btnTestNotif:   Button
 
     private val handler = Handler(Looper.getMainLooper())
     private val mediaProjectionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -107,10 +115,16 @@ class MainActivity : AppCompatActivity() {
         headerData     = findViewById(R.id.header_data)
         arrowData      = findViewById(R.id.arrow_data)
         contentData    = findViewById(R.id.content_data)
-        tvGps          = findViewById(R.id.tv_gps)
-        tvMedia        = findViewById(R.id.tv_media)
-        tvNav          = findViewById(R.id.tv_nav)
-        tvAbout        = findViewById(R.id.tv_about)
+        tvGps           = findViewById(R.id.tv_gps)
+        tvMedia         = findViewById(R.id.tv_media)
+        tvNav           = findViewById(R.id.tv_nav)
+        tvAbout         = findViewById(R.id.tv_about)
+        etDeepgramKey   = findViewById(R.id.et_deepgram_key)
+        btnSaveDeepgram = findViewById(R.id.btn_save_deepgram)
+        tvDeepgramStatus= findViewById(R.id.tv_deepgram_status)
+        dotNotifWs      = findViewById(R.id.dot_notif_ws)
+        tvNotifWs       = findViewById(R.id.tv_notif_ws)
+        btnTestNotif    = findViewById(R.id.btn_test_notif)
 
         val version = packageManager.getPackageInfo(packageName, 0).versionName
         tvVersion.text = "v$version"
@@ -122,6 +136,8 @@ class MainActivity : AppCompatActivity() {
         btnThemeAuto.setOnClickListener  { setPhoneTheme(THEME_AUTO) }
         btnThemeLight.setOnClickListener { setPhoneTheme(THEME_LIGHT) }
         btnThemeDark.setOnClickListener  { setPhoneTheme(THEME_DARK) }
+        btnSaveDeepgram.setOnClickListener { saveDeepgramKey() }
+        btnTestNotif.setOnClickListener { sendTestNotification() }
         setupPhoneAudioBridge()
 
         headerModules.setOnClickListener { toggleSection(contentModules, arrowModules) }
@@ -273,6 +289,26 @@ class MainActivity : AppCompatActivity() {
         setPermissionButton(btnNotif, notifGranted)
         setPermissionButton(btnBattery, batteryExempt)
 
+        // ── Notifications card ─────────────────────────────────────────────────
+        val deepgramKey = prefs().getString(DeepgramProxy.KEY_API_KEY, "") ?: ""
+        tvDeepgramStatus.text = if (deepgramKey.isNotEmpty()) "✓ API key saved" else "No key set — voice replies disabled"
+        tvDeepgramStatus.setTextColor(
+            if (deepgramKey.isNotEmpty()) color(R.color.app_positive) else color(R.color.app_text_dim)
+        )
+
+        val wsClients2 = WsServer.instance?.clientCount() ?: 0
+        setDotColor(dotNotifWs, when {
+            !running       -> COLOR_GREY
+            wsClients2 > 0 -> COLOR_GREEN
+            else           -> COLOR_AMBER
+        })
+        tvNotifWs.text = when {
+            !running       -> "Bridge stopped — tap Start above"
+            wsClients2 > 0 -> "$wsClients2 G2 client${if (wsClients2 == 1) "" else "s"} connected"
+            else           -> "Waiting for G2 glasses…"
+        }
+        btnTestNotif.isEnabled = running && wsClients2 > 0
+
         // ── Modules card ───────────────────────────────────────────────────────
         val wsClients = WsServer.instance?.clientCount() ?: 0
         val wsLine    = if (running) {
@@ -340,6 +376,27 @@ class MainActivity : AppCompatActivity() {
             "big      ${SharedState.navDebugBig.ifEmpty   { "--" }}",
             "sub      ${SharedState.navDebugSub.ifEmpty   { "--" }}",
         ).joinToString("\n")
+    }
+
+    private fun saveDeepgramKey() {
+        val key = etDeepgramKey.text.toString().trim()
+        if (key.isEmpty()) return
+        prefs().edit().putString(DeepgramProxy.KEY_API_KEY, key).apply()
+        etDeepgramKey.text.clear()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(etDeepgramKey.windowToken, 0)
+        updateUi()
+    }
+
+    private fun sendTestNotification() {
+        WsServer.instance?.broadcastNotification(
+            id        = "test-${System.currentTimeMillis()}",
+            app       = "Messages",
+            from      = "APPS Bridge",
+            body      = "Test message — voice reply is working!",
+            phone     = "",
+            replyable = true,
+        )
     }
 
     private fun setPermissionButton(btn: Button, granted: Boolean) {
@@ -412,7 +469,7 @@ class MainActivity : AppCompatActivity() {
     private fun applyPhonePalette(view: View) {
         val bg = view.background
         if (view.id == R.id.root_scroll) view.setBackgroundColor(color(R.color.app_bg))
-        if (bg is GradientDrawable && view.id !in setOf(R.id.dot_status, R.id.dot_hud, R.id.dot_cc_live)) {
+        if (bg is GradientDrawable && view.id !in setOf(R.id.dot_status, R.id.dot_hud, R.id.dot_cc_live, R.id.dot_notif_ws)) {
             if (view is TextView && view.typeface?.isBold == true) {
                 bg.setColor(color(R.color.app_surface_light))
             }

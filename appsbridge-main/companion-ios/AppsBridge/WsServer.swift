@@ -114,6 +114,12 @@ final class WsServer {
         }
     }
 
+    var clientCount: Int {
+        connLock.lock()
+        defer { connLock.unlock() }
+        return connections.count
+    }
+
     // MARK: - Broadcast helpers
 
     func broadcastNotification(id: String, app: String, from: String, body: String, phone: String, replyable: Bool) {
