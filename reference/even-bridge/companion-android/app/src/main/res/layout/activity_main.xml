@@ -423,6 +423,47 @@
                     style="@style/EvenText.Detail" />
             </LinearLayout>
 
+            <!-- Test reply-to number — lets the test notification exercise the
+                 real reply-send path end to end instead of a blank recipient -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/even_tile_bg"
+                android:padding="@dimen/et_spacing_cross"
+                android:layout_marginBottom="@dimen/et_spacing_same">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Test Reply-To Number"
+                    style="@style/EvenText.NormalTitle"
+                    android:layout_marginBottom="2dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Send Test Notification uses this number so the glasses reply reaches a real SMS thread you can check."
+                    style="@style/EvenText.Detail"
+                    android:lineSpacingMultiplier="1.35"
+                    android:layout_marginBottom="@dimen/et_spacing_cross" />
+
+                <EditText
+                    android:id="@+id/et_test_phone"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Your own number, e.g. +15551234567"
+                    android:inputType="phone"
+                    android:fontFamily="monospace"
+                    android:textSize="12sp"
+                    android:textColor="@color/app_text"
+                    android:textColorHint="@color/app_text_muted"
+                    android:background="@drawable/even_input_bg"
+                    android:padding="@dimen/et_spacing_cross"
+                    android:singleLine="true"
+                    android:imeOptions="actionDone" />
+            </LinearLayout>
+
             <!-- Test notification -->
             <Button
                 android:id="@+id/btn_test_notif"

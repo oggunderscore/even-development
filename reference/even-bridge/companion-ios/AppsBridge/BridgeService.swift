@@ -19,7 +19,6 @@ final class BridgeService {
         location.start()
         media.start()
         BridgeState.shared.setRunning(true)
-        FlipperBridgeService.shared.start()
     }
 
     func stop() {
@@ -28,6 +27,5 @@ final class BridgeService {
         location.stop()
         media.stop()
         BridgeState.shared.setRunning(false)
-        FlipperBridgeService.shared.stop()
     }
 }

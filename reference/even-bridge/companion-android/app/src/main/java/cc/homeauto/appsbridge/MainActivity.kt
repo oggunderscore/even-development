@@ -61,6 +61,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var dotNotifWs:     View
     private lateinit var tvNotifWs:      TextView
     private lateinit var btnTestNotif:   Button
+    private lateinit var etTestPhone:    EditText
 
     private val handler = Handler(Looper.getMainLooper())
     private val mediaProjectionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -125,6 +126,8 @@ class MainActivity : AppCompatActivity() {
         dotNotifWs      = findViewById(R.id.dot_notif_ws)
         tvNotifWs       = findViewById(R.id.tv_notif_ws)
         btnTestNotif    = findViewById(R.id.btn_test_notif)
+        etTestPhone     = findViewById(R.id.et_test_phone)
+        etTestPhone.setText(prefs().getString(PREF_TEST_PHONE, "") ?: "")
 
         val version = packageManager.getPackageInfo(packageName, 0).versionName
         tvVersion.text = "v$version"
@@ -389,12 +392,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sendTestNotification() {
+        val phone = etTestPhone.text.toString().trim()
+        prefs().edit().putString(PREF_TEST_PHONE, phone).apply()
         WsServer.instance?.broadcastNotification(
             id        = "test-${System.currentTimeMillis()}",
             app       = "Messages",
             from      = "APPS Bridge",
             body      = "Test message — voice reply is working!",
-            phone     = "",
+            phone     = phone,
             replyable = true,
         )
     }
@@ -534,6 +539,7 @@ class MainActivity : AppCompatActivity() {
         private const val REQUEST_POST_NOTIFICATIONS = 43
         private const val PREFS = "appsbridge_prefs"
         private const val PREF_THEME = "phone_theme"
+        private const val PREF_TEST_PHONE = "test_phone_number"
         private const val THEME_AUTO = "auto"
         private const val THEME_LIGHT = "light"
         private const val THEME_DARK = "dark"

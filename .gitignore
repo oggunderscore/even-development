@@ -4,3 +4,6 @@ dist/
 .DS_Store
 .env
 .env.*
+
+# Community reference repos (cloned for local reference, not tracked)
+reference/community/

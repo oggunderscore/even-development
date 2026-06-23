@@ -137,7 +137,7 @@ final class WsServer {
     }
 
     func broadcastReplyResult(id: String, success: Bool) {
-        broadcast("""{"type":"reply_result","id":"\(esc(id))","success":\(success)}""")
+        broadcast("{\"type\":\"reply_result\",\"id\":\"\(esc(id))\",\"success\":\(success)}")
     }
 
     private func broadcast(_ text: String) {

@@ -4,3 +4,6 @@
 [submodule "even-toolkit"]
 	path = even-toolkit
 	url = git@github.com:fabioglimb/even-toolkit.git
+[submodule "even-bridge"]
+	path = reference/even-bridge
+	url = git@gitlab.com:homeauto.cc/appsbridge.git

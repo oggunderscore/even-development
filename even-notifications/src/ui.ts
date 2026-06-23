@@ -5,8 +5,9 @@ import {
   TextContainerUpgrade,
 } from '@evenrealities/even_hub_sdk'
 
-// ── Separator line that fits the 576px canvas at default font size ──────────
-const SEP = '─────────────────────────────────────'
+// ── Separator line — 26 chars (520px) fits inside the 564px content area
+// (576px container minus 6px paddingLength on each side), measured via @evenrealities/pretext
+const SEP = '──────────────────────────'
 
 export type UIState =
   | { name: 'connecting' }
@@ -78,6 +79,12 @@ export async function setBodyText(bridge: EvenAppBridge, text: string) {
   await bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: 2, containerName: 'body', content: text }))
 }
 
+// Formats live transcript text with the standard separator, for streaming
+// partial/final updates into the body container without a full setState.
+export function withSep(text: string): string {
+  return `${SEP}\n${text}`
+}
+
 function resolve(state: UIState): { header: string; body: string; footer: string } {
   switch (state.name) {
 
@@ -132,7 +139,7 @@ function resolve(state: UIState): { header: string; body: string; footer: string
         body:   state.partial
           ? `${SEP}\n${state.partial}`
           : `${SEP}\nConverting speech\nto text...`,
-        footer: '',
+        footer: '■ Cancel',
       }
 
     case 'review':

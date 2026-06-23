@@ -1,7 +1,34 @@
 # Project Structure
 
+All projects use the `even-` prefix convention.
+
+## Workspace Layout
+
 ```
-appsbridge-main/
+even/
+├── even-flipper/               # Flipper Zero → G2 BLE mirror (submodule)
+├── even-notifications/         # Phone notification bridge to G2
+├── even-pilot/                 # Driving HUD (GPS, speed, compass)
+├── even-stands/                # Active G2 plugin (Vite + TS + SDK)
+├── even-terminal/              # SSH/terminal/voice app
+├── even-toolkit/               # Design system npm package (submodule)
+├── even-realities-docs/        # Official docs mirror (reference only)
+├── reference/                  # SDK docs, community repos, reference apps
+│   ├── even-bridge/            # Reference companion phone app (Android + iOS)
+│   ├── sdk/                    # API reference, constraints, patterns
+│   ├── community/              # Cloned community repos (gitignored)
+│   └── snippets/               # Utility code
+├── .kiro/steering/             # AI steering files
+├── CLAUDE.md                   # AI workspace context
+└── README.md                   # Human-facing workspace docs
+```
+
+## reference/even-bridge/ (companion phone app)
+
+The companion bridge app lives in `reference/` as a reference implementation for how G2 apps communicate with phone services.
+
+```
+reference/even-bridge/
 ├── companion-android/          # Android companion app (Kotlin)
 │   ├── app/
 │   │   ├── build.gradle        # App-level Gradle config
@@ -60,7 +87,7 @@ appsbridge-main/
 └── appsbridge.apk             # Latest release APK artifact
 ```
 
-## Architecture Patterns
+## Architecture Patterns (even-bridge)
 
 - **Android**: Single foreground `Service` (`BridgeService`) owns all component lifecycle. `WsServer` handles WebSocket protocol and client tracking. `SharedState` is a volatile-field singleton for cross-thread state.
 - **iOS**: `BridgeService.shared` singleton coordinates server, location, and media managers. SwiftUI observes `BridgeState`.
@@ -69,6 +96,7 @@ appsbridge-main/
 
 ## Conventions
 
+- All projects use the `even-` prefix.
 - All changelog entries go under `## Unreleased` during development.
 - Android theme ports credit the `even-toolkit` npm package author and reference the source token file.
 - Prefer existing project patterns; do not introduce new libraries or frameworks without justification.

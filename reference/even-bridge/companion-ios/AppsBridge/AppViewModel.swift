@@ -8,12 +8,14 @@ final class AppViewModel: ObservableObject {
     @Published var deepgramKeySaved   = false
     @Published var deepgramKeyDraft   = ""
     @Published var notifWsClientCount = 0
+    @Published var testPhoneNumber    = ""
 
     private var cancellable: AnyCancellable?
 
     init() {
         let saved = UserDefaults.standard.string(forKey: "deepgram_api_key") ?? ""
         deepgramKeySaved = !saved.isEmpty
+        testPhoneNumber = UserDefaults.standard.string(forKey: "test_phone_number") ?? ""
 
         cancellable = Timer.publish(every: 1, on: .main, in: .common)
             .autoconnect()
@@ -57,12 +59,18 @@ final class AppViewModel: ObservableObject {
         deepgramKeyDraft = ""
     }
 
+    func saveTestPhone() {
+        let trimmed = testPhoneNumber.trimmingCharacters(in: .whitespaces)
+        UserDefaults.standard.set(trimmed, forKey: "test_phone_number")
+        testPhoneNumber = trimmed
+    }
+
     func sendTestNotification() {
         NotificationBridge.shared.received(notification: [
             "from": "APPS Bridge",
             "body": "Test message — voice reply is working!",
             "app": "Messages",
-            "phone": "",
+            "phone": testPhoneNumber,
         ])
     }
 }

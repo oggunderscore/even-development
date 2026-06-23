@@ -93,12 +93,27 @@ struct ContentView: View {
                             .font(.subheadline)
                     }
 
+                    // Test reply target — lets the test notification exercise
+                    // the real send path (compose sheet / sms: scheme) end to end.
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Test Reply-To Number")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("Your own number, e.g. +15551234567", text: $vm.testPhoneNumber)
+                            .keyboardType(.phonePad)
+                            .onSubmit { vm.saveTestPhone() }
+                        Text("Send Test Notification uses this number so the glasses reply actually reaches a real iMessage/SMS thread you can check.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
                     // Test notification button
                     if vm.snapshot.running {
                         Button("Send Test Notification") {
+                            vm.saveTestPhone()
                             vm.sendTestNotification()
                         }
-                        .foregroundStyle(.accentColor)
+                        .foregroundStyle(Color.accentColor)
                     }
                 }
 
