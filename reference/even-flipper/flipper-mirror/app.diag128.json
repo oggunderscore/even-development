@@ -1,0 +1,18 @@
+{
+  "package_id": "com.bc0la.flippermirror",
+  "name": "FM diag 128x64",
+  "version": "0.2.1",
+  "edition": "202601",
+  "min_app_version": "1.0.0",
+  "min_sdk_version": "0.0.10",
+  "entrypoint": "index.html",
+  "description": "Flipper Mirror latency diagnostic - native 128x64 image, on-HUD push-ms readout.",
+  "supported_languages": ["en"],
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Connects to the local Flipper Bridge companion app over a loopback WebSocket to receive screen frames and send button input.",
+      "whitelist": ["ws://127.0.0.1:9876"]
+    }
+  ]
+}

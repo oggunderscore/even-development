@@ -1,0 +1,37 @@
+# Node
+node_modules/
+dist/
+*.log
+
+# Packaged webapp (build artifact)
+*.ehpk
+
+# Simulator screenshots
+glasses_*.png
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Android / Gradle
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+captures/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+*.swp
+*~
+
+# Project-local: pb/ is generated from proto-src/ via protoc; proto-src/ stays
+linux-bridge/pb/
+linux-bridge/proto-src/.git/

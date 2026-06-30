@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Flipper Bridge</string>
+    <string name="status_idle">Idle</string>
+    <string name="status_running">Running on 127.0.0.1:9876</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="start">Start bridge</string>
+    <string name="stop">Stop bridge</string>
+    <string name="instructions">1. Pair your Flipper Zero in Android Bluetooth settings (one-time, accept the PIN on both devices).\n2. Tap Start bridge. The bridge listens on 127.0.0.1:9876 and stays in the notification tray.\n3. Open the Flipper Mirror app on your glasses. The bridge auto-connects to the bonded Flipper the moment the glasses app opens — status walks Scanning → Connecting → Connected.\n4. Status above stays live: state on top, the linked Flipper below, and a running frames/skips count.\n\nDesktop dev only: with the phone on USB, run \"adb forward tcp:9876 tcp:9876\" and point the simulator webapp at ws://127.0.0.1:9876/ws.</string>
+    <string name="dpad_up">Up</string>
+    <string name="dpad_down">Down</string>
+    <string name="dpad_left">Left</string>
+    <string name="dpad_right">Right</string>
+    <string name="dpad_ok">OK</string>
+    <string name="dpad_back">Back</string>
+    <string name="dpad_label">Manual d-pad (routed through BLE if connected)</string>
+    <string name="device_unknown">No Flipper</string>
+    <string name="counter_initial">frames: 0  skips: 0</string>
+    <string name="notif_channel_name">Flipper Bridge</string>
+    <string name="notif_text">Bridging Flipper to glasses on 127.0.0.1:9876</string>
+</resources>

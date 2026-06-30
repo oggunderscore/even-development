@@ -7,3 +7,6 @@ dist/
 
 # Community reference repos (cloned for local reference, not tracked)
 reference/community/
+.kiro
+.claude
+.vscode

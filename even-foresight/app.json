@@ -1,0 +1,24 @@
+{
+    "package_id": "com.wkey.foresight",
+    "name": "Foresight",
+    "version": "0.1.0",
+    "edition": "202601",
+    "min_app_version": "1.0.0",
+    "min_sdk_version": "0.0.10",
+    "entrypoint": "index.html",
+    "author": "ogg_",
+    "publisher": "wKey Industries",
+    "description": "Custom OS framework for Even Realities G2 smart glasses. Provides a persistent HUD overlay with configurable components, gesture-activated menu system, banner notifications, and sub-app container.",
+    "supported_languages": [
+        "en"
+    ],
+    "permissions": [
+        {
+            "name": "network",
+            "desc": "Fetches weather data from an external weather API for the Weather HUD component.",
+            "whitelist": [
+                "https://*"
+            ]
+        }
+    ]
+}
