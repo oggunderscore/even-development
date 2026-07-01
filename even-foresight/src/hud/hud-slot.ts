@@ -107,6 +107,23 @@ export class HudSlotRenderer {
   }
 
   /**
+   * Renders content into a specific container by ID and name.
+   */
+  async renderToContainer(
+    containerID: number,
+    containerName: string,
+    content: string,
+  ): Promise<void> {
+    await this.bridge.textContainerUpgrade(
+      new TextContainerUpgrade({
+        containerID,
+        containerName,
+        content,
+      }),
+    );
+  }
+
+  /**
    * Clears the HUD display.
    */
   async clearSlot(_row: 0 | 1, _col: 0 | 1 | 2 | 3 | 4): Promise<void> {

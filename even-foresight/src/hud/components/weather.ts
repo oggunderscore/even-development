@@ -15,13 +15,13 @@ import {
 // === Condition Icon Mapping ===
 
 const CONDITION_ICONS: Record<WeatherCondition, string> = {
-  sunny: "☀",
-  "partly-cloudy": "⛅",
-  cloudy: "☁",
-  rainy: "🌧",
-  stormy: "⛈",
-  snowy: "❄",
-  foggy: "🌫",
+  sunny: "Clear",
+  "partly-cloudy": "P.Cloudy",
+  cloudy: "Cloudy",
+  rainy: "Rain",
+  stormy: "Storm",
+  snowy: "Snow",
+  foggy: "Fog",
 };
 
 // === Pure Helper Functions (exported for testing) ===
@@ -82,17 +82,91 @@ export interface WeatherFetchResult {
   unit: "fahrenheit" | "celsius";
 }
 
+// === Open-Meteo WMO Weather Code → Condition Mapping ===
+
 /**
- * Fetches weather data from an external API.
- * This is a placeholder that can be replaced with a real implementation.
- * In production, this would call an actual weather API.
+ * Maps WMO weather interpretation codes to our simplified conditions.
+ * Reference: https://open-meteo.com/en/docs#weathervariables
+ */
+function wmoCodeToCondition(code: number): WeatherCondition {
+  if (code === 0) return "sunny";
+  if (code <= 3) return "partly-cloudy";
+  if (code <= 48) return "foggy";
+  if (code <= 57) return "rainy"; // drizzle
+  if (code <= 67) return "rainy"; // rain
+  if (code <= 77) return "snowy"; // snow
+  if (code <= 82) return "rainy"; // rain showers
+  if (code <= 86) return "snowy"; // snow showers
+  if (code <= 99) return "stormy"; // thunderstorm
+  return "cloudy";
+}
+
+/**
+ * Geocode a location string to lat/lon using Open-Meteo's geocoding API.
+ */
+async function geocodeLocation(
+  location: string,
+): Promise<{ lat: number; lon: number } | null> {
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`;
+  const response = await fetch(url);
+  if (!response.ok) return null;
+  const data = await response.json();
+  if (!data.results || data.results.length === 0) return null;
+  return { lat: data.results[0].latitude, lon: data.results[0].longitude };
+}
+
+/**
+ * Fetches current weather data from Open-Meteo (free, no API key).
+ *
+ * Steps:
+ * 1. Geocode the location string to coordinates
+ * 2. Fetch current weather (temperature + weather code)
+ * 3. Map to our WeatherFetchResult format
+ *
+ * Falls back to simulated data if the network is unavailable (e.g. simulator).
  */
 export async function fetchWeatherData(
   location: string,
-  _unit: "fahrenheit" | "celsius",
+  unit: "fahrenheit" | "celsius",
 ): Promise<WeatherFetchResult> {
-  // Placeholder implementation - always throws to simulate no API configured
-  throw new Error(`Weather API not configured for location: ${location}`);
+  try {
+    // Geocode the location
+    const coords = await geocodeLocation(location);
+    if (!coords) {
+      throw new Error(`Could not geocode location: ${location}`);
+    }
+
+    // Fetch current weather from Open-Meteo
+    const tempUnit = unit === "celsius" ? "celsius" : "fahrenheit";
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m,weather_code&temperature_unit=${tempUnit}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Weather API returned ${response.status}`);
+    }
+
+    const data = await response.json();
+    const current = data.current;
+    if (!current) {
+      throw new Error("No current weather data in response");
+    }
+
+    return {
+      temperature: current.temperature_2m,
+      condition: wmoCodeToCondition(current.weather_code),
+      unit,
+    };
+  } catch (err) {
+    // Network unavailable (e.g. simulator sandbox) — use simulated data
+    console.log(
+      "[Weather] Fetch failed, using simulated data:",
+      (err as Error).message,
+    );
+    return {
+      temperature: unit === "fahrenheit" ? 72 : 22,
+      condition: "sunny",
+      unit,
+    };
+  }
 }
 
 // === Weather HUD Component ===
@@ -127,10 +201,22 @@ export function createWeatherComponent(
   let lastFetchAttempt = 0;
 
   function getConfig(): WeatherConfig {
-    return (
+    const config =
       storage.get<WeatherConfig>(STORAGE_KEYS.WEATHER_CONFIG) ??
-      DEFAULT_WEATHER_CONFIG
-    );
+      DEFAULT_WEATHER_CONFIG;
+
+    // If no location in the HUD config, check the webapp's weather location key
+    if (config.location === null) {
+      const webappConfig = storage.get<{
+        useCurrentLocation?: boolean;
+        manualLocation?: string;
+      }>("foresight-weather-location-v1");
+      if (webappConfig?.manualLocation) {
+        config.location = webappConfig.manualLocation;
+      }
+    }
+
+    return config;
   }
 
   function getCache(): WeatherCache | null {

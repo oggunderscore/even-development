@@ -5,11 +5,12 @@
     "author": "ogg_ <wKey Industries>",
     "type": "module",
     "scripts": {
-        "dev": "vite --host 0.0.0.0 --port 5174",
+        "dev": "vite --host 0.0.0.0 --port 5174 & evenhub-simulator http://localhost:5174 --automation-port 9898; wait",
+        "dev:vite": "vite --host 0.0.0.0 --port 5174",
         "build": "tsc && vite build",
         "preview": "vite preview",
-        "qr": "evenhub qr --http --port 5174",
-        "sim": "evenhub-simulator http://localhost:5174",
+        "qr": "evenhub qr --http --port 5174 --ip $(tailscale ip -4)",
+        "sim": "evenhub-simulator http://localhost:5174 --automation-port 9898",
         "test": "vitest --run",
         "test:watch": "vitest"
     },

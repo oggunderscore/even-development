@@ -1,0 +1,14 @@
+{
+    "name": "evenhub-simulator-mcp",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "MCP server for the EvenHub Simulator automation API",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.0.0"
+    }
+}

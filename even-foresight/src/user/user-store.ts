@@ -31,9 +31,16 @@ export function createUserStore(bridge: any): UserStore {
 
   async function loadProfile(): Promise<void> {
     try {
-      const raw = await bridge.getLocalStorage(USER_PROFILE_KEY);
+      let raw = await bridge.getLocalStorage(USER_PROFILE_KEY);
+      // Fall back to browser localStorage (bridge storage may be empty
+      // after simulator reload while browser localStorage persists)
+      if (!raw && typeof localStorage !== "undefined") {
+        raw = localStorage.getItem(USER_PROFILE_KEY);
+      }
       if (raw) {
         cachedProfile = JSON.parse(raw) as UserProfile;
+        // Sync back to bridge storage if we found it only in localStorage
+        await bridge.setLocalStorage(USER_PROFILE_KEY, raw).catch(() => {});
       }
     } catch {
       cachedProfile = null;

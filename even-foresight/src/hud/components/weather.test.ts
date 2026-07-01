@@ -41,35 +41,35 @@ function createMockStorage(
 // === getConditionIcon ===
 
 describe("getConditionIcon", () => {
-  it("returns ☀ for sunny", () => {
-    expect(getConditionIcon("sunny")).toBe("☀");
+  it("returns Clear for sunny", () => {
+    expect(getConditionIcon("sunny")).toBe("Clear");
   });
 
-  it("returns ⛅ for partly-cloudy", () => {
-    expect(getConditionIcon("partly-cloudy")).toBe("⛅");
+  it("returns P.Cloudy for partly-cloudy", () => {
+    expect(getConditionIcon("partly-cloudy")).toBe("P.Cloudy");
   });
 
-  it("returns ☁ for cloudy", () => {
-    expect(getConditionIcon("cloudy")).toBe("☁");
+  it("returns Cloudy for cloudy", () => {
+    expect(getConditionIcon("cloudy")).toBe("Cloudy");
   });
 
-  it("returns 🌧 for rainy", () => {
-    expect(getConditionIcon("rainy")).toBe("🌧");
+  it("returns Rain for rainy", () => {
+    expect(getConditionIcon("rainy")).toBe("Rain");
   });
 
-  it("returns ⛈ for stormy", () => {
-    expect(getConditionIcon("stormy")).toBe("⛈");
+  it("returns Storm for stormy", () => {
+    expect(getConditionIcon("stormy")).toBe("Storm");
   });
 
-  it("returns ❄ for snowy", () => {
-    expect(getConditionIcon("snowy")).toBe("❄");
+  it("returns Snow for snowy", () => {
+    expect(getConditionIcon("snowy")).toBe("Snow");
   });
 
-  it("returns 🌫 for foggy", () => {
-    expect(getConditionIcon("foggy")).toBe("🌫");
+  it("returns Fog for foggy", () => {
+    expect(getConditionIcon("foggy")).toBe("Fog");
   });
 
-  it("maps all 7 conditions to unique icons", () => {
+  it("maps all 7 conditions to unique labels", () => {
     const conditions: WeatherCondition[] = [
       "sunny",
       "partly-cloudy",
@@ -148,7 +148,7 @@ describe("renderWeatherContent", () => {
       unit: "fahrenheit",
       fetchedAt: Date.now(),
     };
-    expect(renderWeatherContent(data, false, baseConfig)).toBe("72°F ☀");
+    expect(renderWeatherContent(data, false, baseConfig)).toBe("72°F Clear");
   });
 
   it("shows stale indicator when data is stale", () => {
@@ -158,7 +158,7 @@ describe("renderWeatherContent", () => {
       unit: "fahrenheit",
       fetchedAt: Date.now(),
     };
-    expect(renderWeatherContent(data, true, baseConfig)).toBe("72°F ☀~");
+    expect(renderWeatherContent(data, true, baseConfig)).toBe("72°F Clear~");
   });
 
   it("rounds temperature to integer", () => {
@@ -168,7 +168,7 @@ describe("renderWeatherContent", () => {
       unit: "fahrenheit",
       fetchedAt: Date.now(),
     };
-    expect(renderWeatherContent(data, false, baseConfig)).toBe("73°F ☁");
+    expect(renderWeatherContent(data, false, baseConfig)).toBe("73°F Cloudy");
   });
 
   it("renders celsius correctly", () => {
@@ -179,7 +179,7 @@ describe("renderWeatherContent", () => {
       unit: "celsius",
       fetchedAt: Date.now(),
     };
-    expect(renderWeatherContent(data, false, config)).toBe("22°C 🌧");
+    expect(renderWeatherContent(data, false, config)).toBe("22°C Rain");
   });
 
   it("renders negative temperatures", () => {
@@ -190,7 +190,7 @@ describe("renderWeatherContent", () => {
       fetchedAt: Date.now(),
     };
     const config: WeatherConfig = { ...baseConfig, unit: "celsius" };
-    expect(renderWeatherContent(data, false, config)).toBe("-5°C ❄");
+    expect(renderWeatherContent(data, false, config)).toBe("-5°C Snow");
   });
 
   it("renders zero temperature", () => {
@@ -201,7 +201,7 @@ describe("renderWeatherContent", () => {
       fetchedAt: Date.now(),
     };
     const config: WeatherConfig = { ...baseConfig, unit: "celsius" };
-    expect(renderWeatherContent(data, false, config)).toBe("0°C 🌫");
+    expect(renderWeatherContent(data, false, config)).toBe("0°C Fog");
   });
 });
 
@@ -256,7 +256,7 @@ describe("createWeatherComponent", () => {
     });
 
     await component.refresh();
-    expect(component.render()).toBe("72°F ☀");
+    expect(component.render()).toBe("72°F Clear");
   });
 
   it("persists cache after successful fetch", async () => {
@@ -316,7 +316,7 @@ describe("createWeatherComponent", () => {
     });
 
     await component.refresh();
-    expect(component.render()).toBe("65°F ☁~");
+    expect(component.render()).toBe("65°F Cloudy~");
   });
 
   it("shows no-data indicator when API fails and cache is expired", async () => {

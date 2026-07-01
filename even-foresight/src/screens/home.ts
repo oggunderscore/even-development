@@ -39,7 +39,7 @@ export function createHomeScreen(
   }
 
   function getWeatherPlaceholder(): string {
-    return "☀ --°F";
+    return "Clear --°F";
   }
 
   function render(): string {

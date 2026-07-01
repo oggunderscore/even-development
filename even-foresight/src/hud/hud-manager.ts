@@ -51,28 +51,49 @@ export function createHudManager(
 
   /**
    * Renders all active slots to the display.
+   * Composes all slot content into a single string since we use one container.
+   * Column positions determine spacing — empty columns between components
+   * are filled with padding to preserve the grid layout.
    */
   async function renderAll(): Promise<void> {
     const r = renderer;
     if (!r) return;
 
+    // Build a map of col → content for each column container.
+    // Each slot renders into its own container (one per column, IDs 0–4).
+    const colContent: Map<number, string> = new Map();
+
     for (const slot of activeSlots) {
       const content = slot.component.render();
-      await r.renderSlot(slot.row, slot.col, content);
+      const existing = colContent.get(slot.col) || "";
+      if (slot.row === 0) {
+        colContent.set(
+          slot.col,
+          existing ? `${existing}\n${content}` : content,
+        );
+      } else {
+        // Row 1: append with newline under any row 0 content
+        const base = colContent.get(slot.col) || "";
+        colContent.set(slot.col, base ? `${base}\n${content}` : `\n${content}`);
+      }
+    }
+
+    // Render each column container — clear empty ones, fill active ones
+    for (let col = 0; col < 5; col++) {
+      const content = colContent.get(col) || "";
+      await r.renderToContainer(col, `hud-col-${col}`, content);
     }
   }
 
   /**
-   * Clears all 10 HUD slot containers.
+   * Clears all 5 HUD column containers.
    */
   async function clearAllSlots(): Promise<void> {
     const r = renderer;
     if (!r) return;
 
-    for (let row = 0; row < 2; row++) {
-      for (let col = 0; col < 5; col++) {
-        await r.clearSlot(row as 0 | 1, col as 0 | 1 | 2 | 3 | 4);
-      }
+    for (let col = 0; col < 5; col++) {
+      await r.renderToContainer(col, `hud-col-${col}`, "");
     }
   }
 
@@ -106,6 +127,9 @@ export function createHudManager(
 
       await manager.rebuild(config);
       startRefreshTimer();
+
+      // Trigger an immediate refresh to fetch live data (e.g. weather)
+      manager.refreshAll();
     },
 
     async rebuild(config: HudLayoutConfig): Promise<void> {
