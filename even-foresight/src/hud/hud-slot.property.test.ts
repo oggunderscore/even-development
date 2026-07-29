@@ -1,53 +1,45 @@
 import { describe, it, expect } from "vitest";
 import * as fc from "fast-check";
-import { calculateSlotPosition, isSlotPositionValid } from "./hud-slot";
+import {
+  calculateSlotPosition,
+  isSlotPositionValid,
+  colToContainerId,
+} from "./hud-slot";
+import {
+  CONTAINER,
+  DISPLAY_WIDTH,
+  HUD_COLS,
+  HUD_HEIGHT,
+  HUD_SLOT_WIDTH,
+} from "../constants";
 
 /**
- * Feature: even-hub, Property 1: Slot Position Calculation Invariant
+ * Property 1: Slot Position Calculation Invariant
  *
- * For any valid HUD slot assignment (row ∈ {0, 1}, col ∈ {0, 1, 2, 3, 4}),
- * the computed container rectangle SHALL have: x = col × 115, y = row × 58
- * (where 58 = 57 + 1 gap), width = 115, height = 57, and all coordinates
- * satisfy x + width ≤ 576 and y + height ≤ 115. Furthermore, for any two
- * distinct slot positions, the computed rectangles SHALL NOT overlap.
+ * For any HUD column (0-4) the computed rectangle is x = col x 115, y = 0,
+ * width = 115, height = HUD_HEIGHT; it fits inside the display; and no two
+ * distinct columns overlap.
  *
- * Validates: Requirements 1.1, 1.2, 2.4
+ * The 2x5 logical grid maps onto 5 physical containers — both rows share one
+ * container per column and are separated by a newline — so position depends
+ * on the column alone.
  */
 
-// --- Arbitraries ---
+const arbCol = fc.integer({ min: 0, max: HUD_COLS - 1 });
 
-const arbRow = fc.constantFrom(0 as const, 1 as const);
-const arbCol = fc.constantFrom(
-  0 as const,
-  1 as const,
-  2 as const,
-  3 as const,
-  4 as const,
-);
+const arbTwoDistinctCols = fc
+  .tuple(arbCol, arbCol)
+  .filter(([a, b]) => a !== b);
 
-const arbSlot = fc.record({ row: arbRow, col: arbCol });
-
-// Generate two distinct (row, col) pairs
-const arbTwoDistinctSlots = fc
-  .tuple(arbSlot, arbSlot)
-  .filter(([a, b]) => a.row !== b.row || a.col !== b.col);
-
-// --- Property Tests ---
-
-describe("Feature: even-hub, Property 1: Slot Position Calculation Invariant", () => {
-  it("computed position stays within HUD bounds (x + width ≤ 576, y + height ≤ 115)", () => {
+describe("Property 1: Slot Position Calculation Invariant", () => {
+  it("every column position is valid and inside the display", () => {
     fc.assert(
-      fc.property(arbRow, arbCol, (row, col) => {
-        const pos = calculateSlotPosition(row, col);
+      fc.property(arbCol, (col) => {
+        const pos = calculateSlotPosition(col);
 
-        // Verify the position is valid according to bounds checking
         expect(isSlotPositionValid(pos)).toBe(true);
-
-        // Explicitly check the bounds
-        expect(pos.x + pos.width).toBeLessThanOrEqual(576);
-        expect(pos.y + pos.height).toBeLessThanOrEqual(115);
-
-        // Verify non-negative coordinates
+        expect(pos.x + pos.width).toBeLessThanOrEqual(DISPLAY_WIDTH);
+        expect(pos.y + pos.height).toBeLessThanOrEqual(HUD_HEIGHT);
         expect(pos.x).toBeGreaterThanOrEqual(0);
         expect(pos.y).toBeGreaterThanOrEqual(0);
         expect(pos.width).toBeGreaterThan(0);
@@ -57,38 +49,44 @@ describe("Feature: even-hub, Property 1: Slot Position Calculation Invariant", (
     );
   });
 
-  it("computed position matches expected formula: x = col × 115, y = row × 58, width = 115, height = 57", () => {
+  it("position matches the formula x = col x HUD_SLOT_WIDTH", () => {
     fc.assert(
-      fc.property(arbRow, arbCol, (row, col) => {
-        const pos = calculateSlotPosition(row, col);
+      fc.property(arbCol, (col) => {
+        const pos = calculateSlotPosition(col);
 
-        expect(pos.x).toBe(col * 115);
-        expect(pos.y).toBe(row * 58);
-        expect(pos.width).toBe(115);
-        expect(pos.height).toBe(57);
+        expect(pos.x).toBe(col * HUD_SLOT_WIDTH);
+        expect(pos.y).toBe(0);
+        expect(pos.width).toBe(HUD_SLOT_WIDTH);
+        expect(pos.height).toBe(HUD_HEIGHT);
       }),
       { numRuns: 100 },
     );
   });
 
-  it("no two distinct slots produce overlapping rectangles", () => {
+  it("no two distinct columns produce overlapping rectangles", () => {
     fc.assert(
-      fc.property(arbTwoDistinctSlots, ([slotA, slotB]) => {
-        const posA = calculateSlotPosition(slotA.row, slotA.col);
-        const posB = calculateSlotPosition(slotB.row, slotB.col);
+      fc.property(arbTwoDistinctCols, ([colA, colB]) => {
+        const a = calculateSlotPosition(colA);
+        const b = calculateSlotPosition(colB);
 
-        // Two rectangles overlap if:
-        // rect1.x < rect2.x + rect2.width AND
-        // rect1.x + rect1.width > rect2.x AND
-        // rect1.y < rect2.y + rect2.height AND
-        // rect1.y + rect1.height > rect2.y
         const overlaps =
-          posA.x < posB.x + posB.width &&
-          posA.x + posA.width > posB.x &&
-          posA.y < posB.y + posB.height &&
-          posA.y + posA.height > posB.y;
+          a.x < b.x + b.width &&
+          a.x + a.width > b.x &&
+          a.y < b.y + b.height &&
+          a.y + a.height > b.y;
 
         expect(overlaps).toBe(false);
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it("container IDs are unique per column and never hit the overlays", () => {
+    fc.assert(
+      fc.property(arbTwoDistinctCols, ([colA, colB]) => {
+        expect(colToContainerId(colA)).not.toBe(colToContainerId(colB));
+        expect(colToContainerId(colA)).not.toBe(CONTAINER.MENU);
+        expect(colToContainerId(colA)).not.toBe(CONTAINER.BANNER);
       }),
       { numRuns: 100 },
     );

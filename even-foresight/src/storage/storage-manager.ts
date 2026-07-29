@@ -12,6 +12,14 @@
 export interface StorageManager {
   get<T>(key: string): T | null;
   set<T>(key: string, value: T): Promise<void>;
+  /**
+   * Update the read cache without writing back to the bridge.
+   *
+   * For values the phone webapp already persisted: it wrote through the
+   * bridge itself, so a `set()` here would be a redundant round trip that can
+   * also race the webapp's own write. Notifies `onChange` listeners as usual.
+   */
+  setCached<T>(key: string, value: T): void;
   remove(key: string): Promise<void>;
   onChange(key: string, callback: (value: unknown) => void): () => void;
   /** Load a key from bridge storage into the local cache */
@@ -54,31 +62,59 @@ export function createStorageManager(bridge: any): StorageManager {
     }
   }
 
+  function notify(key: string, value: unknown): void {
+    const keyListeners = listeners.get(key);
+    if (!keyListeners) return;
+    // Copy first: a listener may unsubscribe itself while we iterate.
+    for (const callback of [...keyListeners]) {
+      callback(value);
+    }
+  }
+
+  function writeLocal(key: string, value: string): void {
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(key, value);
+      }
+    } catch {
+      // Quota or private mode — the bridge copy is the one that matters.
+    }
+  }
+
+  function setCached<T>(key: string, value: T): void {
+    cache.set(key, JSON.stringify(value));
+    notify(key, value);
+  }
+
   async function set<T>(key: string, value: T): Promise<void> {
     const json = JSON.stringify(value);
     cache.set(key, json);
-    await bridge.setLocalStorage(key, json);
-
-    // Notify listeners for this key
-    const keyListeners = listeners.get(key);
-    if (keyListeners) {
-      for (const callback of keyListeners) {
-        callback(value);
-      }
+    // Mirror to localStorage the same way the webapp does, so both halves of
+    // the app agree no matter which one wrote last.
+    writeLocal(key, json);
+    try {
+      await bridge.setLocalStorage(key, json);
+    } catch {
+      // The bridge can reject while the phone app is backgrounded. The cache
+      // already holds the value, so the session stays consistent; the write
+      // will be retried the next time this key is saved.
     }
+    notify(key, value);
   }
 
   async function remove(key: string): Promise<void> {
     cache.set(key, null);
-    await bridge.setLocalStorage(key, "");
-
-    // Notify listeners that the key was removed
-    const keyListeners = listeners.get(key);
-    if (keyListeners) {
-      for (const callback of keyListeners) {
-        callback(null);
-      }
+    try {
+      if (typeof localStorage !== "undefined") localStorage.removeItem(key);
+    } catch {
+      /* ignore */
     }
+    try {
+      await bridge.setLocalStorage(key, "");
+    } catch {
+      // See set() — cache stays authoritative for this session.
+    }
+    notify(key, null);
   }
 
   function onChange(key: string, callback: ChangeListener): () => void {
@@ -97,18 +133,46 @@ export function createStorageManager(bridge: any): StorageManager {
     };
   }
 
-  async function loadKey(key: string): Promise<void> {
+  /**
+   * Reads browser localStorage, which the phone webapp writes to alongside
+   * every bridge write (see `webapp/storage-helpers.ts`).
+   */
+  function readLocal(key: string): string | null {
     try {
-      const raw = await bridge.getLocalStorage(key);
-      cache.set(key, raw || null);
+      return typeof localStorage !== "undefined"
+        ? localStorage.getItem(key)
+        : null;
     } catch {
-      cache.set(key, null);
+      return null;
     }
+  }
+
+  async function loadKey(key: string): Promise<void> {
+    let raw: string | null = null;
+    try {
+      raw = await bridge.getLocalStorage(key);
+    } catch {
+      // Bridge read failed — the localStorage mirror below still applies.
+    }
+
+    // Fall back to the browser copy when the bridge has nothing. The two
+    // stores are written together but only localStorage survives a simulator
+    // reload, so without this the glasses come back up with no config while
+    // the phone UI still shows it — which looks like the settings were lost.
+    if (!raw) {
+      raw = readLocal(key);
+      if (raw) {
+        // Re-seed the bridge so the next read is served from the real store.
+        void Promise.resolve(bridge.setLocalStorage(key, raw)).catch(() => {});
+      }
+    }
+
+    cache.set(key, raw || null);
   }
 
   async function loadKeys(keys: string[]): Promise<void> {
     await Promise.all(keys.map(loadKey));
   }
 
-  return { get, set, remove, onChange, loadKey, loadKeys };
+  return { get, set, setCached, remove, onChange, loadKey, loadKeys };
 }

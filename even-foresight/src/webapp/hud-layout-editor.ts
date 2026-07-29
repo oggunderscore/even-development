@@ -11,7 +11,7 @@
 
 import { loadConfig, saveConfig } from "./storage-helpers";
 import { WIDGET_SIZES, STORAGE_KEYS } from "./types";
-import type { HudGrid } from "./types";
+import type { HudGrid, WidgetSize } from "./types";
 
 // --- Grid Constants ---
 
@@ -21,22 +21,36 @@ const HUD_COLS = 5;
 /** CSS class prefix for all grid elements. */
 const CSS_PREFIX = "hud-grid";
 
+/**
+ * Map of widget id to its footprint.
+ *
+ * Every function below takes this as an optional parameter rather than
+ * reading `WIDGET_SIZES` directly. Production always passes the default (all
+ * widgets are 1x1, because the glasses renderer gives each column its own
+ * container and cannot span them), but the placement maths is fully general,
+ * and the parameter is what lets the tests exercise the multi-cell paths.
+ */
+export type SizeMap = Record<string, WidgetSize>;
+
 // --- Pure Functions (exported for testing) ---
 
 /**
  * Build a 2D occupancy grid from placements.
  * Returns a 2×5 array where each cell is either the widgetId occupying it or null.
  */
-export function buildOccupancyGrid(placements: HudGrid): (string | null)[][] {
+export function buildOccupancyGrid(
+  placements: HudGrid,
+  sizes: SizeMap = WIDGET_SIZES,
+): (string | null)[][] {
   const grid: (string | null)[][] = Array.from({ length: HUD_ROWS }, () =>
     Array.from({ length: HUD_COLS }, () => null),
   );
   for (const p of placements) {
-    const size = WIDGET_SIZES[p.widgetId];
+    const size = sizes[p.widgetId];
     if (!size) continue;
     for (let r = p.row; r < p.row + size.rows; r++) {
       for (let c = p.col; c < p.col + size.cols; c++) {
-        if (r < HUD_ROWS && c < HUD_COLS) {
+        if (r >= 0 && c >= 0 && r < HUD_ROWS && c < HUD_COLS) {
           grid[r][c] = p.widgetId;
         }
       }
@@ -54,13 +68,15 @@ export function canPlace(
   widgetId: string,
   col: number,
   row: number,
+  sizes: SizeMap = WIDGET_SIZES,
 ): boolean {
-  const size = WIDGET_SIZES[widgetId];
+  const size = sizes[widgetId];
   if (!size) return false;
   // Bounds check
+  if (col < 0 || row < 0) return false;
   if (col + size.cols > HUD_COLS || row + size.rows > HUD_ROWS) return false;
   // Occupancy check
-  const occupancy = buildOccupancyGrid(placements);
+  const occupancy = buildOccupancyGrid(placements, sizes);
   for (let r = row; r < row + size.rows; r++) {
     for (let c = col; c < col + size.cols; c++) {
       if (occupancy[r][c] !== null) return false;
@@ -99,9 +115,10 @@ export function moveWidgetMultiCell(
   widgetId: string,
   targetCol: number,
   targetRow: number,
+  sizes: SizeMap = WIDGET_SIZES,
 ): { success: boolean; newGrid: HudGrid } {
   const withoutSelf = removeWidget(placements, widgetId);
-  if (!canPlace(withoutSelf, widgetId, targetCol, targetRow)) {
+  if (!canPlace(withoutSelf, widgetId, targetCol, targetRow, sizes)) {
     return { success: false, newGrid: placements };
   }
   return {
@@ -113,10 +130,12 @@ export function moveWidgetMultiCell(
 /**
  * Get list of widget IDs that are not currently placed on the grid.
  */
-export function getUnplacedWidgets(placements: HudGrid): string[] {
-  const allWidgets = Object.keys(WIDGET_SIZES);
+export function getUnplacedWidgets(
+  placements: HudGrid,
+  sizes: SizeMap = WIDGET_SIZES,
+): string[] {
   const placedIds = new Set(placements.map((p) => p.widgetId));
-  return allWidgets.filter((id) => !placedIds.has(id));
+  return Object.keys(sizes).filter((id) => !placedIds.has(id));
 }
 
 /**
@@ -128,9 +147,11 @@ export function getAvailableWidgetsForCell(
   placements: HudGrid,
   col: number,
   row: number,
+  sizes: SizeMap = WIDGET_SIZES,
 ): string[] {
-  const unplaced = getUnplacedWidgets(placements);
-  return unplaced.filter((id) => canPlace(placements, id, col, row));
+  return getUnplacedWidgets(placements, sizes).filter((id) =>
+    canPlace(placements, id, col, row, sizes),
+  );
 }
 
 // --- Migration ---

@@ -9,4 +9,6 @@ export interface BannerSystem {
   push(notification: BannerNotification): void;
   dismiss(): void;
   readonly isVisible: boolean;
+  /** Cancel the auto-dismiss timer and drop the queue. Call on shutdown. */
+  dispose(): void;
 }

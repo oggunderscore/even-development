@@ -4,13 +4,14 @@ import {
   isCacheValid,
   renderWeatherContent,
   createWeatherComponent,
+  parseCoordinates,
 } from "./weather";
 import type {
   WeatherCache,
   WeatherConfig,
   WeatherCondition,
 } from "../../storage/schemas";
-import { STORAGE_KEYS } from "../../storage/schemas";
+import { STORAGE_KEYS, DEFAULT_WEATHER_CONFIG } from "../../storage/schemas";
 import type { StorageManager } from "../../storage/storage-manager";
 import { WEATHER_CACHE_MAX_AGE_MS } from "../../constants";
 
@@ -26,6 +27,9 @@ function createMockStorage(
       return val === undefined ? null : (val as T);
     },
     set: vi.fn(async <T>(key: string, value: T): Promise<void> => {
+      store.set(key, value);
+    }),
+    setCached: vi.fn(<T>(key: string, value: T): void => {
       store.set(key, value);
     }),
     remove: vi.fn(async (key: string): Promise<void> => {
@@ -45,8 +49,8 @@ describe("getConditionIcon", () => {
     expect(getConditionIcon("sunny")).toBe("Clear");
   });
 
-  it("returns P.Cloudy for partly-cloudy", () => {
-    expect(getConditionIcon("partly-cloudy")).toBe("P.Cloudy");
+  it("returns PtCldy for partly-cloudy", () => {
+    expect(getConditionIcon("partly-cloudy")).toBe("PtCldy");
   });
 
   it("returns Cloudy for cloudy", () => {
@@ -481,5 +485,185 @@ describe("createWeatherComponent", () => {
     const storage = createMockStorage();
     const component = createWeatherComponent({ storage });
     expect(() => component.dispose()).not.toThrow();
+  });
+});
+
+// === Regression coverage for behaviour that used to be wrong ===
+
+describe("weather config resolution", () => {
+  it("does not mutate DEFAULT_WEATHER_CONFIG when patching in a location", () => {
+    const storage = createMockStorage({
+      "foresight-weather-location-v1": { manualLocation: "Tokyo" },
+    });
+
+    const component = createWeatherComponent({ storage });
+    // Rendering proves the location was picked up...
+    expect(component.render()).not.toBe("Set location");
+    component.dispose();
+
+    // ...without the shared default having been written through, which would
+    // leak this user's location into every other component instance.
+    expect(DEFAULT_WEATHER_CONFIG.location).toBeNull();
+
+    const fresh = createWeatherComponent({ storage: createMockStorage() });
+    expect(fresh.render()).toBe("Set location");
+    fresh.dispose();
+  });
+
+  it("prefers device coordinates when 'use current location' is on", async () => {
+    const storage = createMockStorage({
+      "foresight-weather-location-v1": {
+        useCurrentLocation: true,
+        manualLocation: "Irvine, California",
+        lastKnownCoords: { lat: 35.68, lng: 139.69 },
+      },
+    });
+
+    const fetchFn = vi.fn(async () => ({
+      temperature: 20,
+      condition: "sunny" as const,
+      unit: "fahrenheit" as const,
+    }));
+
+    const component = createWeatherComponent({ storage, fetchFn });
+    await component.refresh();
+
+    expect(fetchFn).toHaveBeenCalledWith("35.68,139.69", "fahrenheit");
+    component.dispose();
+  });
+
+  it("falls back to the typed location when the toggle is off", async () => {
+    const storage = createMockStorage({
+      "foresight-weather-location-v1": {
+        useCurrentLocation: false,
+        manualLocation: "Irvine, California",
+        lastKnownCoords: { lat: 35.68, lng: 139.69 },
+      },
+    });
+
+    const fetchFn = vi.fn(async () => ({
+      temperature: 20,
+      condition: "sunny" as const,
+      unit: "fahrenheit" as const,
+    }));
+
+    const component = createWeatherComponent({ storage, fetchFn });
+    await component.refresh();
+
+    expect(fetchFn).toHaveBeenCalledWith("Irvine, California", "fahrenheit");
+    component.dispose();
+  });
+
+  it("refetches immediately when the location changes, ignoring the interval", async () => {
+    const storage = createMockStorage({
+      [STORAGE_KEYS.WEATHER_CONFIG]: {
+        location: "Irvine",
+        unit: "fahrenheit",
+        refreshIntervalMinutes: 120,
+      },
+    });
+
+    const fetchFn = vi.fn(async () => ({
+      temperature: 70,
+      condition: "sunny" as const,
+      unit: "fahrenheit" as const,
+    }));
+
+    const component = createWeatherComponent({ storage, fetchFn });
+    await component.refresh();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+
+    // Same location, well inside the 120-minute interval: no refetch.
+    await component.refresh();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+
+    // New location: the cached reading is for somewhere else, so refetch.
+    storage._store.set(STORAGE_KEYS.WEATHER_CONFIG, {
+      location: "Tokyo",
+      unit: "fahrenheit",
+      refreshIntervalMinutes: 120,
+    });
+    await component.refresh();
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(fetchFn).toHaveBeenLastCalledWith("Tokyo", "fahrenheit");
+
+    component.dispose();
+  });
+});
+
+describe("parseCoordinates", () => {
+  it("parses well-formed coordinate pairs", () => {
+    expect(parseCoordinates("35.68,139.69")).toEqual({
+      lat: 35.68,
+      lon: 139.69,
+    });
+    expect(parseCoordinates(" -33.86 , 151.21 ")).toEqual({
+      lat: -33.86,
+      lon: 151.21,
+    });
+    expect(parseCoordinates("0,0")).toEqual({ lat: 0, lon: 0 });
+  });
+
+  it("rejects place names and out-of-range values", () => {
+    expect(parseCoordinates("Irvine, California")).toBeNull();
+    expect(parseCoordinates("91,0")).toBeNull();
+    expect(parseCoordinates("0,181")).toBeNull();
+    expect(parseCoordinates("")).toBeNull();
+  });
+});
+
+describe("weather display toggles", () => {
+  const cache = {
+    temperature: 72,
+    condition: "rainy" as const,
+    unit: "fahrenheit" as const,
+    fetchedAt: Date.now(),
+    humidity: 64,
+  };
+  const base = {
+    location: "Irvine",
+    unit: "fahrenheit" as const,
+    refreshIntervalMinutes: 30,
+  };
+
+  it("shows temperature and condition by default", () => {
+    expect(renderWeatherContent(cache, false, base)).toBe("72°F Rain");
+  });
+
+  it("hides the condition when switched off", () => {
+    expect(
+      renderWeatherContent(cache, false, { ...base, showCondition: false }),
+    ).toBe("72°F");
+  });
+
+  it("appends humidity when switched on", () => {
+    expect(
+      renderWeatherContent(cache, false, { ...base, showHumidity: true }),
+    ).toBe("72°F Rain 64%");
+  });
+
+  it("omits humidity when the provider gave none", () => {
+    const noHumidity = { ...cache, humidity: undefined };
+    expect(
+      renderWeatherContent(noHumidity, false, { ...base, showHumidity: true }),
+    ).toBe("72°F Rain");
+  });
+
+  it("still renders temperature when every field is switched off", () => {
+    // An empty HUD cell reads as a broken widget, so temperature is forced.
+    expect(
+      renderWeatherContent(cache, false, {
+        ...base,
+        showTemperature: false,
+        showCondition: false,
+        showHumidity: false,
+      }),
+    ).toBe("72°F");
+  });
+
+  it("keeps the stale marker at the end regardless of which fields show", () => {
+    expect(
+      renderWeatherContent(cache, true, { ...base, showCondition: false }),
+    ).toBe("72°F~");
   });
 });

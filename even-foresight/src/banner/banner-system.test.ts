@@ -7,6 +7,7 @@ import {
   createBannerSystem,
 } from "./banner-system";
 import type { BannerNotification } from "./types";
+import { CONTAINER, CONTAINER_NAME } from "../constants";
 
 // === Pure function tests ===
 
@@ -174,7 +175,7 @@ describe("createBannerSystem", () => {
     expect(system.isVisible).toBe(true);
     expect(mockBridge.textContainerUpgrade).toHaveBeenCalledTimes(1);
     const call = mockBridge.textContainerUpgrade.mock.calls[0][0];
-    expect(call.containerID).toBe(0);
+    expect(call.containerID).toBe(CONTAINER.BANNER);
     expect(call.content).toBe("Notification 1");
   });
 
@@ -350,13 +351,13 @@ describe("createBannerSystem", () => {
     expect(system.isVisible).toBe(false);
   });
 
-  it("uses container 0 for banner overlay", () => {
+  it("uses the dedicated banner container", () => {
     const system = createBannerSystem(mockBridge, mockStorage);
     system.push(makeNotification("1"));
 
     const call = mockBridge.textContainerUpgrade.mock.calls[0][0];
-    expect(call.containerID).toBe(0);
-    expect(call.containerName).toBe("display");
+    expect(call.containerID).toBe(CONTAINER.BANNER);
+    expect(call.containerName).toBe(CONTAINER_NAME.BANNER);
   });
 
   it("defaults to 5 seconds when no config exists", () => {

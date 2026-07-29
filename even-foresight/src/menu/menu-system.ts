@@ -1,8 +1,4 @@
-import {
-  RebuildPageContainer,
-  TextContainerProperty,
-  TextContainerUpgrade,
-} from "@evenrealities/even_hub_sdk";
+import { TextContainerUpgrade } from "@evenrealities/even_hub_sdk";
 import type { EvenAppBridge } from "@evenrealities/even_hub_sdk";
 import type { MenuEntry, MenuSystem } from "./types";
 import {
@@ -10,9 +6,8 @@ import {
   MENU_ENTRY_TRUNCATE,
   MENU_TIMEOUT_MS,
   SCROLL_DEBOUNCE_MS,
-  SUBAPP_Y_OFFSET,
-  SUBAPP_HEIGHT,
-  SUBAPP_WIDTH,
+  CONTAINER,
+  CONTAINER_NAME,
 } from "../constants";
 
 // ─── Pure Functions (exported for PBT) ────────────────────────────────────────
@@ -51,14 +46,14 @@ export function navigateUp(currentIndex: number): number {
 // ─── Menu System Options ──────────────────────────────────────────────────────
 
 export interface MenuSystemOptions {
-  /** Callback invoked when no sub-apps are registered and show() is called. */
+  /** Callback invoked when no entries are registered and show() is called. */
   onNoApps?: () => void;
 }
 
 // ─── Menu Container Constants ─────────────────────────────────────────────────
 
-const MENU_CONTAINER_ID = 0;
-const MENU_CONTAINER_NAME = "menu-system";
+const MENU_CONTAINER_ID = CONTAINER.MENU;
+const MENU_CONTAINER_NAME = CONTAINER_NAME.MENU;
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
 
@@ -66,7 +61,7 @@ const MENU_CONTAINER_NAME = "menu-system";
  * Creates a MenuSystem instance that manages the app launcher menu.
  *
  * @param bridge - The Even App bridge for SDK calls
- * @param entries - Array of menu entries (sub-apps), max 10
+ * @param entries - Array of menu entries, max 10
  * @param options - Optional configuration (onNoApps callback)
  */
 export function createMenuSystem(
@@ -120,37 +115,14 @@ export function createMenuSystem(
   }
 
   /**
-   * Renders the menu list into container 11 using rebuildPageContainer.
+   * Writes `content` into the menu's container.
+   *
+   * The menu never rebuilds the page. Its container is allocated once by the
+   * home screen alongside the HUD columns; a rebuild here would replace the
+   * whole page and silently destroy the HUD, which is exactly what used to
+   * happen the first time the menu was opened.
    */
-  async function renderMenu(): Promise<void> {
-    const content = buildMenuContent();
-
-    // Rebuild container 11 to show the menu
-    await bridge.rebuildPageContainer(
-      new RebuildPageContainer({
-        containerTotalNum: 1,
-        textObject: [
-          new TextContainerProperty({
-            containerID: MENU_CONTAINER_ID,
-            containerName: MENU_CONTAINER_NAME,
-            xPosition: 0,
-            yPosition: SUBAPP_Y_OFFSET,
-            width: SUBAPP_WIDTH,
-            height: SUBAPP_HEIGHT,
-            content,
-            isEventCapture: 1,
-          }),
-        ],
-      }),
-    );
-  }
-
-  /**
-   * Updates the menu display in-place using textContainerUpgrade (flicker-free).
-   */
-  async function updateMenuDisplay(): Promise<void> {
-    const content = buildMenuContent();
-
+  async function writeMenu(content: string): Promise<void> {
     await bridge.textContainerUpgrade(
       new TextContainerUpgrade({
         containerID: MENU_CONTAINER_ID,
@@ -161,26 +133,17 @@ export function createMenuSystem(
   }
 
   /**
-   * Clears container 11 by rebuilding with empty content.
+   * Renders the current menu list.
+   */
+  async function renderMenu(): Promise<void> {
+    await writeMenu(buildMenuContent());
+  }
+
+  /**
+   * Clears the menu container.
    */
   async function clearMenu(): Promise<void> {
-    await bridge.rebuildPageContainer(
-      new RebuildPageContainer({
-        containerTotalNum: 1,
-        textObject: [
-          new TextContainerProperty({
-            containerID: MENU_CONTAINER_ID,
-            containerName: MENU_CONTAINER_NAME,
-            xPosition: 0,
-            yPosition: SUBAPP_Y_OFFSET,
-            width: SUBAPP_WIDTH,
-            height: SUBAPP_HEIGHT,
-            content: "",
-            isEventCapture: 1,
-          }),
-        ],
-      }),
-    );
+    await writeMenu("");
   }
 
   /**
@@ -231,7 +194,7 @@ export function createMenuSystem(
       resetTimeout();
 
       // Fire-and-forget display update
-      updateMenuDisplay();
+      void renderMenu();
     },
 
     moveUp(): void {
@@ -242,7 +205,7 @@ export function createMenuSystem(
       resetTimeout();
 
       // Fire-and-forget display update
-      updateMenuDisplay();
+      void renderMenu();
     },
 
     async select(): Promise<void> {
@@ -258,6 +221,11 @@ export function createMenuSystem(
 
     get isVisible(): boolean {
       return visible;
+    },
+
+    dispose(): void {
+      clearTimeoutTimer();
+      visible = false;
     },
   };
 

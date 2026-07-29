@@ -12,11 +12,24 @@ import {
   WEATHER_MAX_INTERVAL_MIN,
 } from "../../constants";
 
+/**
+ * Key the phone webapp writes the user's location under. The HUD weather
+ * config and the webapp location form are separate records, so the component
+ * reads both and prefers whichever has a location.
+ */
+export const WEATHER_LOCATION_KEY = "foresight-weather-location-v1";
+
 // === Condition Icon Mapping ===
 
+/**
+ * Condition labels, kept short enough that "temperature + condition" fits a
+ * 115px HUD column on one line. "P.Cloudy" pushed the common
+ * `78°F P.Cloudy` case to 121px, over the column width, so it wrapped and
+ * displaced whatever the user had placed in the row below.
+ */
 const CONDITION_ICONS: Record<WeatherCondition, string> = {
   sunny: "Clear",
-  "partly-cloudy": "P.Cloudy",
+  "partly-cloudy": "PtCldy",
   cloudy: "Cloudy",
   rainy: "Rain",
   stormy: "Storm",
@@ -42,36 +55,71 @@ export function isCacheValid(fetchedAt: number, currentTime: number): boolean {
 }
 
 /**
+ * Converts a temperature between Fahrenheit and Celsius.
+ * Returns the value unchanged when the units already match.
+ */
+export function convertTemperature(
+  value: number,
+  from: "fahrenheit" | "celsius",
+  to: "fahrenheit" | "celsius",
+): number {
+  if (from === to) return value;
+  return to === "celsius" ? ((value - 32) * 5) / 9 : (value * 9) / 5 + 32;
+}
+
+/**
  * Renders weather display content based on current state.
  *
  * - If no location configured: "Set location"
  * - If data is null (no cache or expired): "-- °F" or "-- °C"
  * - If data exists and isStale: shows data with "~" appended
  * - If data exists and fresh: shows "temp°unit icon"
+ *
+ * The cache records the unit it was fetched in. When the user switches units
+ * the cached value is converted rather than relabelled, so the number and the
+ * label never disagree in the window before the next fetch.
+ *
+ * `showTemperature` / `showCondition` / `showHumidity` come from the phone
+ * config form. If every field is switched off, temperature is still shown —
+ * an empty HUD cell would read as a broken widget.
  */
 export function renderWeatherContent(
   data: WeatherCache | null,
   isStale: boolean,
   config: WeatherConfig,
 ): string {
-  // No location configured
+  const unitLabel = config.unit === "celsius" ? "°C" : "°F";
+
   if (config.location === null) {
     return "Set location";
   }
 
-  // No data available
   if (data === null) {
-    const unitLabel = config.unit === "celsius" ? "°C" : "°F";
     return `-- ${unitLabel}`;
   }
 
-  // Render weather data
-  const temp = Math.round(data.temperature);
-  const unitLabel = data.unit === "celsius" ? "°C" : "°F";
-  const icon = getConditionIcon(data.condition);
-  const staleIndicator = isStale ? "~" : "";
+  const showCondition = config.showCondition !== false;
+  const showHumidity = config.showHumidity === true && data.humidity != null;
+  // Default on, and forced on when nothing else would render.
+  const showTemperature =
+    config.showTemperature !== false || (!showCondition && !showHumidity);
 
-  return `${temp}${unitLabel} ${icon}${staleIndicator}`;
+  const parts: string[] = [];
+
+  if (showTemperature) {
+    const temp = Math.round(
+      convertTemperature(data.temperature, data.unit, config.unit),
+    );
+    parts.push(`${temp}${unitLabel}`);
+  }
+  if (showCondition) {
+    parts.push(getConditionIcon(data.condition));
+  }
+  if (showHumidity) {
+    parts.push(`${Math.round(data.humidity!)}%`);
+  }
+
+  return `${parts.join(" ")}${isStale ? "~" : ""}`;
 }
 
 // === Weather API Fetch (stub/placeholder) ===
@@ -80,6 +128,8 @@ export interface WeatherFetchResult {
   temperature: number;
   condition: WeatherCondition;
   unit: "fahrenheit" | "celsius";
+  /** Relative humidity percentage, when the provider returned one. */
+  humidity?: number;
 }
 
 // === Open-Meteo WMO Weather Code → Condition Mapping ===
@@ -102,11 +152,34 @@ function wmoCodeToCondition(code: number): WeatherCondition {
 }
 
 /**
+ * Parses a literal `"lat,lon"` location.
+ *
+ * The phone writes coordinates in this form when the user turns on "use
+ * current location", so device GPS skips the geocoding round trip entirely.
+ */
+export function parseCoordinates(
+  location: string,
+): { lat: number; lon: number } | null {
+  const match = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(
+    location,
+  );
+  if (!match) return null;
+
+  const lat = Number(match[1]);
+  const lon = Number(match[2]);
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  return { lat, lon };
+}
+
+/**
  * Geocode a location string to lat/lon using Open-Meteo's geocoding API.
  */
 async function geocodeLocation(
   location: string,
 ): Promise<{ lat: number; lon: number } | null> {
+  const direct = parseCoordinates(location);
+  if (direct) return direct;
+
   const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`;
   const response = await fetch(url);
   if (!response.ok) return null;
@@ -138,7 +211,7 @@ export async function fetchWeatherData(
 
     // Fetch current weather from Open-Meteo
     const tempUnit = unit === "celsius" ? "celsius" : "fahrenheit";
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m,weather_code&temperature_unit=${tempUnit}`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m,weather_code,relative_humidity_2m&temperature_unit=${tempUnit}`;
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Weather API returned ${response.status}`);
@@ -149,11 +222,18 @@ export async function fetchWeatherData(
     if (!current) {
       throw new Error("No current weather data in response");
     }
+    if (typeof current.temperature_2m !== "number") {
+      throw new Error("Weather response has no temperature");
+    }
 
     return {
       temperature: current.temperature_2m,
       condition: wmoCodeToCondition(current.weather_code),
       unit,
+      humidity:
+        typeof current.relative_humidity_2m === "number"
+          ? current.relative_humidity_2m
+          : undefined,
     };
   } catch (err) {
     // Network unavailable (e.g. simulator sandbox) — use simulated data
@@ -165,6 +245,7 @@ export async function fetchWeatherData(
       temperature: unit === "fahrenheit" ? 72 : 22,
       condition: "sunny",
       unit,
+      humidity: 50,
     };
   }
 }
@@ -199,20 +280,36 @@ export function createWeatherComponent(
   let cache: WeatherCache | null = getCache();
   let isStale = false;
   let lastFetchAttempt = 0;
+  let lastFetchedLocation: string | null = null;
 
   function getConfig(): WeatherConfig {
-    const config =
-      storage.get<WeatherConfig>(STORAGE_KEYS.WEATHER_CONFIG) ??
-      DEFAULT_WEATHER_CONFIG;
+    // Always build a fresh object. Spreading DEFAULT_WEATHER_CONFIG rather
+    // than falling back to it by reference matters: the location patch below
+    // used to mutate the shared module-level default, leaking one user's
+    // location into every other component and test in the process.
+    const stored = storage.get<Partial<WeatherConfig>>(
+      STORAGE_KEYS.WEATHER_CONFIG,
+    );
+    const config: WeatherConfig = { ...DEFAULT_WEATHER_CONFIG, ...stored };
 
-    // If no location in the HUD config, check the webapp's weather location key
-    if (config.location === null) {
+    // If no location in the HUD config, check the webapp's weather location
+    // record. Device coordinates win when the user opted into "use current
+    // location" — otherwise turning that toggle on had no effect on what the
+    // widget actually fetched.
+    if (!config.location) {
       const webappConfig = storage.get<{
         useCurrentLocation?: boolean;
         manualLocation?: string;
-      }>("foresight-weather-location-v1");
-      if (webappConfig?.manualLocation) {
+        lastKnownCoords?: { lat: number; lng: number } | null;
+      }>(WEATHER_LOCATION_KEY);
+
+      const coords = webappConfig?.lastKnownCoords;
+      if (webappConfig?.useCurrentLocation && coords) {
+        config.location = `${coords.lat},${coords.lng}`;
+      } else if (webappConfig?.manualLocation) {
         config.location = webappConfig.manualLocation;
+      } else {
+        config.location = null;
       }
     }
 
@@ -234,16 +331,12 @@ export function createWeatherComponent(
   function needsFetch(): boolean {
     if (config.location === null) return false;
 
-    const now = nowFn();
-    const intervalMs = getRefreshIntervalMs();
-
-    // If we've never fetched, always try
+    // Never fetched, or the user pointed the widget somewhere else — the
+    // cached reading is for a different place, so it is not reusable.
     if (lastFetchAttempt === 0) return true;
+    if (config.location !== lastFetchedLocation) return true;
 
-    // Check if enough time has passed since last fetch attempt
-    if (now - lastFetchAttempt < intervalMs) return false;
-
-    return true;
+    return nowFn() - lastFetchAttempt >= getRefreshIntervalMs();
   }
 
   const component: HudComponent = {
@@ -254,13 +347,14 @@ export function createWeatherComponent(
     },
 
     async refresh(): Promise<void> {
-      // Reload config in case it changed
+      // Always reload config in case settings changed (e.g. unit switch)
       config = getConfig();
 
       if (!needsFetch()) return;
 
       const now = nowFn();
       lastFetchAttempt = now;
+      lastFetchedLocation = config.location;
 
       try {
         const result = await fetchFn(config.location!, config.unit);
@@ -271,6 +365,7 @@ export function createWeatherComponent(
           condition: result.condition,
           unit: result.unit,
           fetchedAt: now,
+          humidity: result.humidity,
         };
         isStale = false;
 

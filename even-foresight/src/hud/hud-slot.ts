@@ -1,11 +1,15 @@
 import { TextContainerUpgrade } from "@evenrealities/even_hub_sdk";
 import type { EvenAppBridge } from "@evenrealities/even_hub_sdk";
+import { pxTruncate } from "@evenrealities/pretext";
 import {
   HUD_SLOT_WIDTH,
-  HUD_ROW_HEIGHT,
-  HUD_ROW_GAP,
-  DISPLAY_WIDTH,
   HUD_HEIGHT,
+  HUD_Y,
+  HUD_COLS,
+  HUD_ROWS,
+  DISPLAY_WIDTH,
+  CONTAINER,
+  CONTAINER_NAME,
 } from "../constants";
 
 /**
@@ -19,31 +23,22 @@ export interface SlotPosition {
 }
 
 /**
- * Pure function that calculates the pixel position of a HUD slot.
+ * Pure function that calculates the pixel position of a HUD column container.
  *
- * Layout: 2 rows × 5 columns
- * - x = col × 115
- * - y = row × 58 (where 58 = 57 height + 1 gap)
- * - width = 115
- * - height = 57
+ * Both grid rows share one container per column — row 0 renders on the first
+ * text line, row 1 on the second — so the rectangle depends only on `col`.
  */
-export function calculateSlotPosition(
-  row: 0 | 1,
-  col: 0 | 1 | 2 | 3 | 4,
-): SlotPosition {
-  const rowStep = HUD_ROW_HEIGHT + HUD_ROW_GAP; // 57 + 1 = 58
+export function calculateSlotPosition(col: number): SlotPosition {
   return {
     x: col * HUD_SLOT_WIDTH,
-    y: row * rowStep,
+    y: HUD_Y,
     width: HUD_SLOT_WIDTH,
-    height: HUD_ROW_HEIGHT,
+    height: HUD_HEIGHT,
   };
 }
 
 /**
- * Validates that a slot position fits within the HUD display bounds.
- * - x + width must be ≤ DISPLAY_WIDTH (576)
- * - y + height must be ≤ HUD_HEIGHT (115)
+ * Validates that a slot position fits within the display bounds.
  */
 export function isSlotPositionValid(position: SlotPosition): boolean {
   return (
@@ -52,81 +47,98 @@ export function isSlotPositionValid(position: SlotPosition): boolean {
     position.width > 0 &&
     position.height > 0 &&
     position.x + position.width <= DISPLAY_WIDTH &&
-    position.y + position.height <= HUD_HEIGHT
+    position.y + position.height <= HUD_Y + HUD_HEIGHT
   );
 }
 
 /**
- * Converts a (row, col) pair to a container ID (1–10).
- * Container IDs 1–10 are reserved for HUD slots.
- * Layout: row 0 cols 0–4 → IDs 1–5, row 1 cols 0–4 → IDs 6–10.
+ * Returns true when (row, col) addresses a cell inside the 2x5 HUD grid.
  */
-export function slotToContainerId(row: 0 | 1, col: 0 | 1 | 2 | 3 | 4): number {
-  return row * 5 + col + 1;
+export function isSlotInBounds(row: number, col: number): boolean {
+  return (
+    Number.isInteger(row) &&
+    Number.isInteger(col) &&
+    row >= 0 &&
+    row < HUD_ROWS &&
+    col >= 0 &&
+    col < HUD_COLS
+  );
 }
 
 /**
- * Renders HUD content into the single HUD container (container 1).
- * All slot content is composed into a single text string.
+ * Maps a HUD column to its container ID.
+ */
+export function colToContainerId(col: number): number {
+  return CONTAINER.HUD_COL_BASE + col;
+}
+
+/**
+ * Trims one slot's text so it renders on a single line in a HUD column.
+ *
+ * A column is only 115px wide and holds exactly two lines — row 0 then row 1.
+ * Without this, a wide row-0 value ("78°F P.Cloudy" measures 121px) wraps and
+ * pushes row 1 off the bottom of the container, so a widget the user placed
+ * simply vanishes. Measurement is pixel-accurate against the firmware's font
+ * rather than a character-count guess, because the font is proportional.
+ */
+export function fitToColumn(
+  content: string,
+  maxWidth: number = HUD_SLOT_WIDTH,
+): string {
+  // Newlines would consume the other row's line.
+  const singleLine = content.replace(/\s*\n\s*/g, " ").trim();
+  if (!singleLine) return "";
+  return pxTruncate(singleLine, maxWidth);
+}
+
+/**
+ * Writes text into the HUD's five column containers.
+ *
+ * Holds the last content written to each container and skips redundant
+ * bridge calls, so a 60-second refresh where nothing changed (the common
+ * case for a clock that has not ticked past a minute) costs zero BLE
+ * traffic. `reset()` drops that memo when the page is rebuilt underneath us.
  */
 export class HudSlotRenderer {
+  private readonly lastContent = new Map<number, string>();
+
   constructor(private readonly bridge: EvenAppBridge) {}
 
   /**
-   * Renders the given content string into the HUD container.
-   * Since we use a single container for all HUD content,
-   * the caller should compose the full HUD text.
+   * Renders content into a HUD column container.
+   * Returns true when a bridge call was actually issued.
    */
-  async renderSlot(
-    _row: 0 | 1,
-    _col: 0 | 1 | 2 | 3 | 4,
-    content: string,
-  ): Promise<void> {
-    // In single-container mode, individual slot renders update container 0
-    // The HudManager orchestrates full content composition
-    await this.bridge.textContainerUpgrade(
-      new TextContainerUpgrade({
-        containerID: 0,
-        containerName: "display",
-        content,
-      }),
-    );
-  }
+  async renderColumn(col: number, content: string): Promise<boolean> {
+    const containerID = colToContainerId(col);
+    if (this.lastContent.get(containerID) === content) {
+      return false;
+    }
+    this.lastContent.set(containerID, content);
 
-  /**
-   * Renders composed HUD content (all slots) into the HUD container.
-   */
-  async renderAll(content: string): Promise<void> {
-    await this.bridge.textContainerUpgrade(
-      new TextContainerUpgrade({
-        containerID: 0,
-        containerName: "display",
-        content,
-      }),
-    );
-  }
-
-  /**
-   * Renders content into a specific container by ID and name.
-   */
-  async renderToContainer(
-    containerID: number,
-    containerName: string,
-    content: string,
-  ): Promise<void> {
     await this.bridge.textContainerUpgrade(
       new TextContainerUpgrade({
         containerID,
-        containerName,
+        containerName: CONTAINER_NAME.hudCol(col),
         content,
       }),
     );
+    return true;
   }
 
   /**
-   * Clears the HUD display.
+   * Clears every HUD column.
    */
-  async clearSlot(_row: 0 | 1, _col: 0 | 1 | 2 | 3 | 4): Promise<void> {
-    await this.renderAll("");
+  async clearAll(): Promise<void> {
+    for (let col = 0; col < HUD_COLS; col++) {
+      await this.renderColumn(col, "");
+    }
+  }
+
+  /**
+   * Forgets the memoized content so the next render always writes through.
+   * Call after any `rebuildPageContainer`, which resets container contents.
+   */
+  reset(): void {
+    this.lastContent.clear();
   }
 }

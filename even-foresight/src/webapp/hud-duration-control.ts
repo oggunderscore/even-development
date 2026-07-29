@@ -1,7 +1,8 @@
-// Feature: hud-settings-refinement
-// HudDurationControl — HUD mode toggle (Always ON / Hidden) and duration selector.
-// In Hidden mode, the HUD only appears on notifications or when double-tapped to wake.
-// Duration controls how long it stays visible before hiding again.
+// HudDurationControl — the HUD inactivity timer.
+//
+// "Never Sleep" keeps the HUD lit indefinitely. "Sleep After" blanks it once
+// the wearer has gone the selected number of seconds without input, so the
+// display is not permanently in their field of view; any gesture wakes it.
 
 import type { HudDurationConfig, HudModeConfig, HudMode } from "./types";
 import {
@@ -9,6 +10,7 @@ import {
   DEFAULT_HUD_DURATION,
   DEFAULT_HUD_MODE,
   DURATION_OPTIONS,
+  normalizeHudMode,
 } from "./types";
 import { loadConfig, saveConfig } from "./storage-helpers";
 
@@ -23,191 +25,172 @@ export interface HudDurationControl {
   getMode(): HudMode;
 }
 
-/**
- * Creates the HUD display settings control.
- *
- * Renders:
- * 1. A mode toggle — "Always ON" keeps the HUD permanently visible;
- *    "Hidden" only shows the HUD on notifications or double-tap wake.
- * 2. A "HUD Duration: X seconds" dropdown (only active in Hidden mode)
- *    controlling how long the HUD stays visible before auto-hiding.
- *
- * Loads saved values on mount, defaults to always-on / 5s.
- * Persists changes via bridge; shows error if unavailable.
- */
+const MODE_LABEL: Record<HudMode, string> = {
+  "always-on": "Never Sleep",
+  "inactivity-timer": "Sleep After",
+};
+
+const MODE_DESCRIPTION: Record<HudMode, string> = {
+  "always-on": "HUD stays lit until you exit. Double-tap opens the Apps Menu.",
+  "inactivity-timer":
+    "HUD blanks after the selected idle time. Any tap or swipe wakes it; double-tap opens the Apps Menu.",
+};
+
 export function createHudDurationControl(
   options: HudDurationControlOptions,
 ): HudDurationControl {
   const { bridge } = options;
+
   let currentDuration = DEFAULT_HUD_DURATION.displayDurationSeconds;
   let currentMode: HudMode = DEFAULT_HUD_MODE.mode;
+
   let container: HTMLElement | null = null;
   let rootEl: HTMLElement | null = null;
   let selectEl: HTMLSelectElement | null = null;
   let errorEl: HTMLElement | null = null;
   let durationRow: HTMLElement | null = null;
   let durationLabel: HTMLElement | null = null;
-  let modeAlwaysOnBtn: HTMLButtonElement | null = null;
-  let modeHiddenBtn: HTMLButtonElement | null = null;
+  let infoLabel: HTMLElement | null = null;
   let modeDescription: HTMLElement | null = null;
+  const modeButtons = new Map<HudMode, HTMLButtonElement>();
 
   function updateUI(): void {
+    const sleeps = currentMode === "inactivity-timer";
+
     if (selectEl) {
       selectEl.value = String(currentDuration);
-      selectEl.disabled = currentMode === "always-on";
+      selectEl.disabled = !sleeps;
     }
     if (durationRow) {
-      // Show duration row only in hidden mode
-      durationRow.style.opacity = currentMode === "hidden" ? "1" : "0.4";
+      durationRow.style.opacity = sleeps ? "1" : "0.4";
     }
     if (durationLabel) {
-      durationLabel.textContent = `HUD Duration: ${currentDuration} seconds`;
+      durationLabel.textContent = `Sleep after ${currentDuration} seconds`;
     }
-    if (modeAlwaysOnBtn && modeHiddenBtn) {
-      modeAlwaysOnBtn.classList.toggle(
-        "hud-mode-btn--active",
-        currentMode === "always-on",
-      );
-      modeHiddenBtn.classList.toggle(
-        "hud-mode-btn--active",
-        currentMode === "hidden",
-      );
-      modeAlwaysOnBtn.setAttribute(
-        "aria-pressed",
-        String(currentMode === "always-on"),
-      );
-      modeHiddenBtn.setAttribute(
-        "aria-pressed",
-        String(currentMode === "hidden"),
-      );
+    if (infoLabel) {
+      // Only meaningful when there is no timer to explain.
+      infoLabel.style.display = sleeps ? "none" : "block";
+    }
+    for (const [mode, button] of modeButtons) {
+      const active = mode === currentMode;
+      button.classList.toggle("hud-mode-btn--active", active);
+      button.setAttribute("aria-pressed", String(active));
     }
     if (modeDescription) {
-      modeDescription.textContent =
-        currentMode === "always-on"
-          ? "HUD is always visible. Double-tap opens Apps Menu."
-          : "HUD only appears on notifications or double-tap wake. Double-tap opens Apps Menu.";
+      modeDescription.textContent = MODE_DESCRIPTION[currentMode];
     }
   }
 
   function showError(message: string): void {
-    if (errorEl) {
-      errorEl.textContent = message;
-      errorEl.style.display = "block";
-    }
+    if (!errorEl) return;
+    errorEl.textContent = message;
+    errorEl.style.display = "block";
   }
 
   function clearError(): void {
-    if (errorEl) {
-      errorEl.textContent = "";
-      errorEl.style.display = "none";
-    }
+    if (!errorEl) return;
+    errorEl.textContent = "";
+    errorEl.style.display = "none";
   }
 
-  async function persistDuration(): Promise<void> {
-    const config: HudDurationConfig = {
-      displayDurationSeconds: currentDuration,
-    };
-    const result = await saveConfig(bridge, STORAGE_KEYS.HUD_DURATION, config);
-    if (!result.success) {
-      showError("Duration cannot be synced to glasses.");
-    } else {
-      clearError();
-    }
-  }
+  async function persist(): Promise<void> {
+    const modeResult = await saveConfig<HudModeConfig>(
+      bridge,
+      STORAGE_KEYS.HUD_MODE,
+      { mode: currentMode },
+    );
+    const durationResult = await saveConfig<HudDurationConfig>(
+      bridge,
+      STORAGE_KEYS.HUD_DURATION,
+      { displayDurationSeconds: currentDuration },
+    );
 
-  async function persistMode(): Promise<void> {
-    const config: HudModeConfig = { mode: currentMode };
-    const result = await saveConfig(bridge, STORAGE_KEYS.HUD_MODE, config);
-    if (!result.success) {
-      showError("Mode cannot be synced to glasses.");
-    } else {
+    if (modeResult.success && durationResult.success) {
       clearError();
+    } else {
+      showError("Not synced to glasses. Your choice is saved on this phone.");
     }
   }
 
   function handleDurationChange(): void {
-    if (selectEl) {
-      currentDuration = Number(selectEl.value);
-      updateUI();
-      persistDuration();
-    }
+    if (!selectEl) return;
+    const next = Number(selectEl.value);
+    if (!Number.isFinite(next)) return;
+    currentDuration = next;
+    updateUI();
+    void persist();
   }
 
   function handleModeChange(mode: HudMode): void {
-    if (mode !== currentMode) {
-      currentMode = mode;
-      updateUI();
-      persistMode();
-    }
+    if (mode === currentMode) return;
+    currentMode = mode;
+    updateUI();
+    void persist();
+  }
+
+  function buildModeButton(mode: HudMode): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.className = "hud-mode-btn";
+    button.type = "button";
+    button.textContent = MODE_LABEL[mode];
+    button.addEventListener("click", () => handleModeChange(mode));
+    modeButtons.set(mode, button);
+    return button;
   }
 
   function render(): HTMLElement {
     const wrapper = document.createElement("div");
     wrapper.className = "hud-duration-container";
 
-    // Mode toggle section
     const modeLabel = document.createElement("label");
     modeLabel.className = "hud-duration-field-label";
-    modeLabel.textContent = "HUD Mode";
+    modeLabel.textContent = "Inactivity Timer";
     wrapper.appendChild(modeLabel);
 
     const modeGroup = document.createElement("div");
     modeGroup.className = "hud-mode-toggle";
     modeGroup.setAttribute("role", "group");
-    modeGroup.setAttribute("aria-label", "HUD display mode");
-
-    modeAlwaysOnBtn = document.createElement("button");
-    modeAlwaysOnBtn.className = "hud-mode-btn";
-    modeAlwaysOnBtn.type = "button";
-    modeAlwaysOnBtn.textContent = "Always ON";
-    modeAlwaysOnBtn.setAttribute("aria-pressed", "true");
-    modeAlwaysOnBtn.addEventListener("click", () =>
-      handleModeChange("always-on"),
-    );
-    modeGroup.appendChild(modeAlwaysOnBtn);
-
-    modeHiddenBtn = document.createElement("button");
-    modeHiddenBtn.className = "hud-mode-btn";
-    modeHiddenBtn.type = "button";
-    modeHiddenBtn.textContent = "Hidden";
-    modeHiddenBtn.setAttribute("aria-pressed", "false");
-    modeHiddenBtn.addEventListener("click", () => handleModeChange("hidden"));
-    modeGroup.appendChild(modeHiddenBtn);
-
+    modeGroup.setAttribute("aria-label", "HUD inactivity timer");
+    modeGroup.appendChild(buildModeButton("always-on"));
+    modeGroup.appendChild(buildModeButton("inactivity-timer"));
     wrapper.appendChild(modeGroup);
 
-    // Mode description
     modeDescription = document.createElement("p");
     modeDescription.className = "hud-mode-description";
-    modeDescription.textContent =
-      "HUD is always visible. Double-tap opens Apps Menu.";
     wrapper.appendChild(modeDescription);
 
-    // Duration row (label + dropdown)
     durationRow = document.createElement("div");
     durationRow.className = "hud-duration-row";
 
     durationLabel = document.createElement("label");
     durationLabel.className = "hud-duration-field-label";
-    durationLabel.textContent = `HUD Duration: ${currentDuration} seconds`;
     durationRow.appendChild(durationLabel);
 
     selectEl = document.createElement("select");
     selectEl.className = "hud-duration-select";
-    selectEl.setAttribute("aria-label", "HUD display duration in seconds");
+    selectEl.setAttribute("aria-label", "Seconds of inactivity before sleeping");
     for (const seconds of DURATION_OPTIONS) {
       const option = document.createElement("option");
       option.value = String(seconds);
       option.textContent = `${seconds} seconds`;
       selectEl.appendChild(option);
     }
-    selectEl.value = String(currentDuration);
     selectEl.addEventListener("change", handleDurationChange);
     durationRow.appendChild(selectEl);
-
     wrapper.appendChild(durationRow);
 
-    // Error message area
+    infoLabel = document.createElement("div");
+    infoLabel.className = "hud-duration-info-label";
+    infoLabel.textContent =
+      "No timer is running — the HUD stays lit until you exit.";
+    wrapper.appendChild(infoLabel);
+
+    const explanation = document.createElement("p");
+    explanation.className = "hud-duration-explanation";
+    explanation.textContent =
+      "Controls how long the HUD appears before it sleeps. Notifications wake it regardless of this setting.";
+    wrapper.appendChild(explanation);
+
     errorEl = document.createElement("div");
     errorEl.className = "hud-duration-error";
     errorEl.style.display = "none";
@@ -222,14 +205,22 @@ export function createHudDurationControl(
       STORAGE_KEYS.HUD_MODE,
       DEFAULT_HUD_MODE,
     );
-    currentMode = modeConfig.mode;
+    currentMode = normalizeHudMode(modeConfig?.mode);
 
     const durationConfig = await loadConfig<HudDurationConfig>(
       bridge,
       STORAGE_KEYS.HUD_DURATION,
       DEFAULT_HUD_DURATION,
     );
-    currentDuration = durationConfig.displayDurationSeconds;
+    const stored = durationConfig?.displayDurationSeconds;
+    // A stored value from the old 3/8s option set is no longer selectable;
+    // snapping to the nearest current option keeps the <select> consistent
+    // with what is actually persisted.
+    currentDuration = Number.isFinite(stored)
+      ? DURATION_OPTIONS.reduce((best, option) =>
+          Math.abs(option - stored!) < Math.abs(best - stored!) ? option : best,
+        )
+      : DEFAULT_HUD_DURATION.displayDurationSeconds;
 
     updateUI();
   }
@@ -240,35 +231,23 @@ export function createHudDurationControl(
       rootEl = render();
       container.appendChild(rootEl);
       updateUI();
-      loadSavedValues();
+      void loadSavedValues();
     },
 
     unmount(): void {
-      if (selectEl) {
-        selectEl.removeEventListener("change", handleDurationChange);
-      }
-      if (modeAlwaysOnBtn) {
-        modeAlwaysOnBtn.removeEventListener("click", () =>
-          handleModeChange("always-on"),
-        );
-      }
-      if (modeHiddenBtn) {
-        modeHiddenBtn.removeEventListener("click", () =>
-          handleModeChange("hidden"),
-        );
-      }
-      if (rootEl && container) {
-        container.removeChild(rootEl);
-      }
+      // Listeners live on elements that are about to be dropped, so removing
+      // the subtree is sufficient — and unlike the previous version, which
+      // passed fresh closures to removeEventListener, it actually works.
+      rootEl?.remove();
       rootEl = null;
       container = null;
       selectEl = null;
       errorEl = null;
       durationRow = null;
       durationLabel = null;
+      infoLabel = null;
       modeDescription = null;
-      modeAlwaysOnBtn = null;
-      modeHiddenBtn = null;
+      modeButtons.clear();
     },
 
     getValue(): number {

@@ -63,7 +63,6 @@
         width: 100%;
       }
       #phone-ui.active { display: block; }
-      #glasses-mode { display: none; }
 
       /* Header */
       .header {
@@ -232,69 +231,6 @@
       .view { display: none; }
       .view.active { display: block; }
 
-      /* Profile card */
-      .profile-card {
-        text-align: center;
-        padding: 32px 24px;
-      }
-      .profile-card .avatar {
-        width: 56px;
-        height: 56px;
-        border: 2px solid var(--accent);
-        color: var(--accent);
-        font-size: 20px;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin: 0 auto 16px;
-        background: transparent;
-      }
-      .profile-card .username {
-        font-size: 16px;
-        font-weight: 600;
-        color: var(--text-bright);
-        margin-bottom: 2px;
-        letter-spacing: 1px;
-      }
-      .profile-card .email {
-        font-size: 11px;
-        color: #999;
-        margin-bottom: 24px;
-      }
-      .profile-card .connection-status {
-        font-size: 11px;
-        color: var(--accent);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        letter-spacing: 1px;
-        text-transform: uppercase;
-      }
-      .profile-card .connection-status::before {
-        content: '';
-        width: 6px;
-        height: 6px;
-        background: var(--accent);
-        animation: pulse 2s infinite;
-      }
-      @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.3; }
-      }
-
-      .btn-logout {
-        border-color: var(--error);
-        color: var(--error);
-        margin-top: 24px;
-      }
-      .btn-logout:hover {
-        background: var(--error);
-        color: var(--bg);
-        box-shadow: 0 0 20px rgba(255, 51, 51, 0.15);
-      }
-
       /* Terminal decoration */
       .terminal-line {
         font-size: 10px;
@@ -302,6 +238,43 @@
         text-align: center;
         margin-top: 32px;
         letter-spacing: 1px;
+      }
+
+      /* Collapsible diagnostic log */
+      .debug-log-toggle {
+        background: none;
+        border: none;
+        color: #555;
+        font-family: var(--font);
+        font-size: 10px;
+        letter-spacing: 1px;
+        cursor: pointer;
+        padding: 0 0 0 8px;
+        text-decoration: underline;
+      }
+      .debug-log-toggle:hover {
+        color: var(--accent);
+      }
+      .debug-log {
+        display: none;
+        max-height: 160px;
+        overflow-y: auto;
+        margin-top: 8px;
+        padding: 6px 10px;
+        background: #000;
+        border: 1px solid #222;
+        font-family: var(--font);
+        font-size: 10px;
+        color: #0f0;
+        line-height: 1.5;
+        text-align: left;
+      }
+      .debug-log--open {
+        display: block;
+      }
+      .debug-log__entry {
+        white-space: pre-wrap;
+        word-break: break-word;
       }
 
       /* ============================
@@ -381,6 +354,63 @@
       .profile-header-dropdown-email {
         font-size: 11px;
         color: var(--text-dim);
+      }
+      .profile-header-signout {
+        display: block;
+        width: 100%;
+        margin-top: 14px;
+        padding: 8px 10px;
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text);
+        font-family: var(--font);
+        font-size: 11px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .profile-header-signout:hover {
+        border-color: #ff5555;
+        color: #ff5555;
+      }
+
+      /* Apps view: widget with no settings of its own */
+      .apps-view-no-config {
+        padding: 10px 12px;
+        margin: 4px 0 10px;
+        border-left: 2px solid var(--text-dim);
+        background: var(--surface);
+        font-size: 11px;
+        color: var(--text-dim);
+        letter-spacing: 0.5px;
+      }
+
+      /* HUD sleep settings */
+      .hud-mode-description,
+      .hud-duration-info-label,
+      .hud-duration-explanation {
+        font-size: 10px;
+        color: var(--text-dim);
+        line-height: 1.6;
+        letter-spacing: 0.4px;
+        margin-top: 8px;
+      }
+      .hud-duration-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 14px;
+        transition: opacity 0.15s;
+      }
+      .hud-duration-error {
+        margin-top: 10px;
+        padding: 8px 10px;
+        border-left: 2px solid #ff5555;
+        background: var(--surface);
+        font-size: 10px;
+        color: #ff5555;
       }
 
       /* Navigation Bar */
@@ -781,6 +811,47 @@
         font-size: 12px;
         color: var(--text);
       }
+
+      /* Terminal-styled checkboxes */
+      input[type="checkbox"] {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 18px;
+        height: 18px;
+        border: 1px solid var(--accent);
+        background: transparent;
+        cursor: pointer;
+        position: relative;
+        flex-shrink: 0;
+        margin-right: 10px;
+        transition: all 0.15s;
+      }
+      input[type="checkbox"]:checked {
+        background: var(--accent);
+        border-color: var(--accent);
+      }
+      input[type="checkbox"]:checked::after {
+        content: '✓';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--bg);
+        line-height: 1;
+      }
+      input[type="checkbox"]:hover {
+        box-shadow: 0 0 8px rgba(0, 255, 136, 0.2);
+      }
+      input[type="checkbox"]:disabled {
+        border-color: #333;
+        cursor: not-allowed;
+        opacity: 0.4;
+      }
+      input[type="checkbox"]:disabled:checked {
+        background: #333;
+      }
       .weather-config-input {
         width: 100%;
         padding: 10px 12px;
@@ -1069,101 +1140,8 @@
       }
 
       /* General Settings Stepper Buttons */
-      .general-settings-stepper-btn {
-        width: 36px;
-        height: 36px;
-        border: 1px solid var(--accent);
-        border-radius: 0;
-        background: transparent;
-        color: var(--accent);
-        font-size: 16px;
-        font-family: var(--font);
-        font-weight: 600;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.15s;
-      }
-      .general-settings-stepper-btn:hover {
-        background: var(--accent);
-        color: var(--bg);
-        box-shadow: 0 0 20px rgba(0, 255, 136, 0.15);
-      }
-      .general-settings-stepper-btn:active {
-        transform: scale(0.98);
-      }
 
       /* General Settings Form */
-      .general-settings-section {
-        margin-bottom: 20px;
-      }
-      .general-settings-section h3 {
-        font-size: 11px;
-        font-weight: 500;
-        color: var(--text-dim);
-        text-transform: uppercase;
-        letter-spacing: 1.5px;
-        margin-bottom: 10px;
-      }
-      .general-settings-section h3::before {
-        content: '# ';
-        color: var(--accent-dim);
-      }
-      .general-settings-fieldset {
-        border: 1px solid var(--border);
-        padding: 12px 14px;
-        margin-bottom: 12px;
-      }
-      .general-settings-fieldset legend {
-        font-size: 10px;
-        color: var(--text-dim);
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        padding: 0 6px;
-      }
-      .general-settings-radio-group {
-        display: flex;
-        gap: 16px;
-        margin-top: 8px;
-      }
-      .general-settings-radio {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        cursor: pointer;
-      }
-      .general-settings-radio input[type="radio"] {
-        appearance: none;
-        width: 14px;
-        height: 14px;
-        border: 1px solid var(--border);
-        background: #0a0a0a;
-        cursor: pointer;
-        position: relative;
-      }
-      .general-settings-radio input[type="radio"]:checked {
-        border-color: var(--accent);
-      }
-      .general-settings-radio input[type="radio"]:checked::after {
-        content: '';
-        position: absolute;
-        top: 3px;
-        left: 3px;
-        width: 6px;
-        height: 6px;
-        background: var(--accent);
-      }
-      .general-settings-radio label {
-        font-size: 12px;
-        color: var(--text);
-        cursor: pointer;
-      }
-      .general-settings-error {
-        font-size: 11px;
-        color: var(--error);
-        margin-top: 8px;
-      }
 
       /* Debug Panel */
       .debug-panel-section {
@@ -1430,16 +1408,11 @@
         <div id="forgot-status" class="status"></div>
       </div>
 
-      <!-- Logged In View -->
-      <div id="view-profile" class="view">
-        <div class="card profile-card">
-          <div class="avatar" id="profile-avatar">T</div>
-          <div class="username" id="profile-username">Tester123</div>
-          <div class="email" id="profile-email">test@test.com</div>
-          <div class="connection-status">Link Active</div>
-          <button class="btn btn-logout" id="logout-btn">Disconnect</button>
-        </div>
-      </div>
+      <!--
+        Post-auth account controls live in the profile header dropdown
+        (top right), which is the only surface reachable once the webapp
+        shell is mounted. Sign Out is rendered there by profile-header.ts.
+      -->
 
       <!-- Webapp UI (shown after auth) -->
       <div id="webapp-container" class="view">
@@ -1447,29 +1420,20 @@
         <div id="webapp-content"></div>
       </div>
 
-      <div class="terminal-line">sys.foresight.bridge :: ready</div>
+      <div class="terminal-line">
+        sys.foresight.bridge :: ready
+        <button type="button" id="input-debug-toggle" class="debug-log-toggle"
+                aria-controls="input-debug-log" aria-expanded="false">show_log</button>
+      </div>
 
-      <!-- Input debug log -->
-      <div id="input-debug-log" style="
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        max-height: 120px;
-        overflow-y: auto;
-        background: #000;
-        border-top: 1px solid #333;
-        padding: 6px 10px;
-        font-family: var(--font);
-        font-size: 10px;
-        color: #0f0;
-        z-index: 10000;
-        line-height: 1.5;
-      "></div>
+      <!--
+        Glasses input arrives over BLE with no console attached, so this
+        panel is the only way to see what the firmware actually sent.
+        Collapsed by default — it used to cover the bottom of every screen.
+      -->
+      <div id="input-debug-log" class="debug-log"></div>
     </div>
 
-    <!-- Glasses mode (hidden, runs SDK logic) -->
-    <div id="glasses-mode"></div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

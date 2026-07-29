@@ -10,6 +10,8 @@ import {
   BANNER_MAX_DURATION_S,
   BANNER_MAX_TEXT_LENGTH,
   BANNER_QUEUE_MAX,
+  CONTAINER,
+  CONTAINER_NAME,
 } from "../constants";
 
 // === Pure Functions (exported for PBT) ===
@@ -72,6 +74,12 @@ export function clampDuration(duration: number): number {
 export interface BannerSystemOptions {
   /** Override duration for testing (seconds). If provided, skips storage read. */
   defaultDuration?: number;
+  /**
+   * Called when a banner becomes visible and again when the last one is
+   * dismissed. The home screen uses this to clear the HUD underneath, since
+   * the firmware gives no guarantee about how overlapping containers compose.
+   */
+  onVisibilityChange?: (visible: boolean) => void;
 }
 
 /**
@@ -106,12 +114,16 @@ export function createBannerSystem(
   }
 
   /**
-   * Displays a banner notification on container 0.
+   * Displays a banner notification in the banner container.
    * Timer is set synchronously; display update is fire-and-forget.
    */
   function displayBanner(notification: BannerNotification): void {
+    const wasVisible = visible;
     activeBanner = notification;
     visible = true;
+    if (!wasVisible) {
+      options?.onVisibilityChange?.(true);
+    }
 
     const displayText = truncateBannerText(notification.text);
 
@@ -130,8 +142,8 @@ export function createBannerSystem(
     // Fire-and-forget display update via SDK
     bridge.textContainerUpgrade(
       new TextContainerUpgrade({
-        containerID: 0,
-        containerName: "display",
+        containerID: CONTAINER.BANNER,
+        containerName: CONTAINER_NAME.BANNER,
         content: displayText,
       }),
     );
@@ -143,8 +155,8 @@ export function createBannerSystem(
   function clearDisplay(): void {
     bridge.textContainerUpgrade(
       new TextContainerUpgrade({
-        containerID: 0,
-        containerName: "display",
+        containerID: CONTAINER.BANNER,
+        containerName: CONTAINER_NAME.BANNER,
         content: "",
       }),
     );
@@ -172,9 +184,13 @@ export function createBannerSystem(
       displayBanner(result.active);
     } else {
       // No more banners — restore HUD visibility
+      const wasVisible = visible;
       activeBanner = null;
       visible = false;
       clearDisplay();
+      if (wasVisible) {
+        options?.onVisibilityChange?.(false);
+      }
     }
   }
 
@@ -190,12 +206,20 @@ export function createBannerSystem(
     },
 
     dismiss(): void {
+      if (!activeBanner) return;
       clearDismissTimer();
       processNext();
     },
 
     get isVisible(): boolean {
       return visible;
+    },
+
+    dispose(): void {
+      clearDismissTimer();
+      queue = [];
+      activeBanner = null;
+      visible = false;
     },
   };
 

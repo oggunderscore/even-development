@@ -52,13 +52,17 @@ export interface SaveConfigResult {
 /**
  * Save a config value to both localStorage (local fallback) and the bridge.
  *
- * Always writes to localStorage first so the value is retained locally.
- * Then attempts to write to the bridge for glasses sync.
- * Dispatches a custom event so other parts of the app (e.g. glasses HUD)
- * can react to the change immediately.
+ * Writes localStorage first so the value survives a failed bridge call, then
+ * attempts the bridge write that persists it for the glasses. Either way it
+ * dispatches `foresight-config-changed`, which is how the glasses runtime
+ * — living in the same document — learns about the change without polling.
  *
- * Returns { success: true } if bridge write succeeds.
- * Returns { success: false, error } if bridge is unavailable or write fails.
+ * Returns `{ success: true }` only when the value actually reached the
+ * bridge. A failed bridge write reports `success: false`: the value is still
+ * held locally and the running session stays in sync via the event, but it
+ * will not survive a restart, and callers surface that to the user rather
+ * than showing a "Saved" that is not true.
+ *
  * Never throws.
  */
 export async function saveConfig<T>(
@@ -68,32 +72,29 @@ export async function saveConfig<T>(
 ): Promise<SaveConfigResult> {
   const json = JSON.stringify(value);
 
-  // Always write to localStorage as a local fallback
   try {
     localStorage.setItem(key, json);
   } catch {
-    // localStorage write failed — continue to attempt bridge anyway
+    // Quota or private mode — the bridge write below may still succeed.
   }
 
-  // Attempt bridge write
+  let result: SaveConfigResult = { success: true };
+
   if (!bridge) {
-    return { success: false, error: "Bridge unavailable" };
+    result = { success: false, error: "Bridge unavailable" };
+  } else {
+    try {
+      await bridge.setLocalStorage(key, json);
+    } catch {
+      result = { success: false, error: "Bridge unavailable" };
+    }
   }
 
-  try {
-    await bridge.setLocalStorage(key, json);
-  } catch {
-    // Bridge write failed — but localStorage has the value.
-    // Dispatch event so glasses-side can still pick up the change from localStorage.
-    window.dispatchEvent(
-      new CustomEvent("foresight-config-changed", { detail: { key, value } }),
-    );
-    return { success: true };
-  }
-
-  // Notify glasses-side of the change
+  // Dispatched even on failure: localStorage holds the value, so the glasses
+  // side should reflect it for this session.
   window.dispatchEvent(
     new CustomEvent("foresight-config-changed", { detail: { key, value } }),
   );
-  return { success: true };
+
+  return result;
 }

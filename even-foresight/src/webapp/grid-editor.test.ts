@@ -17,7 +17,21 @@ import {
   migrateOldGrid,
 } from "./hud-layout-editor";
 import { WIDGET_SIZES } from "./types";
-import type { HudGrid } from "./types";
+import type { HudGrid, WidgetSize } from "./types";
+
+/**
+ * Production ships every widget at 1x1 — the glasses give each HUD column its
+ * own container and cannot span them. The placement maths is nonetheless
+ * fully general, so multi-cell behaviour is exercised through an explicit
+ * size map rather than by pretending WIDGET_SIZES contains sizes it does not.
+ */
+const MULTI_CELL_SIZES: Record<string, WidgetSize> = {
+  clock: { cols: 1, rows: 1 },
+  weather: { cols: 2, rows: 1 },
+  reminders: { cols: 1, rows: 2 },
+  assistant: { cols: 1, rows: 1 },
+  tasks: { cols: 1, rows: 1 },
+};
 
 // --- buildOccupancyGrid ---
 
@@ -45,7 +59,7 @@ describe("buildOccupancyGrid", () => {
 
   it("spans correct cells for a multi-cell widget (weather 2×1)", () => {
     const grid: HudGrid = [{ widgetId: "weather", col: 1, row: 0 }];
-    const result = buildOccupancyGrid(grid);
+    const result = buildOccupancyGrid(grid, MULTI_CELL_SIZES);
     expect(result[0][1]).toBe("weather");
     expect(result[0][2]).toBe("weather");
     // Adjacent cells unaffected
@@ -61,7 +75,7 @@ describe("buildOccupancyGrid", () => {
       { widgetId: "weather", col: 1, row: 0 },
       { widgetId: "reminders", col: 4, row: 0 }, // 1×2, spans rows 0 and 1
     ];
-    const result = buildOccupancyGrid(grid);
+    const result = buildOccupancyGrid(grid, MULTI_CELL_SIZES);
     expect(result[0][0]).toBe("clock");
     expect(result[0][1]).toBe("weather");
     expect(result[0][2]).toBe("weather");
@@ -83,13 +97,13 @@ describe("canPlace", () => {
 
   it("returns false for out-of-bounds placement (weather at col 4)", () => {
     // weather is 2×1, so col 4 + 2 = 6 > 5
-    expect(canPlace([], "weather", 4, 0)).toBe(false);
+    expect(canPlace([], "weather", 4, 0, MULTI_CELL_SIZES)).toBe(false);
   });
 
   it("returns false when overlapping an existing widget", () => {
     const grid: HudGrid = [{ widgetId: "clock", col: 1, row: 0 }];
     // weather is 2×1, placing at col 0 would span cols 0-1, overlapping clock at col 1
-    expect(canPlace(grid, "weather", 0, 0)).toBe(false);
+    expect(canPlace(grid, "weather", 0, 0, MULTI_CELL_SIZES)).toBe(false);
   });
 
   it("returns false for unknown widget ID", () => {
@@ -158,7 +172,13 @@ describe("moveWidgetMultiCell", () => {
 
   it("move out of bounds → success: false", () => {
     const grid: HudGrid = [{ widgetId: "weather", col: 0, row: 0 }];
-    const { success, newGrid } = moveWidgetMultiCell(grid, "weather", 4, 0);
+    const { success, newGrid } = moveWidgetMultiCell(
+      grid,
+      "weather",
+      4,
+      0,
+      MULTI_CELL_SIZES,
+    );
     expect(success).toBe(false);
     expect(newGrid).toEqual(grid);
   });
@@ -243,7 +263,7 @@ describe("getAvailableWidgetsForCell", () => {
     // weather is 2×1 — needs 2 cols, won't fit (col 4 + 2 > 5)
     // reminders is 1×2 — needs 2 rows, but (4,1) is occupied
     // clock, assistant, tasks are 1×1 — fit fine
-    const result = getAvailableWidgetsForCell(grid, 4, 0);
+    const result = getAvailableWidgetsForCell(grid, 4, 0, MULTI_CELL_SIZES);
     // weather is unplaced but doesn't fit; reminders is unplaced but doesn't fit
     expect(result).toContain("clock");
     expect(result).toContain("assistant");

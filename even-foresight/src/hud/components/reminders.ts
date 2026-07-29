@@ -7,7 +7,7 @@ import type {
 } from "../../storage/schemas";
 import {
   STORAGE_KEYS,
-  DEFAULT_REMINDERS_STORE,
+  emptyRemindersStore,
   DEFAULT_CLOCK_CONFIG,
 } from "../../storage/schemas";
 import { REMINDERS_MAX, REMINDER_TITLE_MAX_LENGTH } from "../../constants";
@@ -116,10 +116,11 @@ export function createRemindersComponent(
   }
 
   function getRemindersStore(): RemindersStore {
-    return (
-      storage.get<RemindersStore>(STORAGE_KEYS.REMINDERS) ??
-      DEFAULT_REMINDERS_STORE
-    );
+    const stored = storage.get<RemindersStore>(STORAGE_KEYS.REMINDERS);
+    if (!stored || !Array.isArray(stored.reminders)) {
+      return emptyRemindersStore();
+    }
+    return stored;
   }
 
   async function checkAndTrigger(): Promise<void> {

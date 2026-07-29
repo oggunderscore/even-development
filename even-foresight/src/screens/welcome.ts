@@ -14,6 +14,7 @@
 
 import { TextContainerUpgrade } from "@evenrealities/even_hub_sdk";
 import type { UserStore } from "../user/user-store";
+import { CONTAINER, CONTAINER_NAME } from "../constants";
 
 export type WelcomeStep = "typing" | "waiting-for-login" | "greeting" | "done";
 
@@ -57,6 +58,7 @@ export function createWelcomeScreen(
   userStore: UserStore,
 ): WelcomeScreen {
   let step: WelcomeStep = "typing";
+  let disposed = false;
   let completionCallback: (() => void) | null = null;
   let loginPollTimer: ReturnType<typeof setInterval> | null = null;
   let typingTimer: ReturnType<typeof setTimeout> | null = null;
@@ -116,12 +118,13 @@ export function createWelcomeScreen(
   }
 
   function updateDisplay(): void {
-    const content = render();
+    // Onboarding runs before the home page exists, so it writes into the
+    // startup container the runtime allocated for the splash.
     bridge.textContainerUpgrade(
       new TextContainerUpgrade({
-        containerID: 0,
-        containerName: "display",
-        content,
+        containerID: CONTAINER.HUD_COL_BASE,
+        containerName: CONTAINER_NAME.hudCol(0),
+        content: render(),
       }),
     );
   }
@@ -165,13 +168,17 @@ export function createWelcomeScreen(
   function checkForLogin(): void {
     // Re-read from bridge storage since the phone side may have written
     userStore.loadProfile().then(() => {
+      // The poll may resolve after dispose(); completing here would restart a
+      // screen the runtime already tore down.
+      if (disposed || step === "done") return;
+
       const profile = userStore.getProfile();
       if (profile?.username && profile.username !== "") {
         // User logged in from phone — skip greeting, go straight to home
         stopPolling();
         step = "done";
         userStore.completeOnboarding().then(() => {
-          if (completionCallback) completionCallback();
+          if (!disposed) completionCallback?.();
         });
       }
     });
@@ -231,6 +238,7 @@ export function createWelcomeScreen(
   }
 
   function dispose(): void {
+    disposed = true;
     stopTyping();
     stopPolling();
   }

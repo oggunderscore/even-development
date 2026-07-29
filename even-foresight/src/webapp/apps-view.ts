@@ -54,6 +54,7 @@ export function createAppsView(options: AppsViewOptions): ViewRoute {
   const { apps, onAppSelect, onBrowseMarketplace } = options;
   let container: HTMLElement | null = null;
   let rootEl: HTMLElement | null = null;
+  let noConfigEl: HTMLElement | null = null;
 
   function render(): HTMLElement {
     const wrapper = document.createElement("div");
@@ -104,7 +105,14 @@ export function createAppsView(options: AppsViewOptions): ViewRoute {
       item.appendChild(sourceEl);
 
       item.addEventListener("click", () => {
-        onAppSelect(app.id);
+        if (app.hasConfig) {
+          clearNoConfigNotice();
+          onAppSelect(app.id);
+        } else {
+          // Marketplace widgets can ship without settings. Say so instead of
+          // navigating to an empty screen.
+          showNoConfigNotice(item, app.name);
+        }
       });
 
       list.appendChild(item);
@@ -113,6 +121,21 @@ export function createAppsView(options: AppsViewOptions): ViewRoute {
     wrapper.appendChild(list);
 
     return wrapper;
+  }
+
+  function clearNoConfigNotice(): void {
+    noConfigEl?.remove();
+    noConfigEl = null;
+  }
+
+  function showNoConfigNotice(anchor: HTMLElement, appName: string): void {
+    clearNoConfigNotice();
+    const notice = document.createElement("div");
+    notice.className = "apps-view-no-config";
+    notice.setAttribute("role", "status");
+    notice.textContent = `No configuration options available for ${appName}.`;
+    anchor.insertAdjacentElement("afterend", notice);
+    noConfigEl = notice;
   }
 
   return {
@@ -126,6 +149,7 @@ export function createAppsView(options: AppsViewOptions): ViewRoute {
     },
 
     unmount(): void {
+      clearNoConfigNotice();
       if (rootEl && container) {
         container.removeChild(rootEl);
       }

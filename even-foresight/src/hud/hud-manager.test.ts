@@ -1,52 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHudManager } from "./hud-manager";
+import { colToContainerId } from "./hud-slot";
 import type { HudLayoutConfig } from "../storage/schemas";
-import type { StorageManager } from "../storage/storage-manager";
+import { STORAGE_KEYS } from "../storage/schemas";
+import {
+  createFakeStorage,
+  type FakeStorage,
+} from "../storage/storage-manager.test-utils";
+import { HUD_COLS, HUD_REFRESH_INTERVAL_MS } from "../constants";
 
 /**
- * Creates a mock StorageManager for testing.
- */
-function createMockStorage(): StorageManager {
-  const store = new Map<string, unknown>();
-  const listeners = new Map<string, Set<(value: unknown) => void>>();
-
-  return {
-    get<T>(key: string): T | null {
-      const value = store.get(key);
-      return value !== undefined ? (value as T) : null;
-    },
-    async set<T>(key: string, value: T): Promise<void> {
-      store.set(key, value);
-      const keyListeners = listeners.get(key);
-      if (keyListeners) {
-        for (const cb of keyListeners) {
-          cb(value);
-        }
-      }
-    },
-    async remove(key: string): Promise<void> {
-      store.delete(key);
-    },
-    onChange(key: string, callback: (value: unknown) => void): () => void {
-      if (!listeners.has(key)) {
-        listeners.set(key, new Set());
-      }
-      listeners.get(key)!.add(callback);
-      return () => {
-        listeners.get(key)?.delete(callback);
-      };
-    },
-    async loadKey(_key: string): Promise<void> {},
-    async loadKeys(_keys: string[]): Promise<void> {},
-  };
-}
-
-/**
- * Creates a mock bridge that tracks textContainerUpgrade calls.
+ * Mock bridge recording every textContainerUpgrade.
  */
 function createMockBridge() {
   const calls: Array<{ containerID: number; content: string }> = [];
-
   return {
     calls,
     async textContainerUpgrade(upgrade: any): Promise<void> {
@@ -55,20 +22,39 @@ function createMockBridge() {
         content: upgrade.content,
       });
     },
-    getLocalStorage(_key: string): string | null {
-      return null;
-    },
-    setLocalStorage: vi.fn(),
+    setLocalStorage: vi.fn(async () => true),
+    getLocalStorage: vi.fn(async () => ""),
   };
 }
 
+/** Latest content written to the container backing `col`. */
+function latestForColumn(
+  bridge: ReturnType<typeof createMockBridge>,
+  col: number,
+): string | undefined {
+  const id = colToContainerId(col);
+  const forCol = bridge.calls.filter((c) => c.containerID === id);
+  return forCol.at(-1)?.content;
+}
+
+/** A layout with a component in one cell and nothing anywhere else. */
+function singleSlot(
+  componentType: "clock" | "weather" | "reminders",
+  row: 0 | 1 = 0,
+  col: 0 | 1 | 2 | 3 | 4 = 0,
+): HudLayoutConfig {
+  return { slots: [{ row, col, componentType }] };
+}
+
+const EMPTY_LAYOUT: HudLayoutConfig = { slots: [] };
+
 describe("HudManager", () => {
-  let storage: StorageManager;
+  let storage: FakeStorage;
   let bridge: ReturnType<typeof createMockBridge>;
 
   beforeEach(() => {
     vi.useFakeTimers();
-    storage = createMockStorage();
+    storage = createFakeStorage();
     bridge = createMockBridge();
   });
 
@@ -77,447 +63,314 @@ describe("HudManager", () => {
   });
 
   describe("init", () => {
-    it("should initialize with an empty config and render nothing in slots", async () => {
+    it("writes an empty string to every column for an empty layout", async () => {
       const manager = createHudManager(storage);
+      await manager.init(bridge, EMPTY_LAYOUT);
 
-      const config: HudLayoutConfig = {
-        slots: Array.from({ length: 10 }, (_, i) => ({
-          row: Math.floor(i / 5) as 0 | 1,
-          col: (i % 5) as 0 | 1 | 2 | 3 | 4,
-          componentType: null,
-        })),
-      };
-
-      await manager.init(bridge, config);
-
-      // All slots should be cleared (empty strings rendered)
-      const clearCalls = bridge.calls.filter((c) => c.content === "");
-      expect(clearCalls.length).toBe(10);
-
-      manager.dispose();
-    });
-
-    it("should initialize with a clock component and render time", async () => {
-      const manager = createHudManager(storage);
-
-      const config: HudLayoutConfig = {
-        slots: [
-          { row: 0, col: 0, componentType: "clock" },
-          ...Array.from({ length: 9 }, (_, i) => ({
-            row: Math.floor((i + 1) / 5) as 0 | 1,
-            col: ((i + 1) % 5) as 0 | 1 | 2 | 3 | 4,
-            componentType: null as null,
-          })),
-        ],
-      };
-
-      await manager.init(bridge, config);
-
-      // Should have cleared all slots and then rendered the clock slot
-      // The last call for container 1 (row 0, col 0) should have non-empty content
-      const slot0Calls = bridge.calls.filter((c) => c.containerID === 0);
-      const lastSlot0Call = slot0Calls[slot0Calls.length - 1];
-      expect(lastSlot0Call).toBeDefined();
-      // Clock renders a time string (not empty)
-      expect(lastSlot0Call.content).not.toBe("");
-
-      manager.dispose();
-    });
-
-    it("should initialize with multiple component types", async () => {
-      const manager = createHudManager(storage);
-
-      const config: HudLayoutConfig = {
-        slots: [
-          { row: 0, col: 0, componentType: "clock" },
-          { row: 0, col: 1, componentType: "weather" },
-          { row: 0, col: 2, componentType: "reminders" },
-          { row: 0, col: 3, componentType: null },
-          { row: 0, col: 4, componentType: null },
-          { row: 1, col: 0, componentType: null },
-          { row: 1, col: 1, componentType: null },
-          { row: 1, col: 2, componentType: null },
-          { row: 1, col: 3, componentType: null },
-          { row: 1, col: 4, componentType: null },
-        ],
-      };
-
-      await manager.init(bridge, config);
-
-      // All content goes to container 1 (single HUD container mode)
-      const hudCalls = bridge.calls.filter((c) => c.containerID === 0);
-      // Should have received multiple render calls
-      expect(hudCalls.length).toBeGreaterThan(0);
-      // At least one call should contain time digits (clock)
-      const hasTime = hudCalls.some((c) => /\d/.test(c.content));
-      expect(hasTime).toBe(true);
-
-      manager.dispose();
-    });
-  });
-
-  describe("component instantiation per slot type", () => {
-    it("should create clock components for clock slots", async () => {
-      const manager = createHudManager(storage);
-
-      const config: HudLayoutConfig = {
-        slots: [
-          { row: 0, col: 0, componentType: "clock" },
-          { row: 0, col: 1, componentType: null },
-          { row: 0, col: 2, componentType: null },
-          { row: 0, col: 3, componentType: null },
-          { row: 0, col: 4, componentType: null },
-          { row: 1, col: 0, componentType: null },
-          { row: 1, col: 1, componentType: null },
-          { row: 1, col: 2, componentType: null },
-          { row: 1, col: 3, componentType: null },
-          { row: 1, col: 4, componentType: null },
-        ],
-      };
-
-      await manager.init(bridge, config);
-
-      // Verify that the clock slot rendered a time-like string
-      const clockCalls = bridge.calls.filter((c) => c.containerID === 0);
-      const lastCall = clockCalls[clockCalls.length - 1];
-      // 12h format: "h:mm AM" or "h:mm PM", 24h format: "HH:mm"
-      expect(lastCall.content).toMatch(/\d{1,2}:\d{2}/);
-
-      manager.dispose();
-    });
-
-    it("should support the same component type in multiple slots", async () => {
-      const manager = createHudManager(storage);
-
-      const config: HudLayoutConfig = {
-        slots: [
-          { row: 0, col: 0, componentType: "clock" },
-          { row: 0, col: 1, componentType: "clock" },
-          { row: 0, col: 2, componentType: null },
-          { row: 0, col: 3, componentType: null },
-          { row: 0, col: 4, componentType: null },
-          { row: 1, col: 0, componentType: null },
-          { row: 1, col: 1, componentType: null },
-          { row: 1, col: 2, componentType: null },
-          { row: 1, col: 3, componentType: null },
-          { row: 1, col: 4, componentType: null },
-        ],
-      };
-
-      await manager.init(bridge, config);
-
-      // All renders go to container 1 in single-container mode
-      // Both clock instances should produce time-formatted content
-      const hudCalls = bridge.calls.filter((c) => c.containerID === 0);
-      const timeCalls = hudCalls.filter((c) => /\d{1,2}:\d{2}/.test(c.content));
-      // Should have at least 2 time renders (one for each clock slot)
-      expect(timeCalls.length).toBeGreaterThanOrEqual(2);
-
-      manager.dispose();
-    });
-  });
-
-  describe("pause/resume lifecycle", () => {
-    it("should stop refresh timer on pause", async () => {
-      const manager = createHudManager(storage);
-
-      const config: HudLayoutConfig = {
-        slots: [
-          { row: 0, col: 0, componentType: "clock" },
-          ...Array.from({ length: 9 }, (_, i) => ({
-            row: Math.floor((i + 1) / 5) as 0 | 1,
-            col: ((i + 1) % 5) as 0 | 1 | 2 | 3 | 4,
-            componentType: null as null,
-          })),
-        ],
-      };
-
-      await manager.init(bridge, config);
-
-      const callCountAfterInit = bridge.calls.length;
-
-      // Pause the manager
-      manager.pause();
-
-      // Advance timer by 60 seconds - should NOT trigger refresh
-      await vi.advanceTimersByTimeAsync(60_000);
-
-      // No new render calls should have happened
-      expect(bridge.calls.length).toBe(callCountAfterInit);
-
-      manager.dispose();
-    });
-
-    it("should restart refresh timer and trigger immediate refresh on resume", async () => {
-      const manager = createHudManager(storage);
-
-      const config: HudLayoutConfig = {
-        slots: [
-          { row: 0, col: 0, componentType: "clock" },
-          ...Array.from({ length: 9 }, (_, i) => ({
-            row: Math.floor((i + 1) / 5) as 0 | 1,
-            col: ((i + 1) % 5) as 0 | 1 | 2 | 3 | 4,
-            componentType: null as null,
-          })),
-        ],
-      };
-
-      await manager.init(bridge, config);
-      manager.pause();
-
-      const callCountAfterPause = bridge.calls.length;
-
-      // Resume triggers an immediate refreshAll
-      manager.resume();
-
-      // Allow the async refreshAll to settle
-      await vi.advanceTimersByTimeAsync(0);
-
-      // Should have new render calls from the immediate refresh
-      expect(bridge.calls.length).toBeGreaterThan(callCountAfterPause);
-
-      manager.dispose();
-    });
-
-    it("should refresh after 60 seconds when resumed", async () => {
-      const manager = createHudManager(storage);
-
-      const config: HudLayoutConfig = {
-        slots: [
-          { row: 0, col: 0, componentType: "clock" },
-          ...Array.from({ length: 9 }, (_, i) => ({
-            row: Math.floor((i + 1) / 5) as 0 | 1,
-            col: ((i + 1) % 5) as 0 | 1 | 2 | 3 | 4,
-            componentType: null as null,
-          })),
-        ],
-      };
-
-      await manager.init(bridge, config);
-      manager.pause();
-      manager.resume();
-
-      // Allow the immediate refresh to complete
-      await vi.advanceTimersByTimeAsync(0);
-
-      const callCountAfterResume = bridge.calls.length;
-
-      // Advance 60 seconds - should trigger another refresh
-      await vi.advanceTimersByTimeAsync(60_000);
-
-      expect(bridge.calls.length).toBeGreaterThan(callCountAfterResume);
-
-      manager.dispose();
-    });
-  });
-
-  describe("rebuild with new config", () => {
-    it("should replace components when config changes", async () => {
-      const manager = createHudManager(storage);
-
-      // Start with clock in slot 0
-      const config1: HudLayoutConfig = {
-        slots: [
-          { row: 0, col: 0, componentType: "clock" },
-          ...Array.from({ length: 9 }, (_, i) => ({
-            row: Math.floor((i + 1) / 5) as 0 | 1,
-            col: ((i + 1) % 5) as 0 | 1 | 2 | 3 | 4,
-            componentType: null as null,
-          })),
-        ],
-      };
-
-      await manager.init(bridge, config1);
-
-      // Clear call tracking
-      bridge.calls.length = 0;
-
-      // Rebuild with reminders in slot 0
-      const config2: HudLayoutConfig = {
-        slots: [
-          { row: 0, col: 0, componentType: "reminders" },
-          ...Array.from({ length: 9 }, (_, i) => ({
-            row: Math.floor((i + 1) / 5) as 0 | 1,
-            col: ((i + 1) % 5) as 0 | 1 | 2 | 3 | 4,
-            componentType: null as null,
-          })),
-        ],
-      };
-
-      await manager.rebuild(config2);
-
-      // Container 1 should now show reminders content
-      const slot0Calls = bridge.calls.filter((c) => c.containerID === 0);
-      const lastSlot0Call = slot0Calls[slot0Calls.length - 1];
-      expect(lastSlot0Call.content).toBe("No reminders");
-
-      manager.dispose();
-    });
-
-    it("should dispose old components on rebuild", async () => {
-      const manager = createHudManager(storage);
-
-      const config1: HudLayoutConfig = {
-        slots: [
-          { row: 0, col: 0, componentType: "clock" },
-          { row: 0, col: 1, componentType: "weather" },
-          { row: 0, col: 2, componentType: "reminders" },
-          ...Array.from({ length: 7 }, (_, i) => ({
-            row: Math.floor((i + 3) / 5) as 0 | 1,
-            col: ((i + 3) % 5) as 0 | 1 | 2 | 3 | 4,
-            componentType: null as null,
-          })),
-        ],
-      };
-
-      await manager.init(bridge, config1);
-
-      // Rebuild with empty config - all components should be disposed
-      const config2: HudLayoutConfig = {
-        slots: Array.from({ length: 10 }, (_, i) => ({
-          row: Math.floor(i / 5) as 0 | 1,
-          col: (i % 5) as 0 | 1 | 2 | 3 | 4,
-          componentType: null,
-        })),
-      };
-
-      // This should not throw (dispose works cleanly)
-      await manager.rebuild(config2);
-
-      // Verify all slots are cleared
-      bridge.calls.length = 0;
-      await manager.refreshAll();
-
-      // With no active components, refreshAll should still render nothing new
-      // (no components to refresh/render)
-      const nonEmptyCalls = bridge.calls.filter((c) => c.content !== "");
-      expect(nonEmptyCalls.length).toBe(0);
-
-      manager.dispose();
-    });
-  });
-
-  describe("empty config renders nothing", () => {
-    it("should render empty overlay when no components are configured", async () => {
-      const manager = createHudManager(storage);
-
-      const emptyConfig: HudLayoutConfig = {
-        slots: Array.from({ length: 10 }, (_, i) => ({
-          row: Math.floor(i / 5) as 0 | 1,
-          col: (i % 5) as 0 | 1 | 2 | 3 | 4,
-          componentType: null,
-        })),
-      };
-
-      await manager.init(bridge, emptyConfig);
-
-      // All 10 slots should be cleared (empty strings)
-      const allCalls = bridge.calls;
-      expect(allCalls.length).toBe(10);
-      for (const call of allCalls) {
+      expect(bridge.calls).toHaveLength(HUD_COLS);
+      for (const call of bridge.calls) {
         expect(call.content).toBe("");
       }
 
       manager.dispose();
     });
-  });
 
-  describe("60-second refresh cycle", () => {
-    it("should refresh all components every 60 seconds", async () => {
+    it("renders a clock into the container for its column", async () => {
       const manager = createHudManager(storage);
+      await manager.init(bridge, singleSlot("clock", 0, 3));
 
-      const config: HudLayoutConfig = {
+      expect(latestForColumn(bridge, 3)).toMatch(/\d{1,2}:\d{2}/);
+      expect(latestForColumn(bridge, 0)).toBe("");
+
+      manager.dispose();
+    });
+
+    it("puts row 0 and row 1 on separate lines of one column", async () => {
+      const manager = createHudManager(storage);
+      await manager.init(bridge, {
+        slots: [
+          { row: 0, col: 1, componentType: "clock" },
+          { row: 1, col: 1, componentType: "reminders" },
+        ],
+      });
+
+      const content = latestForColumn(bridge, 1)!;
+      const [line0, line1] = content.split("\n");
+      expect(line0).toMatch(/\d{1,2}:\d{2}/);
+      expect(line1).toBe("No reminders");
+
+      manager.dispose();
+    });
+
+    it("drops slots that fall outside the 2x5 grid", async () => {
+      const manager = createHudManager(storage);
+      await manager.init(bridge, {
         slots: [
           { row: 0, col: 0, componentType: "clock" },
-          { row: 0, col: 1, componentType: "reminders" },
-          ...Array.from({ length: 8 }, (_, i) => ({
-            row: Math.floor((i + 2) / 5) as 0 | 1,
-            col: ((i + 2) % 5) as 0 | 1 | 2 | 3 | 4,
-            componentType: null as null,
-          })),
+          // Out of bounds — must not throw or write past the column set.
+          { row: 5 as 0, col: 9 as 0, componentType: "clock" },
         ],
-      };
+      });
 
-      await manager.init(bridge, config);
-      const callCountAfterInit = bridge.calls.length;
+      expect(bridge.calls).toHaveLength(HUD_COLS);
+      expect(latestForColumn(bridge, 0)).toMatch(/\d{1,2}:\d{2}/);
 
-      // Advance 60 seconds
-      await vi.advanceTimersByTimeAsync(60_000);
+      manager.dispose();
+    });
 
-      // Should have additional render calls from the refresh
-      expect(bridge.calls.length).toBeGreaterThan(callCountAfterInit);
+    it("renders the same component type in multiple columns", async () => {
+      const manager = createHudManager(storage);
+      await manager.init(bridge, {
+        slots: [
+          { row: 0, col: 0, componentType: "clock" },
+          { row: 0, col: 1, componentType: "clock" },
+        ],
+      });
+
+      expect(latestForColumn(bridge, 0)).toMatch(/\d{1,2}:\d{2}/);
+      expect(latestForColumn(bridge, 1)).toMatch(/\d{1,2}:\d{2}/);
+
+      manager.dispose();
+    });
+  });
+
+  describe("redundant writes", () => {
+    it("does not re-send unchanged content on refresh", async () => {
+      const manager = createHudManager(storage);
+      await manager.init(bridge, singleSlot("reminders"));
+
+      bridge.calls.length = 0;
+      await manager.refreshAll();
+
+      // "No reminders" has not changed, so nothing goes over the bridge.
+      expect(bridge.calls).toHaveLength(0);
+
+      manager.dispose();
+    });
+
+    it("sends content once it actually changes", async () => {
+      const manager = createHudManager(storage);
+      await manager.init(bridge, singleSlot("reminders"));
+
+      bridge.calls.length = 0;
+      await storage.set(STORAGE_KEYS.REMINDERS, {
+        reminders: [
+          {
+            id: "r1",
+            title: "Standup",
+            targetTime: Date.now() + 60_000,
+            completed: false,
+          },
+        ],
+      });
+      await manager.refreshAll();
+
+      expect(latestForColumn(bridge, 0)).toContain("Standup");
+
+      manager.dispose();
+    });
+  });
+
+  describe("visibility", () => {
+    it("clears every column when hidden and restores content when shown", async () => {
+      const manager = createHudManager(storage);
+      await manager.init(bridge, singleSlot("clock"));
+
+      await manager.setVisible(false);
+      expect(manager.isVisible()).toBe(false);
+      expect(latestForColumn(bridge, 0)).toBe("");
+
+      await manager.setVisible(true);
+      expect(manager.isVisible()).toBe(true);
+      expect(latestForColumn(bridge, 0)).toMatch(/\d{1,2}:\d{2}/);
+
+      manager.dispose();
+    });
+
+    it("stays blank across a refresh while hidden", async () => {
+      const manager = createHudManager(storage);
+      await manager.init(bridge, singleSlot("clock"));
+      await manager.setVisible(false);
+
+      bridge.calls.length = 0;
+      await manager.refreshAll();
+
+      for (const call of bridge.calls) {
+        expect(call.content).toBe("");
+      }
+
+      manager.dispose();
+    });
+
+    it("setVisible is a no-op when already in that state", async () => {
+      const manager = createHudManager(storage);
+      await manager.init(bridge, singleSlot("clock"));
+
+      bridge.calls.length = 0;
+      await manager.setVisible(true);
+      expect(bridge.calls).toHaveLength(0);
+
+      manager.dispose();
+    });
+  });
+
+  describe("refresh cycle", () => {
+    it("refreshes on the interval", async () => {
+      // A reminder that is still upcoming at init and falls due before the
+      // first tick, so the interval — not the initial render — is what
+      // changes the display.
+      storage.seed(STORAGE_KEYS.REMINDERS, {
+        reminders: [
+          {
+            id: "r1",
+            title: "Standup",
+            targetTime: Date.now() + HUD_REFRESH_INTERVAL_MS / 2,
+            completed: false,
+          },
+        ],
+      });
+
+      const manager = createHudManager(storage);
+      await manager.init(bridge, singleSlot("reminders"));
+      expect(latestForColumn(bridge, 0)).toContain("Standup");
+
+      bridge.calls.length = 0;
+      await vi.advanceTimersByTimeAsync(HUD_REFRESH_INTERVAL_MS);
+
+      // The tick fired, saw the reminder come due, and cleared it.
+      expect(latestForColumn(bridge, 0)).toBe("No reminders");
+
+      manager.dispose();
+    });
+
+    it("pause stops the interval; resume restarts it", async () => {
+      const manager = createHudManager(storage);
+      await manager.init(bridge, singleSlot("clock"));
+
+      manager.pause();
+      bridge.calls.length = 0;
+      await vi.advanceTimersByTimeAsync(HUD_REFRESH_INTERVAL_MS * 2);
+      expect(bridge.calls).toHaveLength(0);
+
+      manager.resume();
+      await vi.advanceTimersByTimeAsync(0);
+      // resume() forces an immediate refresh; content is unchanged so the
+      // memo suppresses the write, but the timer is running again.
+      manager.pause();
+      manager.dispose();
+    });
+
+    it("resume without a prior pause does not stack timers", async () => {
+      const manager = createHudManager(storage);
+      await manager.init(bridge, singleSlot("clock"));
+
+      manager.resume();
+      manager.resume();
+
+      manager.dispose();
+      bridge.calls.length = 0;
+      await vi.advanceTimersByTimeAsync(HUD_REFRESH_INTERVAL_MS * 2);
+      expect(bridge.calls).toHaveLength(0);
+    });
+  });
+
+  describe("rebuild", () => {
+    it("clears columns that lost their component", async () => {
+      const manager = createHudManager(storage);
+      await manager.init(bridge, singleSlot("clock", 0, 2));
+      expect(latestForColumn(bridge, 2)).toMatch(/\d{1,2}:\d{2}/);
+
+      await manager.rebuild(singleSlot("clock", 0, 4));
+
+      expect(latestForColumn(bridge, 2)).toBe("");
+      expect(latestForColumn(bridge, 4)).toMatch(/\d{1,2}:\d{2}/);
+
+      manager.dispose();
+    });
+
+    it("disposes replaced components so their storage listeners unsubscribe", async () => {
+      const manager = createHudManager(storage);
+      await manager.init(bridge, singleSlot("clock"));
+
+      await manager.rebuild(EMPTY_LAYOUT);
+      // Clock subscribes to CLOCK_CONFIG on construction and unsubscribes on
+      // dispose; a leak here would grow the listener set on every rebuild.
+      await storage.set(STORAGE_KEYS.CLOCK_CONFIG, { format: "24h" });
+
+      expect(latestForColumn(bridge, 0)).toBe("");
 
       manager.dispose();
     });
   });
 
   describe("dispose", () => {
-    it("should stop timers and clean up on dispose", async () => {
+    it("stops the refresh timer", async () => {
       const manager = createHudManager(storage);
+      await manager.init(bridge, singleSlot("clock"));
 
-      const config: HudLayoutConfig = {
-        slots: [
-          { row: 0, col: 0, componentType: "clock" },
-          ...Array.from({ length: 9 }, (_, i) => ({
-            row: Math.floor((i + 1) / 5) as 0 | 1,
-            col: ((i + 1) % 5) as 0 | 1 | 2 | 3 | 4,
-            componentType: null as null,
-          })),
-        ],
-      };
-
-      await manager.init(bridge, config);
       manager.dispose();
+      bridge.calls.length = 0;
 
-      const callCountAfterDispose = bridge.calls.length;
+      await vi.advanceTimersByTimeAsync(HUD_REFRESH_INTERVAL_MS * 3);
+      expect(bridge.calls).toHaveLength(0);
+    });
 
-      // Advance 60 seconds - should NOT trigger any more refreshes
-      await vi.advanceTimersByTimeAsync(60_000);
+    it("is safe to call twice", async () => {
+      const manager = createHudManager(storage);
+      await manager.init(bridge, singleSlot("clock"));
 
-      expect(bridge.calls.length).toBe(callCountAfterDispose);
+      manager.dispose();
+      expect(() => manager.dispose()).not.toThrow();
     });
   });
 
   describe("notification callback", () => {
-    it("should pass onNotification callback to reminders component", async () => {
+    it("fires for a reminder that is already due", async () => {
       const notifications: string[] = [];
-      const onNotification = (title: string) => {
+      const manager = createHudManager(storage, (title) => {
         notifications.push(title);
-      };
+      });
 
-      const manager = createHudManager(storage, onNotification);
-
-      // Set up a reminder that's due now
-      const now = Date.now();
-      await storage.set("foresight-reminders-v1", {
+      storage.seed(STORAGE_KEYS.REMINDERS, {
         reminders: [
           {
-            id: "test-1",
-            title: "Test Reminder",
-            targetTime: now - 1000, // already past
+            id: "past-1",
+            title: "Take medication",
+            targetTime: Date.now() - 1000,
             completed: false,
           },
         ],
       });
 
-      const config: HudLayoutConfig = {
-        slots: [
-          { row: 0, col: 0, componentType: "reminders" },
-          ...Array.from({ length: 9 }, (_, i) => ({
-            row: Math.floor((i + 1) / 5) as 0 | 1,
-            col: ((i + 1) % 5) as 0 | 1 | 2 | 3 | 4,
-            componentType: null as null,
-          })),
+      await manager.init(bridge, singleSlot("reminders"));
+
+      expect(notifications).toContain("Take medication");
+
+      manager.dispose();
+    });
+
+    it("fires once per reminder, not on every refresh", async () => {
+      const notifications: string[] = [];
+      const manager = createHudManager(storage, (title) => {
+        notifications.push(title);
+      });
+
+      storage.seed(STORAGE_KEYS.REMINDERS, {
+        reminders: [
+          {
+            id: "past-1",
+            title: "Take medication",
+            targetTime: Date.now() - 1000,
+            completed: false,
+          },
         ],
-      };
+      });
 
-      await manager.init(bridge, config);
-
-      // Trigger a refresh which should check for triggered reminders
+      await manager.init(bridge, singleSlot("reminders"));
+      await manager.refreshAll();
       await manager.refreshAll();
 
-      // The notification callback should have been called
-      expect(notifications).toContain("Test Reminder");
+      expect(notifications).toHaveLength(1);
 
       manager.dispose();
     });

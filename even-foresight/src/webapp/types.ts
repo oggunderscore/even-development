@@ -1,6 +1,8 @@
 // Feature: foresight-webapp-ui
 // Shared interfaces, types, constants, and defaults for the Foresight webapp UI.
 
+import { STORAGE_KEYS as SCHEMA_KEYS } from "../storage/schemas";
+
 // --- Core View/Navigation Interfaces ---
 
 export interface ViewRoute {
@@ -90,26 +92,34 @@ export interface WidgetPlacement {
  */
 export type HudGrid = WidgetPlacement[];
 
-// --- HUD Mode ---
+// --- HUD Sleep (inactivity timer) ---
 
-export type HudMode = "always-on" | "hidden";
+/**
+ * `always-on` keeps the HUD lit indefinitely. `inactivity-timer` blanks it
+ * after `displayDurationSeconds` without input, so the HUD is not sitting in
+ * the wearer's field of view all day; any gesture wakes it again.
+ *
+ * `"hidden"` is the pre-rename value and is still accepted when reading
+ * stored configs so existing installs keep their setting.
+ */
+export type HudMode = "always-on" | "inactivity-timer";
 
 export interface HudModeConfig {
   mode: HudMode;
 }
 
-// --- HUD Duration ---
-
 export interface HudDurationConfig {
-  displayDurationSeconds: number; // now restricted to 3 | 5 | 8 | 10 | 15
+  /** Seconds of inactivity before the HUD sleeps. */
+  displayDurationSeconds: number;
 }
 
-// --- General Settings ---
-
-export interface GeneralSettings {
-  clockFormat: "12h" | "24h";
-  temperatureUnit: "fahrenheit" | "celsius";
-  notificationDurationSeconds: number; // 3–15, 1s increments
+/**
+ * Normalises a stored mode, mapping the legacy `"hidden"` value forward.
+ */
+export function normalizeHudMode(mode: unknown): HudMode {
+  return mode === "inactivity-timer" || mode === "hidden"
+    ? "inactivity-timer"
+    : "always-on";
 }
 
 // --- Debug Panel ---
@@ -150,15 +160,25 @@ export interface WeatherPayload {
 
 // --- Storage Key Constants ---
 
+/**
+ * Webapp-facing view of the shared key list.
+ *
+ * Derived from `storage/schemas` rather than redeclared: the two used to be
+ * independent literals, which is how the phone and the glasses ended up able
+ * to disagree about which key held what.
+ */
 export const STORAGE_KEYS = {
-  ASSISTANT_CONFIG: "foresight-assistant-config-v1",
-  WEATHER_LOCATION: "foresight-weather-location-v1",
-  HUD_DURATION: "foresight-hud-duration-v1",
-  HUD_MODE: "foresight-hud-mode-v1",
-  HUD_LAYOUT: "foresight-hud-layout-v1",
-  GENERAL_SETTINGS: "foresight-general-settings-v1",
-  DEBUG_LOG: "foresight-debug-log-v1",
-  INSTALLED_APPS: "foresight-installed-apps-v1",
+  ASSISTANT_CONFIG: SCHEMA_KEYS.ASSISTANT_CONFIG,
+  WEATHER_LOCATION: SCHEMA_KEYS.WEATHER_LOCATION,
+  WEATHER_CONFIG: SCHEMA_KEYS.WEATHER_CONFIG,
+  CLOCK_CONFIG: SCHEMA_KEYS.CLOCK_CONFIG,
+  REMINDERS: SCHEMA_KEYS.REMINDERS,
+  HUD_DURATION: SCHEMA_KEYS.HUD_SLEEP_DELAY,
+  HUD_MODE: SCHEMA_KEYS.HUD_SLEEP,
+  HUD_LAYOUT: SCHEMA_KEYS.HUD_LAYOUT,
+  DOUBLE_TAP_DELAY: SCHEMA_KEYS.DOUBLE_TAP_DELAY,
+  DEBUG_LOG: SCHEMA_KEYS.DEBUG_LOG,
+  INSTALLED_APPS: SCHEMA_KEYS.INSTALLED_APPS,
 } as const;
 
 // --- Default Values ---
@@ -210,13 +230,7 @@ export const DEFAULT_WEATHER_LOCATION: WeatherLocationConfig = {
 };
 
 export const DEFAULT_HUD_DURATION: HudDurationConfig = {
-  displayDurationSeconds: 5,
-};
-
-export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
-  clockFormat: "12h",
-  temperatureUnit: "fahrenheit",
-  notificationDurationSeconds: 5,
+  displayDurationSeconds: 15,
 };
 
 export const DEFAULT_HUD_MODE: HudModeConfig = {
@@ -225,6 +239,11 @@ export const DEFAULT_HUD_MODE: HudModeConfig = {
 
 export const DEFAULT_HUD_LAYOUT: HudGrid = [];
 
-export const DURATION_OPTIONS = [3, 5, 8, 10, 15] as const;
+/**
+ * Selectable inactivity delays, in seconds. Longer than the old banner-style
+ * 3-15s range because this now governs how long the HUD stays lit between
+ * glances, not how long a notification is shown.
+ */
+export const DURATION_OPTIONS = [5, 10, 15, 30, 60] as const;
 
 export const DEFAULT_DEBUG_LOG: DebugMessage[] = [];

@@ -12,4 +12,6 @@ export interface MenuSystem {
   moveUp(): void;
   select(): Promise<void>;
   readonly isVisible: boolean;
+  /** Cancel the auto-dismiss timer. Call on app shutdown. */
+  dispose(): void;
 }

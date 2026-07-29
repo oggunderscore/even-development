@@ -6,6 +6,7 @@ import {
   createMenuSystem,
 } from "./menu-system";
 import type { MenuEntry } from "./types";
+import { CONTAINER, CONTAINER_NAME } from "../constants";
 
 // ─── Pure Function Tests ──────────────────────────────────────────────────────
 
@@ -117,16 +118,21 @@ describe("createMenuSystem", () => {
       expect(menu.isVisible).toBe(true);
     });
 
-    it("calls rebuildPageContainer with container 2", async () => {
+    it("writes into the dedicated menu container, never rebuilding the page", async () => {
       const bridge = createMockBridge();
       const entries = createMockEntries(3);
       const menu = createMenuSystem(bridge, entries);
 
       await menu.show();
 
-      expect(bridge.rebuildPageContainer).toHaveBeenCalledTimes(1);
-      const call = bridge.rebuildPageContainer.mock.calls[0][0];
-      expect(call.containerTotalNum).toBe(1);
+      // A rebuild would replace every container on the page and take the HUD
+      // columns with it, so the menu must only ever upgrade text in place.
+      expect(bridge.rebuildPageContainer).not.toHaveBeenCalled();
+      expect(bridge.textContainerUpgrade).toHaveBeenCalledTimes(1);
+
+      const call = bridge.textContainerUpgrade.mock.calls[0][0];
+      expect(call.containerID).toBe(CONTAINER.MENU);
+      expect(call.containerName).toBe(CONTAINER_NAME.MENU);
     });
 
     it("does not show menu when zero entries and calls onNoApps", async () => {
@@ -138,7 +144,7 @@ describe("createMenuSystem", () => {
 
       expect(menu.isVisible).toBe(false);
       expect(onNoApps).toHaveBeenCalledTimes(1);
-      expect(bridge.rebuildPageContainer).not.toHaveBeenCalled();
+      expect(bridge.textContainerUpgrade).not.toHaveBeenCalled();
     });
 
     it("does nothing if already visible", async () => {
@@ -149,8 +155,8 @@ describe("createMenuSystem", () => {
       await menu.show();
       await menu.show();
 
-      // Only one rebuildPageContainer call
-      expect(bridge.rebuildPageContainer).toHaveBeenCalledTimes(1);
+      // Only one render
+      expect(bridge.textContainerUpgrade).toHaveBeenCalledTimes(1);
     });
 
     it("limits entries to 10 maximum", async () => {
@@ -161,8 +167,7 @@ describe("createMenuSystem", () => {
       await menu.show();
 
       // Should have been rendered with only 10 entries
-      const call = bridge.rebuildPageContainer.mock.calls[0][0];
-      const content = call.textObject[0].content;
+      const content = bridge.textContainerUpgrade.mock.calls[0][0].content;
       const lines = content.split("\n");
       expect(lines.length).toBe(10);
     });
@@ -190,7 +195,8 @@ describe("createMenuSystem", () => {
       await menu.hide();
 
       // 2 calls: one for show (render menu), one for hide (clear)
-      expect(bridge.rebuildPageContainer).toHaveBeenCalledTimes(2);
+      expect(bridge.textContainerUpgrade).toHaveBeenCalledTimes(2);
+      expect(bridge.textContainerUpgrade.mock.calls[1][0].content).toBe("");
     });
 
     it("does nothing if not visible", async () => {
@@ -200,7 +206,7 @@ describe("createMenuSystem", () => {
 
       await menu.hide();
 
-      expect(bridge.rebuildPageContainer).not.toHaveBeenCalled();
+      expect(bridge.textContainerUpgrade).not.toHaveBeenCalled();
     });
 
     it("resets highlight to 0", async () => {
@@ -215,11 +221,7 @@ describe("createMenuSystem", () => {
 
       // Re-show should start at index 0
       await menu.show();
-      const call =
-        bridge.rebuildPageContainer.mock.calls[
-          bridge.rebuildPageContainer.mock.calls.length - 1
-        ][0];
-      const content = call.textObject[0].content;
+      const content = bridge.textContainerUpgrade.mock.calls.at(-1)![0].content;
       expect(content.startsWith("> ")).toBe(true);
     });
   });
@@ -459,8 +461,7 @@ describe("createMenuSystem", () => {
 
       await menu.show();
 
-      const call = bridge.rebuildPageContainer.mock.calls[0][0];
-      const content = call.textObject[0].content;
+      const content = bridge.textContainerUpgrade.mock.calls[0][0].content;
       // "> " prefix + truncated name
       expect(content).toBe("> A Very Long Appli...");
     });

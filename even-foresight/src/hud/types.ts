@@ -21,6 +21,11 @@ export interface HudManager {
   init(bridge: any, config: HudLayoutConfig): Promise<void>;
   rebuild(config: HudLayoutConfig): Promise<void>;
   refreshAll(): Promise<void>;
+  /** Show or clear HUD content without tearing down components. */
+  setVisible(visible: boolean): Promise<void>;
+  isVisible(): boolean;
+  /** Forget memoized container content after a page rebuild. */
+  invalidate(): void;
   pause(): void;
   resume(): void;
   dispose(): void;

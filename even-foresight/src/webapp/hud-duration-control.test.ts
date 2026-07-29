@@ -1,14 +1,8 @@
-// @vitest-environment jsdom
-
-// Feature: hud-settings-refinement
-// Unit tests for HudDurationControl — dropdown + mode toggle.
-// Validates: Requirements 6.1, 6.2, 6.3, 6.4, 7.1, 7.3, 7.5
+// Unit tests for HudDurationControl — the HUD inactivity timer.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHudDurationControl } from "./hud-duration-control";
-import { STORAGE_KEYS } from "./types";
-
-// --- Mock Bridge ---
+import { STORAGE_KEYS, DURATION_OPTIONS } from "./types";
 
 function createMockBridge(storage: Record<string, string> = {}) {
   return {
@@ -29,6 +23,15 @@ function createFailingBridge() {
   };
 }
 
+/** Finds a mode button by its visible label. */
+function modeButton(root: HTMLElement, label: string): HTMLButtonElement {
+  const button = Array.from(root.querySelectorAll(".hud-mode-btn")).find(
+    (b) => b.textContent === label,
+  );
+  if (!button) throw new Error(`No mode button labelled "${label}"`);
+  return button as HTMLButtonElement;
+}
+
 describe("HudDurationControl", () => {
   let container: HTMLElement;
 
@@ -38,13 +41,12 @@ describe("HudDurationControl", () => {
   });
 
   afterEach(() => {
-    document.body.removeChild(container);
+    container.remove();
   });
 
   describe("Rendering", () => {
-    it("dropdown renders with 5 options: 3, 5, 8, 10, 15 seconds", () => {
-      const bridge = createMockBridge();
-      const control = createHudDurationControl({ bridge });
+    it("dropdown offers exactly the supported inactivity delays", () => {
+      const control = createHudDurationControl({ bridge: createMockBridge() });
       control.mount(container);
 
       const select = container.querySelector(
@@ -52,33 +54,28 @@ describe("HudDurationControl", () => {
       ) as HTMLSelectElement;
       expect(select).not.toBeNull();
 
-      const options = select.querySelectorAll("option");
-      expect(options.length).toBe(5);
-
-      const values = Array.from(options).map((o) => Number(o.value));
-      expect(values).toEqual([3, 5, 8, 10, 15]);
+      const values = Array.from(select.querySelectorAll("option")).map((o) =>
+        Number(o.value),
+      );
+      expect(values).toEqual([...DURATION_OPTIONS]);
 
       control.unmount();
     });
 
-    it("mode toggle renders with 'Always On' and 'Hidden' buttons", () => {
-      const bridge = createMockBridge();
-      const control = createHudDurationControl({ bridge });
+    it("mode toggle renders 'Never Sleep' and 'Sleep After' buttons", () => {
+      const control = createHudDurationControl({ bridge: createMockBridge() });
       control.mount(container);
 
-      const buttons = container.querySelectorAll(".hud-mode-btn");
-      expect(buttons.length).toBe(2);
-
-      const labels = Array.from(buttons).map((b) => b.textContent);
-      expect(labels).toContain("Always On");
-      expect(labels).toContain("Hidden");
+      const labels = Array.from(
+        container.querySelectorAll(".hud-mode-btn"),
+      ).map((b) => b.textContent);
+      expect(labels).toEqual(["Never Sleep", "Sleep After"]);
 
       control.unmount();
     });
 
     it("explanatory text is present", () => {
-      const bridge = createMockBridge();
-      const control = createHudDurationControl({ bridge });
+      const control = createHudDurationControl({ bridge: createMockBridge() });
       control.mount(container);
 
       const explanation = container.querySelector(".hud-duration-explanation");
@@ -92,9 +89,8 @@ describe("HudDurationControl", () => {
   });
 
   describe("Default values", () => {
-    it("default mode is 'always-on'", () => {
-      const bridge = createMockBridge();
-      const control = createHudDurationControl({ bridge });
+    it("defaults to never sleeping", () => {
+      const control = createHudDurationControl({ bridge: createMockBridge() });
       control.mount(container);
 
       expect(control.getMode()).toBe("always-on");
@@ -102,93 +98,71 @@ describe("HudDurationControl", () => {
       control.unmount();
     });
 
-    it("default duration is 5 seconds", () => {
-      const bridge = createMockBridge();
-      const control = createHudDurationControl({ bridge });
+    it("defaults to a 15 second delay", () => {
+      const control = createHudDurationControl({ bridge: createMockBridge() });
       control.mount(container);
 
-      expect(control.getValue()).toBe(5);
-
-      control.unmount();
-    });
-
-    it("getValue() returns 5", () => {
-      const bridge = createMockBridge();
-      const control = createHudDurationControl({ bridge });
-      control.mount(container);
-
-      expect(control.getValue()).toBe(5);
-
-      control.unmount();
-    });
-
-    it("getMode() returns 'always-on'", () => {
-      const bridge = createMockBridge();
-      const control = createHudDurationControl({ bridge });
-      control.mount(container);
-
-      expect(control.getMode()).toBe("always-on");
+      expect(control.getValue()).toBe(15);
 
       control.unmount();
     });
   });
 
   describe("Mode toggle", () => {
-    it("clicking 'Hidden' sets mode to 'hidden'", () => {
-      const bridge = createMockBridge();
-      const control = createHudDurationControl({ bridge });
+    it("clicking 'Sleep After' switches to the inactivity timer", () => {
+      const control = createHudDurationControl({ bridge: createMockBridge() });
       control.mount(container);
 
-      const hiddenBtn = Array.from(
-        container.querySelectorAll(".hud-mode-btn"),
-      ).find((b) => b.textContent === "Hidden") as HTMLButtonElement;
+      modeButton(container, "Sleep After").click();
 
-      hiddenBtn.click();
-
-      expect(control.getMode()).toBe("hidden");
+      expect(control.getMode()).toBe("inactivity-timer");
 
       control.unmount();
     });
 
-    it("clicking 'Always On' sets mode back to 'always-on'", () => {
-      const bridge = createMockBridge();
-      const control = createHudDurationControl({ bridge });
+    it("clicking 'Never Sleep' switches back", () => {
+      const control = createHudDurationControl({ bridge: createMockBridge() });
       control.mount(container);
 
-      // First switch to hidden
-      const hiddenBtn = Array.from(
-        container.querySelectorAll(".hud-mode-btn"),
-      ).find((b) => b.textContent === "Hidden") as HTMLButtonElement;
-      hiddenBtn.click();
-      expect(control.getMode()).toBe("hidden");
-
-      // Switch back to always-on
-      const alwaysOnBtn = Array.from(
-        container.querySelectorAll(".hud-mode-btn"),
-      ).find((b) => b.textContent === "Always On") as HTMLButtonElement;
-      alwaysOnBtn.click();
+      modeButton(container, "Sleep After").click();
+      modeButton(container, "Never Sleep").click();
 
       expect(control.getMode()).toBe("always-on");
 
       control.unmount();
     });
 
-    it("mode change persists to STORAGE_KEYS.HUD_MODE", async () => {
-      const bridge = createMockBridge();
+    it("reflects the active mode with aria-pressed", () => {
+      const control = createHudDurationControl({ bridge: createMockBridge() });
+      control.mount(container);
+
+      modeButton(container, "Sleep After").click();
+
+      expect(
+        modeButton(container, "Sleep After").getAttribute("aria-pressed"),
+      ).toBe("true");
+      expect(
+        modeButton(container, "Never Sleep").getAttribute("aria-pressed"),
+      ).toBe("false");
+
+      control.unmount();
+    });
+
+    it("persists mode and delay together", async () => {
+      const storage: Record<string, string> = {};
+      const bridge = createMockBridge(storage);
       const control = createHudDurationControl({ bridge });
       control.mount(container);
 
-      const hiddenBtn = Array.from(
-        container.querySelectorAll(".hud-mode-btn"),
-      ).find((b) => b.textContent === "Hidden") as HTMLButtonElement;
-      hiddenBtn.click();
+      modeButton(container, "Sleep After").click();
 
-      // Wait for async persist call
       await vi.waitFor(() => {
-        expect(bridge.setLocalStorage).toHaveBeenCalledWith(
-          STORAGE_KEYS.HUD_MODE,
-          JSON.stringify({ mode: "hidden" }),
-        );
+        expect(JSON.parse(storage[STORAGE_KEYS.HUD_MODE])).toEqual({
+          mode: "inactivity-timer",
+        });
+        expect(
+          JSON.parse(storage[STORAGE_KEYS.HUD_DURATION]).displayDurationSeconds,
+        ).toBe(control.getValue());
       });
 
       control.unmount();
@@ -196,9 +170,8 @@ describe("HudDurationControl", () => {
   });
 
   describe("Dropdown behavior", () => {
-    it("dropdown is disabled when mode is 'always-on'", () => {
-      const bridge = createMockBridge();
-      const control = createHudDurationControl({ bridge });
+    it("dropdown is disabled while the HUD never sleeps", () => {
+      const control = createHudDurationControl({ bridge: createMockBridge() });
       control.mount(container);
 
       const select = container.querySelector(
@@ -206,93 +179,112 @@ describe("HudDurationControl", () => {
       ) as HTMLSelectElement;
       expect(select.disabled).toBe(true);
 
-      control.unmount();
-    });
-
-    it("dropdown is enabled when mode is 'hidden'", () => {
-      const bridge = createMockBridge();
-      const control = createHudDurationControl({ bridge });
-      control.mount(container);
-
-      // Switch to hidden mode
-      const hiddenBtn = Array.from(
-        container.querySelectorAll(".hud-mode-btn"),
-      ).find((b) => b.textContent === "Hidden") as HTMLButtonElement;
-      hiddenBtn.click();
-
-      const select = container.querySelector(
-        ".hud-duration-select",
-      ) as HTMLSelectElement;
+      modeButton(container, "Sleep After").click();
       expect(select.disabled).toBe(false);
 
       control.unmount();
     });
 
-    it("selecting a value persists to STORAGE_KEYS.HUD_DURATION", async () => {
-      const bridge = createMockBridge();
+    it("selecting a value persists it", async () => {
+      const storage: Record<string, string> = {};
+      const bridge = createMockBridge(storage);
       const control = createHudDurationControl({ bridge });
       control.mount(container);
 
-      // Switch to hidden mode first so dropdown is enabled
-      const hiddenBtn = Array.from(
-        container.querySelectorAll(".hud-mode-btn"),
-      ).find((b) => b.textContent === "Hidden") as HTMLButtonElement;
-      hiddenBtn.click();
+      modeButton(container, "Sleep After").click();
 
       const select = container.querySelector(
         ".hud-duration-select",
       ) as HTMLSelectElement;
-      select.value = "10";
+      select.value = "30";
       select.dispatchEvent(new Event("change"));
 
+      expect(control.getValue()).toBe(30);
       await vi.waitFor(() => {
-        expect(bridge.setLocalStorage).toHaveBeenCalledWith(
-          STORAGE_KEYS.HUD_DURATION,
-          JSON.stringify({ displayDurationSeconds: 10 }),
-        );
+        expect(
+          JSON.parse(storage[STORAGE_KEYS.HUD_DURATION]).displayDurationSeconds,
+        ).toBe(30);
       });
 
       control.unmount();
     });
 
-    it("info label visible when always-on, hidden when in hidden mode", () => {
-      const bridge = createMockBridge();
-      const control = createHudDurationControl({ bridge });
+    it("info label visible when never sleeping, hidden when a timer is set", () => {
+      const control = createHudDurationControl({ bridge: createMockBridge() });
       control.mount(container);
 
       const infoLabel = container.querySelector(
         ".hud-duration-info-label",
       ) as HTMLElement;
-
-      // In always-on mode (default), info label is visible
       expect(infoLabel.style.display).toBe("block");
 
-      // Switch to hidden mode
-      const hiddenBtn = Array.from(
-        container.querySelectorAll(".hud-mode-btn"),
-      ).find((b) => b.textContent === "Hidden") as HTMLButtonElement;
-      hiddenBtn.click();
-
-      // Info label should be hidden
+      modeButton(container, "Sleep After").click();
       expect(infoLabel.style.display).toBe("none");
 
       control.unmount();
     });
   });
 
-  describe("Error handling", () => {
-    it("when bridge save fails, error message is displayed", async () => {
-      const bridge = createFailingBridge();
+  describe("Loading saved values", () => {
+    it("restores a saved inactivity timer", async () => {
+      const bridge = createMockBridge({
+        [STORAGE_KEYS.HUD_MODE]: JSON.stringify({ mode: "inactivity-timer" }),
+        [STORAGE_KEYS.HUD_DURATION]: JSON.stringify({
+          displayDurationSeconds: 30,
+        }),
+      });
       const control = createHudDurationControl({ bridge });
       control.mount(container);
 
-      // Click hidden to trigger a mode persist
-      const hiddenBtn = Array.from(
-        container.querySelectorAll(".hud-mode-btn"),
-      ).find((b) => b.textContent === "Hidden") as HTMLButtonElement;
-      hiddenBtn.click();
+      await vi.waitFor(() => {
+        expect(control.getMode()).toBe("inactivity-timer");
+        expect(control.getValue()).toBe(30);
+      });
 
-      // Wait for the async save to fail and error to appear
+      control.unmount();
+    });
+
+    it("migrates the legacy 'hidden' mode value", async () => {
+      const bridge = createMockBridge({
+        [STORAGE_KEYS.HUD_MODE]: JSON.stringify({ mode: "hidden" }),
+      });
+      const control = createHudDurationControl({ bridge });
+      control.mount(container);
+
+      await vi.waitFor(() => {
+        expect(control.getMode()).toBe("inactivity-timer");
+      });
+
+      control.unmount();
+    });
+
+    it("snaps a delay that is no longer selectable to the nearest option", async () => {
+      const bridge = createMockBridge({
+        // 8s was an option before the range was widened for idle timing.
+        [STORAGE_KEYS.HUD_DURATION]: JSON.stringify({
+          displayDurationSeconds: 8,
+        }),
+      });
+      const control = createHudDurationControl({ bridge });
+      control.mount(container);
+
+      await vi.waitFor(() => {
+        expect(control.getValue()).toBe(10);
+      });
+
+      control.unmount();
+    });
+  });
+
+  describe("Error handling", () => {
+    it("shows an error when the bridge save fails", async () => {
+      const control = createHudDurationControl({
+        bridge: createFailingBridge(),
+      });
+      control.mount(container);
+
+      modeButton(container, "Sleep After").click();
+
       await vi.waitFor(() => {
         const errorEl = container.querySelector(
           ".hud-duration-error",
@@ -302,6 +294,36 @@ describe("HudDurationControl", () => {
       });
 
       control.unmount();
+    });
+
+    it("clears the error once a save succeeds", async () => {
+      const storage: Record<string, string> = {};
+      const control = createHudDurationControl({
+        bridge: createMockBridge(storage),
+      });
+      control.mount(container);
+
+      modeButton(container, "Sleep After").click();
+
+      await vi.waitFor(() => {
+        const errorEl = container.querySelector(
+          ".hud-duration-error",
+        ) as HTMLElement;
+        expect(errorEl.style.display).toBe("none");
+      });
+
+      control.unmount();
+    });
+  });
+
+  describe("unmount", () => {
+    it("removes the rendered subtree", () => {
+      const control = createHudDurationControl({ bridge: createMockBridge() });
+      control.mount(container);
+      expect(container.querySelector(".hud-duration-container")).not.toBeNull();
+
+      control.unmount();
+      expect(container.querySelector(".hud-duration-container")).toBeNull();
     });
   });
 });

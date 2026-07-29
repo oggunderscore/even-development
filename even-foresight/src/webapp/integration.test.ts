@@ -7,9 +7,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createViewRouter } from "./view-router";
 import { createNavigationBar } from "./navigation-bar";
 import { loadConfig, saveConfig } from "./storage-helpers";
-import { createGeneralSettingsForm } from "./general-settings-form";
-import type { ViewRoute, NavTab, GeneralSettings } from "./types";
-import { STORAGE_KEYS, DEFAULT_GENERAL_SETTINGS } from "./types";
+import type { ViewRoute, NavTab, HudModeConfig } from "./types";
+import { STORAGE_KEYS, DEFAULT_HUD_MODE } from "./types";
 
 // --- Mock Bridge ---
 
@@ -194,25 +193,21 @@ describe("Integration: Bridge save/load round-trip", () => {
     const storage: Record<string, string> = {};
     const bridge = createMockBridge(storage);
 
-    const config: GeneralSettings = {
-      clockFormat: "24h",
-      temperatureUnit: "celsius",
-      notificationDurationSeconds: 10,
-    };
+    const config: HudModeConfig = { mode: "inactivity-timer" };
 
-    await saveConfig(bridge, STORAGE_KEYS.GENERAL_SETTINGS, config);
+    await saveConfig(bridge, STORAGE_KEYS.HUD_MODE, config);
 
     // Verify bridge was called with serialized data
     expect(bridge.setLocalStorage).toHaveBeenCalledWith(
-      STORAGE_KEYS.GENERAL_SETTINGS,
+      STORAGE_KEYS.HUD_MODE,
       JSON.stringify(config),
     );
 
     // Load it back from the bridge
-    const loaded = await loadConfig<GeneralSettings>(
+    const loaded = await loadConfig<HudModeConfig>(
       bridge,
-      STORAGE_KEYS.GENERAL_SETTINGS,
-      DEFAULT_GENERAL_SETTINGS,
+      STORAGE_KEYS.HUD_MODE,
+      DEFAULT_HUD_MODE,
     );
 
     expect(loaded).toEqual(config);
@@ -240,73 +235,5 @@ describe("Integration: Bridge save/load round-trip", () => {
     );
 
     expect(loaded).toEqual(assistantConfig);
-  });
-});
-
-describe("Integration: Settings page load populates from bridge within 3s", () => {
-  let container: HTMLElement;
-
-  beforeEach(() => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-  });
-
-  afterEach(() => {
-    document.body.removeChild(container);
-  });
-
-  it("GeneralSettingsForm loads saved values from bridge on mount", async () => {
-    const savedSettings: GeneralSettings = {
-      clockFormat: "24h",
-      temperatureUnit: "celsius",
-      notificationDurationSeconds: 12,
-    };
-
-    const storage: Record<string, string> = {
-      [STORAGE_KEYS.GENERAL_SETTINGS]: JSON.stringify(savedSettings),
-    };
-    const bridge = createMockBridge(storage);
-
-    const form = createGeneralSettingsForm({ bridge });
-    form.mount(container);
-
-    // Wait for async loadSettings to complete (microtask)
-    await vi.waitFor(
-      () => {
-        const settings = form.getSettings();
-        expect(settings.clockFormat).toBe("24h");
-        expect(settings.temperatureUnit).toBe("celsius");
-        expect(settings.notificationDurationSeconds).toBe(12);
-      },
-      { timeout: 3000 },
-    );
-
-    // Verify bridge was called to load settings
-    expect(bridge.getLocalStorage).toHaveBeenCalledWith(
-      STORAGE_KEYS.GENERAL_SETTINGS,
-    );
-
-    form.unmount();
-  });
-
-  it("GeneralSettingsForm uses defaults when bridge has no saved data", async () => {
-    const storage: Record<string, string> = {};
-    const bridge = createMockBridge(storage);
-
-    const form = createGeneralSettingsForm({ bridge });
-    form.mount(container);
-
-    // Wait for async load to complete
-    await vi.waitFor(
-      () => {
-        const settings = form.getSettings();
-        expect(settings.clockFormat).toBe("12h");
-        expect(settings.temperatureUnit).toBe("fahrenheit");
-        expect(settings.notificationDurationSeconds).toBe(5);
-      },
-      { timeout: 3000 },
-    );
-
-    form.unmount();
   });
 });

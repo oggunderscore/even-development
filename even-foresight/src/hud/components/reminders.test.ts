@@ -257,6 +257,9 @@ describe("createRemindersComponent", () => {
         return (data.get(key) as T) ?? null;
       },
       async set<T>(key: string, value: T): Promise<void> {
+        this.setCached(key, value);
+      },
+      setCached<T>(key: string, value: T): void {
         data.set(key, value);
         const keyListeners = listeners.get(key);
         if (keyListeners) {

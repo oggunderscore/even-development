@@ -8,6 +8,8 @@ export interface ViewRouter {
   register(route: ViewRoute): void;
   navigate(id: string): void;
   getActiveId(): string;
+  /** Unmount the active view and forget it. Call when tearing down the shell. */
+  reset(): void;
 }
 
 /**
@@ -46,6 +48,13 @@ export function createViewRouter(container: HTMLElement): ViewRouter {
 
     getActiveId(): string {
       return activeId;
+    },
+
+    reset(): void {
+      if (activeId) {
+        routes.get(activeId)?.unmount();
+        activeId = "";
+      }
     },
   };
 }

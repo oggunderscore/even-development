@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import * as fc from "fast-check";
-import { isCacheValid, renderWeatherContent } from "./weather";
+import {
+  isCacheValid,
+  renderWeatherContent,
+  convertTemperature,
+} from "./weather";
 import type { WeatherConfig, WeatherCondition } from "../../storage/schemas";
 
 /**
@@ -64,16 +68,72 @@ describe("Feature: even-hub, Property 4: Weather Render Content Completeness", (
         (cache, config) => {
           const rendered = renderWeatherContent(cache, false, config);
 
-          // Temperature should appear as rounded integer string
-          const roundedTemp = Math.round(cache.temperature);
-          expect(rendered).toContain(String(roundedTemp));
+          // The temperature is converted into the configured unit, so the
+          // number and the label always describe the same reading even when
+          // the cache was fetched in the other unit.
+          const expected = Math.round(
+            convertTemperature(cache.temperature, cache.unit, config.unit),
+          );
+          expect(rendered).toContain(String(expected));
 
-          // Unit label should be present
-          const expectedUnitLabel = cache.unit === "celsius" ? "°C" : "°F";
+          const expectedUnitLabel = config.unit === "celsius" ? "°C" : "°F";
           expect(rendered).toContain(expectedUnitLabel);
         },
       ),
       { numRuns: 100 },
+    );
+  });
+
+  it("never labels a rendered reading with the unit it was not converted to", () => {
+    fc.assert(
+      fc.property(
+        arbWeatherCache,
+        arbWeatherConfigWithLocation,
+        (cache, config) => {
+          const rendered = renderWeatherContent(cache, false, config);
+          const wrongLabel = config.unit === "celsius" ? "°F" : "°C";
+          expect(rendered).not.toContain(wrongLabel);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+describe("convertTemperature", () => {
+  it("is the identity when the units match", () => {
+    fc.assert(
+      fc.property(arbTemperature, arbUnit, (value, unit) => {
+        expect(convertTemperature(value, unit, unit)).toBe(value);
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it("round-trips back to the original value", () => {
+    fc.assert(
+      fc.property(arbTemperature, arbUnit, arbUnit, (value, from, to) => {
+        const there = convertTemperature(value, from, to);
+        const back = convertTemperature(there, to, from);
+        expect(back).toBeCloseTo(value, 6);
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it("matches the known anchor points", () => {
+    expect(convertTemperature(32, "fahrenheit", "celsius")).toBeCloseTo(0, 6);
+    expect(convertTemperature(212, "fahrenheit", "celsius")).toBeCloseTo(
+      100,
+      6,
+    );
+    expect(convertTemperature(-40, "fahrenheit", "celsius")).toBeCloseTo(
+      -40,
+      6,
+    );
+    expect(convertTemperature(100, "celsius", "fahrenheit")).toBeCloseTo(
+      212,
+      6,
     );
   });
 });

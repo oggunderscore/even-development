@@ -6,6 +6,11 @@ export interface ProfileHeaderOptions {
   username: string | null;
   email: string | null;
   avatarUrl: string | null;
+  /**
+   * Renders a "Sign Out" item in the dropdown when provided. Without it there
+   * is no reachable sign-out control anywhere in the app.
+   */
+  onSignOut?: () => void;
 }
 
 export interface ProfileHeader {
@@ -45,7 +50,7 @@ export function getAvatarInitial(username: string): string {
 export function createProfileHeader(
   options: ProfileHeaderOptions,
 ): ProfileHeader {
-  const { container } = options;
+  const { container, onSignOut } = options;
   let username = options.username;
   let email = options.email;
   let avatarUrl = options.avatarUrl;
@@ -132,6 +137,20 @@ export function createProfileHeader(
       emailLine.className = "profile-header-dropdown-email";
       emailLine.textContent = email;
       dropdown.appendChild(emailLine);
+    }
+
+    if (onSignOut) {
+      const signOutBtn = document.createElement("button");
+      signOutBtn.type = "button";
+      signOutBtn.className = "profile-header-signout";
+      signOutBtn.setAttribute("role", "menuitem");
+      signOutBtn.textContent = "Sign Out";
+      signOutBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeDropdown();
+        onSignOut();
+      });
+      dropdown.appendChild(signOutBtn);
     }
 
     wrapper.appendChild(dropdown);
