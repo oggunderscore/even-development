@@ -239,8 +239,11 @@ export async function startGlassesRuntime(
     // often than it could ever reach its target. Per the docs, iOS keeps
     // running through a background with no special handling needed; Android
     // may suspend the WebView outright, which pausing here can't prevent —
-    // if it happens, this handler doesn't run either. So there is nothing
-    // useful to do with these events beyond noting them.
+    // if it happens, this handler doesn't run either. FOREGROUND_ENTER is
+    // still useful, though: it's the moment we're guaranteed to be resuming
+    // from whatever throttling happened, so catch up explicitly right here
+    // (nothing else below would, since this branch returns before reaching
+    // the general catch-up call).
     if (
       sysType === OsEventTypeList.FOREGROUND_EXIT_EVENT ||
       sysType === OsEventTypeList.FOREGROUND_ENTER_EVENT
@@ -250,11 +253,27 @@ export async function startGlassesRuntime(
           ? "LIFECYCLE: PHONE BACKGROUND"
           : "LIFECYCLE: PHONE FOREGROUND",
       );
+      home?.catchUpAfterPossibleThrottling();
       return;
     }
 
     input.handleEvent(event);
     pressAdapter.handleEvent(event);
+
+    // Runs AFTER classification/dispatch, not before: a real gesture has
+    // already called noteActivity() by this point (via dispatchGesture,
+    // above), which resets the "last activity" clock to right now — so the
+    // stale-sleep half of the catch-up below correctly sees nothing
+    // overdue for the very gesture that's currently arriving, instead of
+    // sleeping the HUD and then immediately waking it again one event
+    // handler later. This call still matters for events that *don't*
+    // produce a classified gesture (raw "unknown" events, of which there
+    // can be several between real taps) and to opportunistically refresh
+    // HUD content the scheduled interval may have missed. See
+    // `home-screen.ts#catchUpAfterPossibleThrottling`'s doc comment for the
+    // underlying "background WebViews throttle timers" issue this exists
+    // to work around.
+    home?.catchUpAfterPossibleThrottling();
   });
 
   const onBeforeUnload = (): void => dispose();

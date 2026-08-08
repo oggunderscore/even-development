@@ -289,6 +289,40 @@ preset list (`DURATION_OPTIONS`) is gone, not just hidden.
   browser tab that never fires this event) but not on real hardware. Don't
   re-add that wiring; `HomeScreen` no longer even exposes `pause()`/`resume()`.
 - Sleeping only blanks content; components keep refreshing so waking is instant.
+- **Removing the `pause()`/`resume()` wiring above was necessary but not
+  sufficient.** Real mobile WebViews (Android in particular) suspend or
+  heavily throttle `setInterval`/`setTimeout` *on their own*, independent of
+  anything this app's code does, while the phone is locked or backgrounded
+  — confirmed against the docs and against `reference/community/
+  pomodoro-even-g2`, which hits the identical problem. So even with our own
+  pause/resume bug gone, the inactivity-sleep `setTimeout`
+  (`armSleepTimer`) and the HUD's 60s refresh `setInterval`
+  (`hud-manager.ts`) can still silently fire late or not at all — matching
+  reports of "Sleep After 15s" never engaging and the HUD (clock, weather,
+  the aftermath of a pushed notification) appearing to update only once
+  every several minutes instead of continuously. Fixed with
+  `home-screen.ts#catchUpAfterPossibleThrottling()`: never trust a
+  scheduled callback's cadence, recompute "should this have happened by
+  now" from wall-clock-elapsed time, and run that check wherever the JS
+  context is *known* to be alive — every raw SDK event
+  (`runtime.ts#bridge.onEvenHubEvent`) and explicitly on
+  `FOREGROUND_ENTER_EVENT`. Ordering inside that handler matters: the
+  catch-up call runs **after** `input.handleEvent`/gesture dispatch, not
+  before — a real gesture already calls `noteActivity()` (resets the
+  "last activity" clock) via `dispatchGesture`, so checking staleness
+  *first* would occasionally sleep the HUD and then immediately wake it
+  again one line later for the very gesture that just arrived (caught
+  live in the simulator during development, not just reasoned about — a
+  double-tap closing the Notification_Center would leave the HUD visibly
+  blanked afterward). `FOREGROUND_EXIT/ENTER` still gets its own explicit
+  catch-up call in that branch, since it returns early before reaching the
+  general one. No equivalent fix exists for the weather *fetch* itself —
+  `even-realities-docs/reference/faq.md` confirms network calls genuinely
+  cannot happen while the WebView is backgrounded, so a stale weather
+  reading only ever re-fetches once the app is foregrounded again, no
+  matter what JS-side workaround is used; the catch-up mechanism's job
+  there is just to make sure that refetch actually happens immediately
+  when foreground resumes; instead of waiting for the next scheduled tick.
 
 ---
 

@@ -313,6 +313,81 @@ describe("createHomeScreen", () => {
     });
   });
 
+  describe("catchUpAfterPossibleThrottling", () => {
+    // Real mobile WebViews suspend/throttle setInterval and setTimeout while
+    // backgrounded (the normal state for a glasses wearer, per
+    // background-lifecycle.md) — so these simulate that directly: move the
+    // fake wall clock forward with vi.setSystemTime WITHOUT advancing fake
+    // timers, meaning any pending setTimeout/setInterval callback that
+    // "should" have fired by now provably has not. Calling
+    // catchUpAfterPossibleThrottling() must self-correct anyway.
+
+    function configureSleep(seconds: number): void {
+      storage.seed(STORAGE_KEYS.HUD_SLEEP, { mode: "inactivity-timer" });
+      storage.seed(STORAGE_KEYS.HUD_SLEEP_DELAY, {
+        displayDurationSeconds: seconds,
+      });
+    }
+
+    it("puts an overdue-for-sleep HUD to sleep even though the scheduled timer never fired", async () => {
+      configureSleep(15);
+      const home = createHomeScreen({ bridge: bridge as any, storage });
+      await home.start();
+      expect(home.isHudAwake).toBe(true);
+
+      vi.setSystemTime(Date.now() + 30_000); // well past 15s, timer never ran
+
+      home.catchUpAfterPossibleThrottling();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(home.isHudAwake).toBe(false);
+      home.dispose();
+    });
+
+    it("does not sleep early when not actually overdue", async () => {
+      configureSleep(15);
+      const home = createHomeScreen({ bridge: bridge as any, storage });
+      await home.start();
+
+      vi.setSystemTime(Date.now() + 5_000); // short of 15s
+
+      home.catchUpAfterPossibleThrottling();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(home.isHudAwake).toBe(true);
+      home.dispose();
+    });
+
+    it("refreshes stale HUD content (e.g. the clock) even if the 60s refresh interval never fired", async () => {
+      storage.seed(STORAGE_KEYS.HUD_LAYOUT, [
+        { widgetId: "clock", col: 0, row: 0 },
+      ]);
+      const home = createHomeScreen({ bridge: bridge as any, storage });
+      await home.start();
+      await vi.advanceTimersByTimeAsync(0);
+      const initialClock = latest(bridge, CONTAINER.HUD_COL_BASE);
+
+      // 5 minutes pass with no interval tick — matches the reported "HUD
+      // only updates once every ~5 minutes" symptom.
+      vi.setSystemTime(Date.now() + 5 * 60 * 1000);
+
+      home.catchUpAfterPossibleThrottling();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(latest(bridge, CONTAINER.HUD_COL_BASE)).toMatch(/\d{1,2}:\d{2}/);
+      expect(latest(bridge, CONTAINER.HUD_COL_BASE)).not.toBe(initialClock);
+      home.dispose();
+    });
+
+    it("is a no-op before start() and after dispose()", () => {
+      const home = createHomeScreen({ bridge: bridge as any, storage });
+      expect(() => home.catchUpAfterPossibleThrottling()).not.toThrow();
+
+      home.dispose();
+      expect(() => home.catchUpAfterPossibleThrottling()).not.toThrow();
+    });
+  });
+
   describe("config changes", () => {
     it("applies a new HUD layout without a page rebuild", async () => {
       const home = createHomeScreen({ bridge: bridge as any, storage });

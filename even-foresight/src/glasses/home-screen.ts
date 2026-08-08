@@ -96,6 +96,13 @@ export interface HomeScreen {
   applyConfigChange(key: string, value: unknown): void;
   /** Pushes a banner from the phone's Debug tab, bypassing any real source app. */
   pushDebugNotification(text: string): void;
+  /**
+   * Self-correcting catch-up for state a throttled/suspended background
+   * WebView may have missed (overdue sleep, stale HUD content). Call on
+   * every raw SDK event and on `FOREGROUND_ENTER_EVENT`. See the
+   * implementation's doc comment for why this exists.
+   */
+  catchUpAfterPossibleThrottling(): void;
   dispose(): void;
   // Exposed for tests and diagnostics.
   readonly isMenuOpen: boolean;
@@ -199,6 +206,8 @@ export function createHomeScreen(deps: HomeScreenDeps): HomeScreen {
   let sleepTimer: ReturnType<typeof setTimeout> | null = null;
   let sleepDelayMs: number | null = null; // null = never sleep
   let disposed = false;
+  /** Wall-clock time of the last input/notification activity. See `catchUpAfterPossibleThrottling`. */
+  let lastActivityAt = Date.now();
 
   function currentLayout(): HudLayoutConfig {
     return hudGridToLayoutConfig(
@@ -267,12 +276,60 @@ export function createHomeScreen(deps: HomeScreenDeps): HomeScreen {
    */
   function noteHudActivityForNotification(): void {
     hudAsleep = false;
+    lastActivityAt = Date.now();
     armSleepTimer();
   }
 
   /** Any user input postpones sleep. */
   function noteActivity(): void {
+    lastActivityAt = Date.now();
     if (!hudAsleep) armSleepTimer();
+  }
+
+  /**
+   * Self-correcting catch-up for state a throttled/suspended background
+   * WebView may have missed, called wherever we're guaranteed to be
+   * running un-throttled: every raw SDK event (proves the JS context is
+   * alive right now, whatever it is) and explicitly on
+   * `FOREGROUND_ENTER_EVENT` (`runtime.ts`).
+   *
+   * Real mobile WebViews (Android in particular) suspend or heavily
+   * throttle `setInterval`/`setTimeout` while the phone is locked or the
+   * host app is backgrounded — per `even-realities-docs/build/
+   * background-lifecycle.md` this is documented platform behavior, not a
+   * bug, and for a glasses wearer it's the *normal* operating condition
+   * (phone in a pocket), not an edge case. That silently broke two things
+   * that only ever trusted a scheduled callback to fire on time: the
+   * inactivity-sleep `setTimeout` (`armSleepTimer`) and the HUD's 60s
+   * refresh `setInterval` (`hud-manager.ts`) — matching reports of "Sleep
+   * After 15s" never engaging, and the HUD (clock, weather, a pushed
+   * notification's aftermath) appearing to update only once every several
+   * minutes instead of continuously. `reference/community/pomodoro-even-g2`
+   * hits the identical problem and fixes it the same way: never trust
+   * timer cadence, recompute from wall-clock elapsed time, and force a
+   * catch-up the moment the page is known to be running again.
+   *
+   * Both actions here are safe to run unconditionally and often: a sleep
+   * check that finds nothing overdue is a no-op, and `hud.refreshAll()`
+   * costs zero BLE traffic when nothing actually changed
+   * (`HudSlotRenderer` memoizes per-container writes).
+   */
+  function catchUpAfterPossibleThrottling(): void {
+    if (disposed || !hud) return;
+
+    // The sleep setTimeout may have been due minutes ago and simply never
+    // fired. Don't wait for it — if it's overdue, act now.
+    if (
+      !hudAsleep &&
+      sleepDelayMs !== null &&
+      Date.now() - lastActivityAt >= sleepDelayMs
+    ) {
+      void sleepHud();
+    }
+
+    // The periodic refresh may have been silently skipped or delayed —
+    // opportunistically refresh rather than only trusting its own cadence.
+    void hud.refreshAll();
   }
 
   // ── Menu ordering ───────────────────────────────────────────────────────
@@ -684,6 +741,8 @@ export function createHomeScreen(deps: HomeScreenDeps): HomeScreen {
       });
       noteHudActivityForNotification();
     },
+
+    catchUpAfterPossibleThrottling,
 
     dispose(): void {
       disposed = true;
