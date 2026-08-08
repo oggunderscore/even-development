@@ -501,6 +501,36 @@ the simulator at `http://localhost:5174/seed.html`, then relaunch it against
 
 ## Known open items
 
+- **Real-hardware taps (both touchpad and ring) are classifying as `"unknown"`
+  in `classifyEvent`, not `"tap"` — confirmed 2026-08-08 via the phone's own
+  Debug tab log showing `EVENT (unrecognised)` and (from `press-adapter.ts`)
+  `PRESS ADAPTER: non-touchpad event, ignored`, on a device with the phone
+  never locked/backgrounded (rules out throttling as the cause here). This is
+  the actual explanation for two symptoms previously chalked up to BLE
+  contention: menu-select not registering while swipe does, and notification
+  expand not registering — both require a `tap` gesture that was never
+  actually being emitted; scroll classifies correctly (`SCROLL_TOP_EVENT`/
+  `SCROLL_BOTTOM_EVENT` match), taps don't. Root cause not yet found — the SDK
+  (`^0.0.10`, `dist/index.cjs`) is minified/obfuscated so its `eventType`
+  normalization (`OsEventTypeList.fromJson`, referenced in the `.d.ts`
+  comment) couldn't be read directly to compare against what `classifyEvent`
+  expects (`{ textEvent: {} }` with `eventType: undefined`). Added
+  `describeEvent()` in `input-router.ts` so the *next* real-device tap logs
+  its actual raw `sysEvent`/`textEvent`/`listEvent`/`audioEvent` shape as
+  `UNK: ...` directly in the phone's Debug tab (no native WebView console
+  access needed) — that capture is the needed next step before attempting a
+  fix, since two rounds of guessing without hardware data already failed to
+  resolve the real symptoms. Do not "fix" this by loosening the tap
+  classifier's `eventType === undefined` check further without that data —
+  the existing looseness there is already exactly what a bare `sysEvent`
+  false-positive comment above warns against re-introducing.
+- **`HUD: SLEEP` logs but the HUD doesn't visually blank on real hardware**
+  (same session, same report) — `sleepHud()` ran (`hudAsleep` flips,
+  `hud.setVisible(false)` awaited, the log line fires) but the display stayed
+  lit. Not yet investigated; may be a separate issue from the tap
+  misclassification above, or may share a root cause if `hud.setVisible`'s
+  bridge call has the same real-vs-simulator gap taps do. No fix attempted
+  yet — needs its own real-device evidence before guessing.
 - **`hold` is classified and routed, but never produced.** `classifyPress`,
   `HOLD_THRESHOLD_MS`, `routeGesture`'s `hold` targets, and the whole path from
   `press-adapter.ts` through `runtime.ts` to `home.handleHold()` are all wired.

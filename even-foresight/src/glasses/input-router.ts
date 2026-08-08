@@ -16,6 +16,29 @@ export type Gesture = "tap" | "double-tap" | "scroll-up" | "scroll-down";
 export type RawInput = Gesture | "exit" | "unknown";
 
 /**
+ * Compact, bounded dump of a raw event's `sysEvent`/`textEvent`/`listEvent`/
+ * `audioEvent` payload, for the "unrecognised" diagnostic. Real-hardware taps
+ * were observed classifying as "unknown" with no way to see *why* from the
+ * phone's debug log alone (only the native WebView console had the raw
+ * object, via `press-adapter.ts`'s `console.log`) — this surfaces the actual
+ * shape in the same in-app log the phone UI already shows.
+ */
+function describeEvent(event: unknown): string {
+  try {
+    const obj = event as Record<string, unknown> | null | undefined;
+    const keys = ["sysEvent", "textEvent", "listEvent", "audioEvent"] as const;
+    const present = keys.filter((k) => obj?.[k] !== undefined);
+    const body =
+      present.length > 0
+        ? present.map((k) => `${k}=${JSON.stringify(obj?.[k])}`).join(" ")
+        : JSON.stringify(obj);
+    return body.length > 160 ? `${body.slice(0, 160)}…` : body;
+  } catch {
+    return "<unserializable>";
+  }
+}
+
+/**
  * Classifies one raw SDK event.
  *
  * CLICK_EVENT is 0, and protobuf omits zero-valued fields, so a tap arrives
@@ -154,7 +177,7 @@ export function createInputRouter(handlers: InputRouterHandlers): InputRouter {
           handlers.onGesture(input);
           return;
         default:
-          handlers.onDiagnostic?.("EVENT (unrecognised)");
+          handlers.onDiagnostic?.(`UNK: ${describeEvent(event)}`);
       }
     },
 
