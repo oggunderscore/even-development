@@ -1,0 +1,78 @@
+name: Foresight — build
+
+# Rolling "latest" build for ad-hoc beta testing. Runs on every push to
+# master that touches even-foresight/, and overwrites the single
+# `foresight-latest` pre-release rather than creating a new one each time —
+# see foresight-release.yml for permanent, deliberately-tagged versions.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "even-foresight/**"
+      - ".github/workflows/foresight-build.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: foresight-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: even-foresight
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: even-foresight/package-lock.json
+
+      - run: npm ci
+
+      - run: npm test
+
+      - run: npm run build
+
+      - name: Install Even Hub CLI
+        run: npm install -g @evenrealities/evenhub-cli
+
+      - name: Pack .ehpk
+        run: evenhub pack app.json dist -o foresight.ehpk
+
+      # Kept as a per-run artifact too (90-day retention), for pinning down
+      # exactly which commit produced a given build after foresight-latest
+      # has since moved on.
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: foresight-${{ github.sha }}
+          path: even-foresight/foresight.ehpk
+          retention-days: 90
+
+      - name: Publish/replace the rolling latest pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: foresight-latest
+          name: "Foresight — latest build"
+          body: |
+            Automatically rebuilt from commit ${{ github.sha }} on every push
+            to `master` that touches `even-foresight/`. **Not** a tagged
+            version — this file is replaced on the next push, so don't rely
+            on this link staying the same build. For a permanent version,
+            push a `foresight-v*` tag instead.
+
+            Download `foresight.ehpk` below, then upload it in the
+            [Even Hub developer portal](https://hub.evenrealities.com/login)
+            — Private builds tab for a personal smoke test, or push it to a
+            Beta group to install via the phone app's Beta tester section.
+          prerelease: true
+          files: even-foresight/foresight.ehpk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

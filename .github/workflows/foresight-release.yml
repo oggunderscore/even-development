@@ -1,0 +1,58 @@
+name: Foresight — tagged release
+
+# Permanent, deliberately-created versions — push a tag like `foresight-v0.2.0`
+# once you've verified a build (e.g. via the foresight-latest rolling build
+# in foresight-build.yml) and want to keep it around. Unlike that workflow,
+# this one is NOT path-filtered: tagging is already a deliberate act, and
+# GitHub's `paths` filter has known-flaky interaction with tag pushes, so
+# it's left out entirely here rather than risk a tag silently not building.
+on:
+  push:
+    tags:
+      - "foresight-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: even-foresight
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: even-foresight/package-lock.json
+
+      - run: npm ci
+
+      - run: npm test
+
+      - run: npm run build
+
+      - name: Install Even Hub CLI
+        run: npm install -g @evenrealities/evenhub-cli
+
+      - name: Pack .ehpk
+        run: evenhub pack app.json dist -o foresight.ehpk
+
+      - name: Publish permanent release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Foresight ${{ github.ref_name }}"
+          body: |
+            Tagged build from commit ${{ github.sha }}.
+
+            Download `foresight.ehpk` below, then upload it in the
+            [Even Hub developer portal](https://hub.evenrealities.com/login)
+            — Private builds tab for a personal smoke test, or push it to a
+            Beta group to install via the phone app's Beta tester section.
+          prerelease: false
+          files: even-foresight/foresight.ehpk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
