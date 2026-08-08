@@ -87,6 +87,69 @@ describe("createNotificationSystem", () => {
     expect(system.isVisible).toBe(false);
   });
 
+  describe("checkTimeoutElapsed", () => {
+    it("dismisses a banner overdue for auto-dismiss even if its setTimeout never fired", async () => {
+      const system = createNotificationSystem(mockBridge, mockStorage, {
+        defaultDuration: 5,
+      });
+      system.push(makeNotification("1"));
+      expect(system.isVisible).toBe(true);
+
+      // Wall clock moves past the duration WITHOUT running fake timers —
+      // simulates the setTimeout having been throttled away rather than
+      // firing on schedule.
+      vi.setSystemTime(Date.now() + 6000);
+
+      system.checkTimeoutElapsed();
+      // Dismissal archives to history first (an awaited storage.set()), so
+      // the state commit lands a microtask later than this call returns —
+      // same as every other dispatch()-driven method here.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(system.isVisible).toBe(false);
+    });
+
+    it("is a no-op when not overdue", () => {
+      const system = createNotificationSystem(mockBridge, mockStorage, {
+        defaultDuration: 5,
+      });
+      system.push(makeNotification("1"));
+
+      vi.setSystemTime(Date.now() + 2000);
+      system.checkTimeoutElapsed();
+
+      expect(system.isVisible).toBe(true);
+    });
+
+    it("is a no-op when idle (no timer running)", () => {
+      const system = createNotificationSystem(mockBridge, mockStorage);
+      expect(() => system.checkTimeoutElapsed()).not.toThrow();
+      expect(system.isVisible).toBe(false);
+    });
+
+    it("does not re-dismiss after a manual swipe-dismiss already cleared the timer", async () => {
+      const system = createNotificationSystem(mockBridge, mockStorage, {
+        defaultDuration: 5,
+      });
+      system.push(makeNotification("1"));
+      system.push(makeNotification("2"));
+      system.handleSwipeDismiss(); // advances to "2", starts a fresh timer
+      await Promise.resolve();
+      await Promise.resolve();
+
+      vi.setSystemTime(Date.now() + 100);
+      system.checkTimeoutElapsed();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // "2" hasn't been up anywhere near 5s yet, so it must still be showing.
+      expect(system.isVisible).toBe(true);
+      const calls = mockBridge.textContainerUpgrade.mock.calls;
+      expect(calls[calls.length - 1][0].content).toBe("Notification 2");
+    });
+  });
+
   it("advances to the next queued notification after auto-dismiss", async () => {
     const system = createNotificationSystem(mockBridge, mockStorage, {
       defaultDuration: 5,

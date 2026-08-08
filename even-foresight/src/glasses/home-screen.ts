@@ -73,6 +73,7 @@ import {
   SUBAPP_HEIGHT,
   SUBAPP_WIDTH,
   SUBAPP_Y_OFFSET,
+  HUD_REFRESH_INTERVAL_MS,
 } from "../constants";
 
 export interface HomeScreenDeps {
@@ -208,6 +209,8 @@ export function createHomeScreen(deps: HomeScreenDeps): HomeScreen {
   let disposed = false;
   /** Wall-clock time of the last input/notification activity. See `catchUpAfterPossibleThrottling`. */
   let lastActivityAt = Date.now();
+  /** Wall-clock time of the last HUD refresh (scheduled or catch-up-triggered). See `catchUpAfterPossibleThrottling`. */
+  let lastHudRefreshAt = Date.now();
 
   function currentLayout(): HudLayoutConfig {
     return hudGridToLayoutConfig(
@@ -309,10 +312,24 @@ export function createHomeScreen(deps: HomeScreenDeps): HomeScreen {
    * timer cadence, recompute from wall-clock elapsed time, and force a
    * catch-up the moment the page is known to be running again.
    *
-   * Both actions here are safe to run unconditionally and often: a sleep
-   * check that finds nothing overdue is a no-op, and `hud.refreshAll()`
-   * costs zero BLE traffic when nothing actually changed
-   * (`HudSlotRenderer` memoizes per-container writes).
+   * This function is called on *every* raw SDK event, including scrolls and
+   * taps mid-interaction, so each check inside it has to earn that: the
+   * sleep check is naturally cheap (a comparison, occasionally a
+   * `setVisible(false)`), but `hud.refreshAll()` is not free just because
+   * unchanged *content* is memoized away by `HudSlotRenderer` — the refresh
+   * cycle itself still composes every slot and issues a bridge call per
+   * column that actually changed (the clock changes most calls, since it
+   * ticks by the minute). Calling it unconditionally on every gesture was
+   * tried first and reverted after real-hardware reports of menu selection
+   * and notification-expand taps intermittently not registering right
+   * after this shipped — the leading theory is those taps' own bridge
+   * calls competing with a HUD refresh's for real, limited BLE bandwidth,
+   * fired at the worst possible moment (the same event that triggered the
+   * catch-up). Unconfirmed on hardware, but low-risk to fix regardless: so
+   * this is wall-clock-gated exactly like the sleep check, not "run
+   * whenever possible": at most once per `HUD_REFRESH_INTERVAL_MS`, same
+   * as its normal scheduled cadence, just self-correcting if that
+   * schedule's own timer was the one that got throttled.
    */
   function catchUpAfterPossibleThrottling(): void {
     if (disposed || !hud) return;
@@ -327,9 +344,17 @@ export function createHomeScreen(deps: HomeScreenDeps): HomeScreen {
       void sleepHud();
     }
 
-    // The periodic refresh may have been silently skipped or delayed —
-    // opportunistically refresh rather than only trusting its own cadence.
-    void hud.refreshAll();
+    // The banner/expanded auto-dismiss timer has the identical throttling
+    // exposure as the sleep timer above — same fix, same reasoning.
+    notifications?.checkTimeoutElapsed();
+
+    // The periodic refresh may have been silently skipped or delayed, but
+    // only catch it up at its own cadence — see the doc comment above for
+    // why this isn't unconditional.
+    if (Date.now() - lastHudRefreshAt >= HUD_REFRESH_INTERVAL_MS) {
+      lastHudRefreshAt = Date.now();
+      void hud.refreshAll();
+    }
   }
 
   // ── Menu ordering ───────────────────────────────────────────────────────

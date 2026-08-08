@@ -323,6 +323,38 @@ preset list (`DURATION_OPTIONS`) is gone, not just hidden.
   matter what JS-side workaround is used; the catch-up mechanism's job
   there is just to make sure that refetch actually happens immediately
   when foreground resumes; instead of waiting for the next scheduled tick.
+- **`catchUpAfterPossibleThrottling`'s `hud.refreshAll()` call is
+  wall-clock-gated to at most once per `HUD_REFRESH_INTERVAL_MS`, NOT
+  unconditional.** An earlier version called it every single time — every
+  raw event, so every scroll and tap — reasoning that `HudSlotRenderer`
+  memoizes unchanged *content* so it'd be "free." It isn't: the refresh
+  cycle still composes every slot and writes whatever *did* change (the
+  clock, typically, since it ticks by the minute), and doing that on every
+  gesture measurably increases BLE traffic right at the moment a gesture's
+  own bridge calls need to go out. Real-hardware reports of menu selection
+  and notification-expand taps intermittently not registering appeared
+  after that version shipped — unconfirmed as the root cause, but cheap to
+  fix regardless, so it's gated the same way the sleep check already was.
+  If you're tempted to make this "more responsive" by calling it more
+  often, don't, without confirming BLE bandwidth isn't the constraint on
+  real hardware first.
+- **The notification banner/expanded view's own auto-dismiss has the
+  identical throttling exposure as the sleep timer** — it's also a plain
+  `setTimeout` (`notification-system.ts`'s `"start-timer"` effect), so it
+  can just as easily never fire while backgrounded, leaving old
+  notification text stuck on screen (and, combined with the HUD-blanking
+  behavior in the "Container allocation" section above, cutting into
+  whatever HUD content was blanked underneath it — since that only gets
+  restored when the banner actually clears). Fixed the same way:
+  `NotificationSystem.checkTimeoutElapsed()` recomputes from a tracked
+  `dismissDueAt` wall-clock timestamp rather than trusting the callback,
+  called from the same `catchUpAfterPossibleThrottling()`. Note for tests:
+  dismissal archives to `Notification_History` first (an awaited
+  `storage.set()`), so `isVisible` doesn't flip synchronously when you call
+  `checkTimeoutElapsed()` — same as every other `dispatch()`-driven method
+  on this interface, `push()` included; flush a microtask or two before
+  asserting, don't `await` a fake timer (there may be none pending to
+  advance, by design — that's the scenario being tested).
 
 ---
 

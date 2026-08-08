@@ -133,6 +133,20 @@ export interface NotificationSystem {
   handleCenterClose(): void;
   handleHold(): void;
   confirmClearHistory(): void;
+  /**
+   * Self-correcting catch-up for the banner/expanded auto-dismiss timer,
+   * mirroring `home-screen.ts#catchUpAfterPossibleThrottling` (call it from
+   * the same places — see that method's doc comment for why: real mobile
+   * WebViews throttle/suspend `setTimeout` while backgrounded, so the timer
+   * `push()` starts to auto-dismiss a banner may simply never fire, leaving
+   * an old notification's text stuck over the HUD indefinitely). Recomputes
+   * "is the current banner/expanded view overdue to dismiss" from
+   * wall-clock elapsed time instead of trusting the scheduled callback, and
+   * dispatches the same `"duration-elapsed"` event that callback would
+   * have. A no-op when no timer is running (idle, or a phase the timer
+   * doesn't apply to).
+   */
+  checkTimeoutElapsed(): void;
   readonly isVisible: boolean;
   readonly isCenterVisible: boolean;
   readonly state: NotificationState;
@@ -203,12 +217,21 @@ export function createNotificationSystem(
   };
 
   let dismissTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Wall-clock time `dismissTimer` is due to fire, or `null` when no timer
+   * is running. Exists so `checkTimeoutElapsed()` can recompute "should this
+   * already have dismissed" from elapsed time instead of trusting the
+   * `setTimeout` callback to fire on schedule — see that method's doc
+   * comment for why.
+   */
+  let dismissDueAt: number | null = null;
 
   function clearDismissTimer(): void {
     if (dismissTimer !== null) {
       clearTimeout(dismissTimer);
       dismissTimer = null;
     }
+    dismissDueAt = null;
   }
 
   /**
@@ -225,6 +248,7 @@ export function createNotificationSystem(
           break;
         case "start-timer":
           clearDismissTimer();
+          dismissDueAt = Date.now() + effect.durationMs;
           dismissTimer = setTimeout(() => {
             void dispatch({ type: "duration-elapsed" });
           }, effect.durationMs);
@@ -454,6 +478,12 @@ export function createNotificationSystem(
 
     confirmClearHistory(): void {
       void dispatch({ type: "confirm-clear" });
+    },
+
+    checkTimeoutElapsed(): void {
+      if (dismissDueAt !== null && Date.now() >= dismissDueAt) {
+        void dispatch({ type: "duration-elapsed" });
+      }
     },
 
     get isVisible(): boolean {

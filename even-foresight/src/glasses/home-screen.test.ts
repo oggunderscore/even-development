@@ -12,6 +12,8 @@ import {
   HUD_COLS,
   SCROLL_DEBOUNCE_MS,
   SCHEDULER_TICK_INTERVAL_MS,
+  HUD_REFRESH_INTERVAL_MS,
+  BANNER_DEFAULT_DURATION_S,
 } from "../constants";
 
 function createMockBridge() {
@@ -376,6 +378,52 @@ describe("createHomeScreen", () => {
 
       expect(latest(bridge, CONTAINER.HUD_COL_BASE)).toMatch(/\d{1,2}:\d{2}/);
       expect(latest(bridge, CONTAINER.HUD_COL_BASE)).not.toBe(initialClock);
+      home.dispose();
+    });
+
+    it("does not refresh again within HUD_REFRESH_INTERVAL_MS of the last catch-up (avoids flooding BLE traffic on rapid gestures)", async () => {
+      storage.seed(STORAGE_KEYS.HUD_LAYOUT, [
+        { widgetId: "clock", col: 0, row: 0 },
+      ]);
+      const home = createHomeScreen({ bridge: bridge as any, storage });
+      await home.start();
+      await vi.advanceTimersByTimeAsync(0);
+      bridge.textContainerUpgrade.mockClear();
+
+      // A burst of gestures in quick succession, well inside the interval —
+      // e.g. rapid menu scrolling. None of these should trigger a fresh
+      // HUD refresh; only the gesture's own (menu) container write happens.
+      const burstStepMs = Math.floor(HUD_REFRESH_INTERVAL_MS / 10);
+      for (let i = 0; i < 5; i++) {
+        vi.setSystemTime(Date.now() + burstStepMs);
+        home.catchUpAfterPossibleThrottling();
+        await vi.advanceTimersByTimeAsync(0);
+      }
+
+      expect(bridge.textContainerUpgrade).not.toHaveBeenCalledWith(
+        expect.objectContaining({ containerID: CONTAINER.HUD_COL_BASE }),
+      );
+      home.dispose();
+    });
+
+    it("dismisses an overdue banner even if its own setTimeout never fired", async () => {
+      const home = createHomeScreen({ bridge: bridge as any, storage });
+      await home.start();
+      await vi.advanceTimersByTimeAsync(0);
+
+      home.pushDebugNotification("yes");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(latest(bridge, CONTAINER.BANNER)).toBe("yes");
+
+      // Past the banner's configured duration, but the dismiss timer never
+      // actually runs (no advanceTimersByTime) — simulates it having been
+      // throttled away in a backgrounded WebView.
+      vi.setSystemTime(Date.now() + (BANNER_DEFAULT_DURATION_S + 1) * 1000);
+
+      home.catchUpAfterPossibleThrottling();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(latest(bridge, CONTAINER.BANNER)).toBe("");
       home.dispose();
     });
 
