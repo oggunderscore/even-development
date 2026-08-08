@@ -19,6 +19,7 @@ import { createMarketplaceView } from "./marketplace-view";
 import { createWeatherConfigForm } from "./weather-config-form";
 import { createClockConfigForm } from "./clock-config-form";
 import { createTasksConfigForm } from "./tasks-config-form";
+import { createSmarterEverydayConfigForm } from "./smarter-everyday-config-form";
 import { DEFAULT_APPS } from "./types";
 import { STORAGE_KEYS } from "../storage/schemas";
 
@@ -32,6 +33,7 @@ const APP_ROUTES: Record<string, string> = {
   weather: "weather-config",
   clock: "clock-config",
   tasks: "tasks-config",
+  "smarter-everyday": "smarter-everyday-config",
 };
 
 interface StoredProfile {
@@ -194,6 +196,12 @@ export function mountPhoneUI(bridge: any | null): PhoneUI {
     router.register(
       createTasksConfigForm({ bridge, onBack: () => navigate("apps") }),
     );
+    router.register(
+      createSmarterEverydayConfigForm({
+        bridge,
+        onBack: () => navigate("apps"),
+      }),
+    );
     router.register(createSettingsView({ bridge }));
     router.register(createDebugPanel({ bridge }));
     router.register(
@@ -301,7 +309,8 @@ export function mountPhoneUI(bridge: any | null): PhoneUI {
   });
 
   registerBtn.addEventListener("click", () => {
-    const username = el<HTMLInputElement>("register-username")?.value.trim() ?? "";
+    const username =
+      el<HTMLInputElement>("register-username")?.value.trim() ?? "";
     const email = el<HTMLInputElement>("register-email")?.value.trim() ?? "";
     const password = el<HTMLInputElement>("register-password")?.value ?? "";
     const status = el("register-status");

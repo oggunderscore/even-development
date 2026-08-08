@@ -134,8 +134,11 @@ export function createRemindersComponent(
         if (onNotification) {
           onNotification(reminder.title);
         }
-        // Mark as completed
+        // Mark as completed. `completedAt` starts the 5s undo window the
+        // Reminders list (src/reminders/) shows before deleting it, whether
+        // or not that screen is open right now.
         reminder.completed = true;
+        reminder.completedAt = now;
         storeChanged = true;
       }
     }

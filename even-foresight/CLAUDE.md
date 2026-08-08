@@ -18,7 +18,8 @@ index.html  (one WebView, hosted by the Even Realities phone app)
 ├── phone half  → the DOM the wearer touches on their phone
 │                 src/webapp/*, entered via src/webapp/phone-ui.ts
 └── glasses half → the 576x288 monochrome display, driven via the SDK bridge
-                  src/glasses/*, src/hud/*, src/menu/*, src/banner/*
+                  src/glasses/*, src/hud/*, src/menu/*, src/notification/*,
+                  src/sub-app/*, src/smarter-everyday/*
 ```
 
 Both halves run **in the same JS context and share one localStorage.** That is
@@ -46,9 +47,20 @@ The glasses page is built **once**, by a single `rebuildPageContainer` in
 | 0-4 | `hud-col-N` | y=0, 115x54 each   | HUD columns 0-4               |
 | 5   | `menu`      | y=64, 576x224      | App launcher (`isEventCapture`) |
 | 6   | `banner`    | y=0, 576x54        | Notifications, drawn on top   |
+| 7   | `subapp`    | y=115, 576x173     | Active `SubApp`'s render surface |
 
 Defined once in `src/constants.ts` (`CONTAINER`, `CONTAINER_NAME`). Never
 hard-code a container ID anywhere else.
+
+**All 8 non-image containers are now allocated.** A new surface has to share an
+existing container rather than add one — and sharing needs care, because the
+notification system already borrows `menu` for the Notification_Center. That is
+why the sub-app got its own container instead: returning to the notification
+system's idle phase blanks whatever it borrowed, which would have silently
+erased an active sub-app's view. `notification-system.ts` renders the *diff*
+between the outgoing and incoming phase for exactly this reason, so it never
+blanks a container the outgoing phase did not write to (that is what keeps an
+open `menu` intact when a banner auto-dismisses over it).
 
 > **Never call `rebuildPageContainer` outside `home-screen.ts`.**
 >
@@ -57,7 +69,7 @@ hard-code a container ID anywhere else.
 > 1-4 — so the HUD went permanently blank the first time you opened the menu,
 > and every later `textContainerUpgrade` to those IDs no-oped. If you need a
 > new surface, add a container to `buildPageContainers()` instead. G2 allows 8
-> non-image containers per page; 7 are used.
+> non-image containers per page; all 8 are used.
 
 Other container facts learned the hard way:
 
@@ -65,9 +77,23 @@ Other container facts learned the hard way:
   that is the only surface long enough to need firmware overflow scrolling.
   Input events are delivered to the app regardless of which container holds it.
 - `containerName` is capped at **16 characters** and must be unique per page.
-- Overlap compositing is unspecified. The banner overlaps the HUD band, so
-  rather than trusting it, showing a banner explicitly blanks the HUD
-  (`onVisibilityChange` → `hud.setVisible(false)`) and restores it after.
+- Overlap compositing is unspecified under the legacy rule. The banner overlaps
+  the HUD band, so rather than trusting it, showing a banner explicitly blanks
+  the HUD (`onVisibilityChange` → `hud.setVisible(false)`) and restores it after.
+
+### `zOrderIndex` (SDK 0.0.12+) — not used yet
+
+SDK 0.0.12 added an explicit `zOrderIndex` on text/list/image containers:
+larger renders in front. Foresight is pinned to `^0.0.10` and sets it nowhere,
+so the page follows the legacy rule — later declarations draw on top — which is
+why the banner is declared last.
+
+It is **all-or-nothing per page**: the moment one container sets it, every
+text/list/image container must, with unique values and no tie-break. So if you
+adopt it, `buildPageContainers()` has to set it on all eight at once. Doing so
+would let the banner overlap the HUD without the explicit blank/restore dance,
+but that dance is deterministic and cheap, so this is an option rather than a
+fix. See `../even-realities-docs/build/display.md`.
 
 ## The 2x5 grid is really 5 containers
 
@@ -103,7 +129,16 @@ src/
 │   ├── hud-slot.ts          column geometry, write memoization, fitToColumn
 │   └── components/          clock, weather, reminders
 ├── menu/menu-system.ts      app launcher (writes container 5, never rebuilds)
-├── banner/banner-system.ts  notification queue (writes container 6)
+├── notification/            replaced banner/ — see "Notifications" below
+│   ├── notification-state-machine.ts  pure transition(); all phase logic
+│   └── notification-system.ts         bridge/timers/storage around it
+├── sub-app/                 the SubApp SDK — see docs/SUBAPP_GUIDE.md
+│   ├── types.ts             SubApp / SubAppContext / SubAppContainer contract
+│   ├── sub-app-registry.ts  register() at boot, capped at MENU_MAX_ENTRIES
+│   └── sub-app-container.ts lifecycle + gesture forwarding (writes container 7)
+├── smarter-everyday/        topic manager, scheduler, content generator, SubApp
+├── gesture-router.ts        pure routeGesture + classifyPress (not fully wired)
+├── press-adapter.ts         press-start/press-end spike for the hold gesture
 ├── screens/welcome.ts       first-run onboarding, polls for phone login
 ├── storage/
 │   ├── schemas.ts           ALL storage keys + data shapes (single source)
@@ -168,33 +203,91 @@ the phone UI still shows it, which looks like the settings were lost.
   lifecycle notifications.
 - **Double-taps are synthesised in software.** The firmware does not reliably
   emit `DOUBLE_CLICK_EVENT`, so a tap is held for the configured window
-  (200-800ms, default 400) before being reported as a single tap. A hardware
+  (200-1200ms, default 400 — max widened from 800 after real-hardware reports
+  of unreliable double-tap; see `constants.ts`'s `DOUBLE_TAP_MAX_MS` comment)
+  before being reported as a single tap. A hardware
   double-tap, when it does arrive, cancels the pending single tap.
 
 ### Gesture routing (home screen)
 
-| State          | tap             | double-tap        | swipe up/down |
-| -------------- | --------------- | ----------------- | ------------- |
-| Banner visible | dismiss banner  | dismiss banner    | —             |
-| Menu open      | select entry    | close menu        | move highlight|
-| HUD asleep     | wake            | wake (no menu)    | wake          |
-| HUD awake      | —               | open menu         | —             |
+**`routeGesture` (`gesture-router.ts`) is the single source of truth.** It is a
+pure function from `(AppState, GestureType)` to one target, and
+`home-screen.ts`'s `dispatchGesture` only *executes* the target it returns. The
+five public handlers (`handleTap`, `handleDoubleTap`, `handleScrollUp`,
+`handleScrollDown`, `handleHold`) are one-line adapters. Do not reintroduce a
+parallel `if (menu?.isVisible)` ladder in `home-screen.ts` — there used to be
+five of them, and keeping them in agreement with `routeGesture` by hand is
+exactly the drift this replaced.
 
-A double-tap on a *sleeping* HUD only wakes it. Opening a menu on a display the
-wearer cannot see is disorienting; the second double-tap opens it.
+Priority order, highest first — banner, Notification_Center, menu, sub-app, HUD:
+
+| State           | tap             | double-tap        | swipe up/down   | hold          |
+| --------------- | --------------- | ----------------- | --------------- | ------------- |
+| Banner visible  | **expand**      | dismiss + fall through | **dismiss** | (falls through) |
+| Expanded view   | dismiss         | dismiss + fall through | dismiss     | (falls through) |
+| Center open     | select / confirm| close center      | move selection  | confirm-clear prompt |
+| Menu open       | select entry    | close menu        | move highlight  | —             |
+| Sub-app active  | forward to app  | close sub-app     | forward to app  | forward to app|
+| HUD asleep      | wake            | wake (no menu)    | wake            | wake          |
+| HUD awake       | —               | open menu         | down: open center| —            |
+
+Two things `routeGesture` deliberately does not model, both handled in
+`dispatchGesture`:
+
+- **Sleep** is not in `AppState`, because sleeping only blanks the HUD columns —
+  a menu or center that is up stays readable and keeps its gestures. So only the
+  three HUD-level targets (`open-menu`, `open-notification-center`, `none`) are
+  gated on it. Opening a surface on a display the wearer cannot see is
+  disorienting; the second gesture, against a visible HUD, acts.
+- **Double-tap over a banner** has no case in `routeGesture` (it falls through),
+  so the banner is dismissed first and routing proceeds as if it were gone —
+  preserving the pre-`NotificationSystem` "clear it, then act on what's
+  underneath" behavior.
+
+**Tap on a banner expands, it does not dismiss** (SmarterEveryday Requirement
+8.1). The two-step lives in `notification-state-machine.ts`, so both taps go to
+the same `handleTap()` call — don't "fix" the first tap back to a dismiss.
+Swipe is the one-step dismiss. `dismiss()` is still on the interface for
+`BannerSystem`-era callers.
+
+`routeGesture` returns only `notification-center-select` for a tap, since
+`AppState` has no center *sub*-phase. `dispatchGesture` splits it: in the
+`center-confirm-clear` phase a tap confirms the clear-all (the prompt says "Tap
+to confirm"), otherwise it selects an entry.
 
 ---
 
 ## Inactivity timer (formerly "Hidden mode")
 
 `Never Sleep` keeps the HUD lit. `Sleep After` blanks it once the wearer has
-gone N seconds without input; any gesture wakes it. Options: 5/10/15/30/60s.
+gone N seconds without input; any gesture wakes it. `Sleep After`'s duration is
+a free number input (`HUD_DURATION_MIN_S`-`HUD_DURATION_MAX_S`, currently
+5-600s in `webapp/types.ts`) — it used to be a 5/10/15/30/60s dropdown; that
+preset list (`DURATION_OPTIONS`) is gone, not just hidden.
 
 - Stored as `HUD_SLEEP` (`{ mode }`) + `HUD_SLEEP_DELAY`
   (`{ displayDurationSeconds }`).
 - The mode value is `"inactivity-timer"`. The legacy value `"hidden"` is still
   accepted on read (`normalizeHudMode`, `readSleepSettings`) so existing installs
   keep their setting — do not drop that migration.
+- **The active mode button's highlight is driven by the CSS class `"active"`**
+  (`.hud-mode-btn.active` in `index.html`) — `hud-duration-control.ts` used to
+  toggle a differently-spelled `"hud-mode-btn--active"` that no stylesheet rule
+  targeted, so neither mode ever visibly looked selected, in every environment,
+  since the control was first written. If you rename this class, grep for the
+  other side of the pair; nothing catches the mismatch at build time.
+- **`runtime.ts` does NOT pause the HUD refresh loop or the sleep-inactivity
+  timer on `FOREGROUND_EXIT_EVENT`/`FOREGROUND_ENTER_EVENT`.** Those events
+  fire when the *phone* backgrounds/locks the Even app
+  (`even-realities-docs/build/background-lifecycle.md`), not when the glasses
+  go idle — the glasses' own display and BLE link stay up regardless of the
+  phone's screen state. An earlier version wired `home.pause()`/`resume()` to
+  these events, which froze the sleep timer and HUD refresh every time the
+  phone locked (constantly, in real use) and reset the sleep countdown to
+  zero on every unlock — the sleep timer could never accumulate enough
+  continuous time to fire, which is why this worked in the simulator (a
+  browser tab that never fires this event) but not on real hardware. Don't
+  re-add that wiring; `HomeScreen` no longer even exposes `pause()`/`resume()`.
 - Sleeping only blanks content; components keep refreshing so waking is instant.
 
 ---
@@ -215,9 +308,27 @@ so do **not** add per-file `@vitest-environment` pragmas).
 ### Simulator loop
 
 ```bash
+npm run dev        # vite on 5174 + simulator on 9898; quitting either stops both
+```
+
+Or split them, which is easier when restarting the simulator repeatedly:
+
+```bash
 npm run dev:vite                                        # terminal 1
 npx evenhub-simulator http://localhost:5174 --automation-port 9898
 ```
+
+`npm run dev` used to end in `wait`, which meant closing the simulator window
+left vite holding 5174 and the *next* `npm run dev` failed to bind. It now
+records vite's PID, `trap`s `EXIT INT TERM` to kill it, and backgrounds the
+simulator with `wait $SIM_PID` — waiting on a background job is what makes the
+shell interruptible, so the trap runs immediately instead of after the
+foreground child returns. Verified: Ctrl-C, `SIGTERM`, and closing the
+simulator window all take vite down with them.
+
+`predev` runs `dev:stop` (`lsof -ti tcp:5174 | xargs kill`) first, so a vite
+left over from a `SIGKILL`ed or otherwise unclean run is reclaimed rather than
+breaking the next launch. `npm run dev:stop` is also the manual escape hatch.
 
 Then drive it over HTTP:
 
@@ -256,6 +367,14 @@ the simulator at `http://localhost:5174/seed.html`, then relaunch it against
 - **`"use current location"` writes `lastKnownCoords`, not a place name.** The
   weather component formats it as `"lat,lon"` and `parseCoordinates` short-circuits
   geocoding. Before this the toggle had no effect on what was actually fetched.
+  It uses the browser's `navigator.geolocation`; SDK 0.0.11+ has a native
+  `getAppLocation()` that would be better (see "Upgrade candidates" below).
+- **The `network` whitelist takes full origins only.** `app.json` used to list
+  `"https://*"`; wildcards and bare hostnames are rejected outright, so on real
+  hardware every weather request would have been blocked while the simulator —
+  which does not enforce the whitelist — worked fine. It now lists
+  `https://geocoding-api.open-meteo.com` and `https://api.open-meteo.com`.
+  Adding a new endpoint means adding its origin here.
 - **HUD writes are memoized per container** (`HudSlotRenderer`). A refresh where
   nothing changed costs zero BLE traffic. Call `hud.invalidate()` after anything
   that resets container contents, or the memo will suppress a needed write.
@@ -264,19 +383,105 @@ the simulator at `http://localhost:5174/seed.html`, then relaunch it against
   out-of-bounds placements. Dropping beats clamping: a widget silently
   relocating to a cell the user did not pick is more confusing than one that
   does not appear.
+- **`hud/components/weather.ts`'s `cache` is otherwise write-once-at-init,
+  glasses-authored only** — it's set from `getCache()` at component creation
+  and thereafter only by the component's own `refresh()` after a real fetch.
+  An external write to `STORAGE_KEYS.WEATHER_CACHE` (e.g. the Debug tab's test
+  weather push) has *no visible effect* without the `storage.onChange(
+  STORAGE_KEYS.WEATHER_CACHE, ...)` subscription the component now has —
+  without it, `render()` just keeps returning whatever the component last
+  fetched itself. Any other future external writer to that key needs the
+  same treatment, not just a `saveConfig`/`applyConfigChange` wire-up.
+- **Never call `hud.setVisible(true)` (directly, or via `wakeHud()`) from a
+  notification-push call site.** `NotificationSystem`'s `onVisibilityChange`
+  already calls `hud.setVisible(false)` synchronously inside `push()` to
+  blank the HUD band the banner overlaps — both `setVisible` calls are
+  fire-and-forget against the same `HudManager` `visible` flag, so calling
+  `wakeHud()` right after `push()` (to "wake the HUD for a notification")
+  raced the two: `setVisible(true)` could flip `visible` back and start
+  redrawing real HUD content into the columns `setVisible(false)` was still
+  in the middle of blanking, while the banner text — a separate container —
+  stayed up throughout. Net effect on real hardware: notification text
+  rendered directly on top of the clock, stuck, because the HUD content
+  "won" the race. Use `noteHudActivityForNotification()` instead (clears
+  `hudAsleep` + rearms the sleep timer, no `setVisible` call) — the existing
+  `onVisibilityChange(false)` already re-lights the HUD correctly once the
+  banner actually goes away, gated on `!hudAsleep`, so there's nothing left
+  for a push-time wake to do that racing `setVisible` was ever needed for.
+  This shipped for a while unnoticed because it only manifests when
+  `hudAsleep` is true *at push time* — `home-screen.test.ts`'s regression
+  test for this covers exactly that case, not just "HUD already awake."
+- **The phone UI (`index.html`) has two real-device-only WebView quirks,
+  neither reproducible in the simulator or a desktop browser tab:** (1) the
+  host app's WebView doesn't reliably forward native `body` scroll — fixed by
+  making `#phone-ui` itself `overflow-y:auto` with a pinned
+  `html,body{height:100%;overflow:hidden}`; (2) focusing any input/select/
+  textarea under 16px font-size auto-zooms the viewport (classic mobile
+  WebView behavior) and the layout doesn't reliably un-zoom — fixed with a
+  blanket `input, select, textarea { font-size: 16px !important; }` rule
+  (needs `!important` to beat the many per-control font-size rules,
+  including inline `style.cssText` on dynamically-created elements). If a
+  phone-side control seems unclickable or the layout looks "floaty
+  horizontal" specifically on-device, suspect one of these two before
+  anything JS-side — check on a real phone via `npm run qr`, not the
+  simulator, which can't reproduce either.
+- **Menu/Notification_Center content now starts with a title line** (`"MENU"`,
+  `"NOTIFICATIONS"` — `menu-system.ts#buildMenuContent`,
+  `notification-system.ts#buildCenterListContent`). Any test or caller that
+  splits that content on `"\n"` and indexes into it needs a `+1` offset for
+  the title.
 
 ---
 
 ## Known open items
 
-- **QA risk: double-tap does not exit.** Platform review expects double-tap on
-  the root page to call `shutDownPageContainer(1)`. Foresight uses double-tap
-  for the menu, and offers exit as a menu entry instead. This is a deliberate
-  product decision but may draw a review rejection — see
-  `../even-realities-docs/build/page-lifecycle.md`.
+- **`hold` is classified and routed, but never produced.** `classifyPress`,
+  `HOLD_THRESHOLD_MS`, `routeGesture`'s `hold` targets, and the whole path from
+  `press-adapter.ts` through `runtime.ts` to `home.handleHold()` are all wired.
+  What is missing is hardware: the documented SDK surface exposes no touch-down
+  event, so `deriveSignalFromEvent` can only set `pressStartMs === releaseMs`,
+  which `classifyPress` always resolves as `"released"`. The adapter never emits
+  `"hold"`, so clear-all-history cannot be triggered on device even though every
+  line of code above it works. Fixing this means a real press-start signal, not
+  a change to any of the above. `handleHold()` is directly callable in tests,
+  which is how the center's confirm-clear path is covered.
+- **SmarterEveryday can never actually deliver content.**
+  `createPlaceholderLlmClient` always rejects — no code in this codebase calls
+  an LLM provider (Assistant_App's config form only *selects* one and collects
+  no API key). The Scheduler ticks, `ContentGenerator.deliver` resolves
+  `"failed"`, and nothing reaches the notification system. Everything downstream
+  of the LLM call is wired and tested; the provider call itself does not exist.
+- **Auto-pause after 3 failures is pure but unwired** (Requirement 5).
+  `nextFailureCount` and `shouldPause` exist in `content-generator.ts` and have
+  no callers, so `Topic.consecutiveFailures` is never incremented and a
+  permanently-failing topic retries forever instead of pausing.
+- **QA blocker: double-tap does not exit.** Confirmed against
+  `../even-realities-docs/ship/app-submission.md` (2026-07-10): "Root-page
+  double-tap calls `bridge.shutDownPageContainer(1)`. Mode 0 and custom in-app
+  exit UIs on the root page are both rejected." Foresight uses double-tap to
+  open the menu and offers exit *as a menu entry* — which is precisely the
+  custom-exit-UI pattern named as a rejection. This is not a "may"; it will
+  fail review as built. Resolving it means either giving up double-tap-for-menu
+  on the root page, or accepting that Foresight is sideload-only.
 - **Auth is a local stand-in.** `authenticate()` in `webapp/phone-ui.ts` accepts
   any credentials and verifies nothing. Swapping in a real provider should only
   require changing that function.
-- `app.json` declares `min_app_version: "1.0.0"`; the current platform edition
-  is `2.0.0`. Revisit before submission.
 - The marketplace view is wired with an empty app list.
+
+## Upgrade candidates (SDK 0.0.11 / 0.0.12)
+
+Foresight is pinned to `^0.0.10`; these are available if it moves to 0.0.12.
+None are required — listed so the next session doesn't have to rediscover them.
+
+- **`getAppLocation()` / `startAppLocationUpdates()`** replaces the
+  `navigator.geolocation` call in `webapp/weather-config-form.ts` with a native
+  path (accuracy tiers, `distanceFilter`, background-aware). Needs the
+  `location` permission in `app.json`.
+- **`zOrderIndex`** — see the container section above.
+- **Automatic LZ4 image compression**, and `compressMode` is gone. Irrelevant
+  today (Foresight renders no images) but relevant if a widget ever does.
+- **`AudioInputSource.Phone`** lets `audioControl()` capture from the phone mic
+  instead of the glasses array — relevant to the unbuilt Assistant feature.
+
+Bumping the SDK also means bumping `min_sdk_version` in `app.json`, which is a
+one-way trip: it strands users on older firmware. Don't bump it preemptively.

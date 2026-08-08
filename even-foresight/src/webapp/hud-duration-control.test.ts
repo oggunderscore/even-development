@@ -2,7 +2,11 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHudDurationControl } from "./hud-duration-control";
-import { STORAGE_KEYS, DURATION_OPTIONS } from "./types";
+import {
+  STORAGE_KEYS,
+  HUD_DURATION_MIN_S,
+  HUD_DURATION_MAX_S,
+} from "./types";
 
 function createMockBridge(storage: Record<string, string> = {}) {
   return {
@@ -45,19 +49,17 @@ describe("HudDurationControl", () => {
   });
 
   describe("Rendering", () => {
-    it("dropdown offers exactly the supported inactivity delays", () => {
+    it("renders a number input bounded to the supported range", () => {
       const control = createHudDurationControl({ bridge: createMockBridge() });
       control.mount(container);
 
-      const select = container.querySelector(
-        ".hud-duration-select",
-      ) as HTMLSelectElement;
-      expect(select).not.toBeNull();
-
-      const values = Array.from(select.querySelectorAll("option")).map((o) =>
-        Number(o.value),
-      );
-      expect(values).toEqual([...DURATION_OPTIONS]);
+      const input = container.querySelector(
+        ".hud-duration-input",
+      ) as HTMLInputElement;
+      expect(input).not.toBeNull();
+      expect(input.type).toBe("number");
+      expect(input.min).toBe(String(HUD_DURATION_MIN_S));
+      expect(input.max).toBe(String(HUD_DURATION_MAX_S));
 
       control.unmount();
     });
@@ -148,6 +150,32 @@ describe("HudDurationControl", () => {
       control.unmount();
     });
 
+    it("reflects the active mode with the 'active' CSS class the stylesheet targets", () => {
+      // Regression test: this previously toggled "hud-mode-btn--active",
+      // a class no rule in index.html matched, so the active mode was
+      // visually indistinguishable from the inactive one.
+      const control = createHudDurationControl({ bridge: createMockBridge() });
+      control.mount(container);
+
+      expect(modeButton(container, "Never Sleep").classList.contains("active")).toBe(
+        true,
+      );
+      expect(
+        modeButton(container, "Sleep After").classList.contains("active"),
+      ).toBe(false);
+
+      modeButton(container, "Sleep After").click();
+
+      expect(
+        modeButton(container, "Sleep After").classList.contains("active"),
+      ).toBe(true);
+      expect(modeButton(container, "Never Sleep").classList.contains("active")).toBe(
+        false,
+      );
+
+      control.unmount();
+    });
+
     it("persists mode and delay together", async () => {
       const storage: Record<string, string> = {};
       const bridge = createMockBridge(storage);
@@ -169,23 +197,23 @@ describe("HudDurationControl", () => {
     });
   });
 
-  describe("Dropdown behavior", () => {
-    it("dropdown is disabled while the HUD never sleeps", () => {
+  describe("Duration input behavior", () => {
+    it("input is disabled while the HUD never sleeps", () => {
       const control = createHudDurationControl({ bridge: createMockBridge() });
       control.mount(container);
 
-      const select = container.querySelector(
-        ".hud-duration-select",
-      ) as HTMLSelectElement;
-      expect(select.disabled).toBe(true);
+      const input = container.querySelector(
+        ".hud-duration-input",
+      ) as HTMLInputElement;
+      expect(input.disabled).toBe(true);
 
       modeButton(container, "Sleep After").click();
-      expect(select.disabled).toBe(false);
+      expect(input.disabled).toBe(false);
 
       control.unmount();
     });
 
-    it("selecting a value persists it", async () => {
+    it("typing a value persists it", async () => {
       const storage: Record<string, string> = {};
       const bridge = createMockBridge(storage);
       const control = createHudDurationControl({ bridge });
@@ -193,18 +221,39 @@ describe("HudDurationControl", () => {
 
       modeButton(container, "Sleep After").click();
 
-      const select = container.querySelector(
-        ".hud-duration-select",
-      ) as HTMLSelectElement;
-      select.value = "30";
-      select.dispatchEvent(new Event("change"));
+      const input = container.querySelector(
+        ".hud-duration-input",
+      ) as HTMLInputElement;
+      input.value = "45";
+      input.dispatchEvent(new Event("change"));
 
-      expect(control.getValue()).toBe(30);
+      expect(control.getValue()).toBe(45);
       await vi.waitFor(() => {
         expect(
           JSON.parse(storage[STORAGE_KEYS.HUD_DURATION]).displayDurationSeconds,
-        ).toBe(30);
+        ).toBe(45);
       });
+
+      control.unmount();
+    });
+
+    it("clamps a typed value to the supported range", () => {
+      const control = createHudDurationControl({ bridge: createMockBridge() });
+      control.mount(container);
+
+      modeButton(container, "Sleep After").click();
+
+      const input = container.querySelector(
+        ".hud-duration-input",
+      ) as HTMLInputElement;
+
+      input.value = String(HUD_DURATION_MAX_S + 1000);
+      input.dispatchEvent(new Event("change"));
+      expect(control.getValue()).toBe(HUD_DURATION_MAX_S);
+
+      input.value = "0";
+      input.dispatchEvent(new Event("change"));
+      expect(control.getValue()).toBe(HUD_DURATION_MIN_S);
 
       control.unmount();
     });
@@ -258,18 +307,17 @@ describe("HudDurationControl", () => {
       control.unmount();
     });
 
-    it("snaps a delay that is no longer selectable to the nearest option", async () => {
+    it("clamps a stored delay outside today's range", async () => {
       const bridge = createMockBridge({
-        // 8s was an option before the range was widened for idle timing.
         [STORAGE_KEYS.HUD_DURATION]: JSON.stringify({
-          displayDurationSeconds: 8,
+          displayDurationSeconds: HUD_DURATION_MAX_S + 500,
         }),
       });
       const control = createHudDurationControl({ bridge });
       control.mount(container);
 
       await vi.waitFor(() => {
-        expect(control.getValue()).toBe(10);
+        expect(control.getValue()).toBe(HUD_DURATION_MAX_S);
       });
 
       control.unmount();

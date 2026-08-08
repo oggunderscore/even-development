@@ -40,7 +40,7 @@ export const OVERLAY_WIDTH = 576;
  * subsystem may rebuild on its own — that is what previously wiped the HUD
  * the first time the menu was opened.
  *
- * G2 allows 8 non-image containers per page; this uses 7.
+ * G2 allows 8 non-image containers per page; this uses all 8.
  */
 export const CONTAINER = {
   /** HUD columns 0-4 occupy IDs 0-4. */
@@ -49,16 +49,42 @@ export const CONTAINER = {
   MENU: 5,
   /** Notification banner. Declared last so it draws on top. */
   BANNER: 6,
+  /**
+   * The surface an activated `SubApp` draws into (`SubAppContainer`).
+   *
+   * Deliberately NOT shared with `MENU`: the notification system blanks the
+   * menu container when it returns to its idle phase, which would silently
+   * erase an active sub-app's view if the two shared an ID. It overlaps the
+   * menu region instead, and is declared after it so it draws on top — the
+   * two are never non-empty at the same time, since `MenuSystem.select()`
+   * hides the menu before activating the entry.
+   */
+  SUBAPP: 7,
 } as const;
 
-export const HOME_CONTAINER_COUNT = 7;
+export const HOME_CONTAINER_COUNT = 8;
 
 /** containerName values must be unique and <= 16 characters. */
 export const CONTAINER_NAME = {
   hudCol: (col: number) => `hud-col-${col}`,
   MENU: "menu",
   BANNER: "banner",
+  SUBAPP: "subapp",
 } as const;
+
+// === Sub-App Surface ===
+// The fixed region an activated SubApp owns, matching the literal types on
+// `SubAppContext` (`src/sub-app/types.ts`).
+export const SUBAPP_WIDTH = 576;
+export const SUBAPP_HEIGHT = 173;
+export const SUBAPP_Y_OFFSET = 115; // 115 + 173 = 288 (exactly full height)
+
+/**
+ * How many containers `SubAppContext.requestContainers()` can hand out. Only
+ * one is allocated (`CONTAINER.SUBAPP`); requests beyond it are dropped
+ * rather than returning IDs for containers that do not exist.
+ */
+export const SUBAPP_CONTAINER_COUNT = 1;
 
 // === Menu ===
 export const MENU_MAX_ENTRIES = 10;
@@ -74,7 +100,26 @@ export const BANNER_QUEUE_MAX = 5;
 // === Timing ===
 export const HUD_REFRESH_INTERVAL_MS = 60_000;
 export const SCROLL_DEBOUNCE_MS = 300;
-export const MENU_TIMEOUT_MS = 30_000;
+/**
+ * Widened from 30s after reports of the menu apparently closing itself
+ * mid-navigation on real hardware, with the next swipe then landing on
+ * whatever the bare-HUD gesture does instead (e.g. opening the
+ * Notification_Center instead of continuing to scroll the menu). Every
+ * *accepted* scroll already calls `resetTimeout()`
+ * (`menu-system.ts#moveDown/moveUp`), so this should only ever fire on
+ * genuine idle time — but real BLE + touchpad pacing is slower and jumpier
+ * than the simulator's instant event dispatch, so a wearer deliberating
+ * over a longer list has more real seconds go by between accepted scrolls
+ * than the same interaction would take in the simulator. Unverified
+ * against real hardware; this is a defensive widening, not a confirmed root
+ * cause. `menu-system.ts`'s own auto-hide timeout closes the menu silently
+ * (it calls `hide()` directly, not through `home-screen.ts`'s `log(...)`
+ * calls) — so on the debug log panel (`main.ts`/`debug-log.ts`), the
+ * fingerprint of this happening is a gesture like "SWIPE DOWN" being
+ * followed by "NOTIFICATION CENTER: OPEN" with no "MENU: CLOSE" in between,
+ * meaning the menu was already gone before that swipe arrived.
+ */
+export const MENU_TIMEOUT_MS = 60_000;
 export const WEATHER_MIN_INTERVAL_MIN = 15;
 export const WEATHER_MAX_INTERVAL_MIN = 120;
 export const WEATHER_DEFAULT_INTERVAL_MIN = 30;
@@ -82,12 +127,41 @@ export const WEATHER_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // === Input ===
 export const DOUBLE_TAP_MIN_MS = 200;
-export const DOUBLE_TAP_MAX_MS = 800;
+/**
+ * Max widened from 800 after reports that double-tap (menu open/close,
+ * notification dismiss) worked in the simulator but not reliably on real
+ * hardware. The firmware doesn't reliably emit its own DOUBLE_CLICK_EVENT
+ * (see `input-router.ts`), so most real double-taps depend entirely on this
+ * software window; real BLE + touchpad round-trip latency plausibly pushes
+ * the gap between two physical taps past 800ms more often than a desktop
+ * simulator tab ever would. Only the max moved — `handleTap()` always
+ * waits the *entire* configured window before delivering a single tap
+ * (there's no early-exit once a second tap can no longer arrive), so
+ * raising the *default* directly adds that much perceived latency to every
+ * single tap. Leaving the default at 400 keeps single-tap responsive out of
+ * the box; a wearer whose double-taps aren't registering can raise it
+ * themselves via Settings → Input, up to this new ceiling. Unverified
+ * against real hardware either way — if double-tap is still unreliable,
+ * check the phone's diagnostic log panel (`#input-debug-log`, wired in
+ * `main.ts`) for "TAP" vs "DOUBLE TAP (sw/hw)" vs "EVENT (unrecognised)" to
+ * see what is actually being classified.
+ */
+export const DOUBLE_TAP_MAX_MS = 1200;
 export const DOUBLE_TAP_DEFAULT_MS = 400;
 
 // === Reminders ===
 export const REMINDERS_MAX = 20;
 export const REMINDER_TITLE_MAX_LENGTH = 30;
+/**
+ * How long a just-completed reminder stays in the Reminders list — struck
+ * through and tappable to undo — before it is deleted for good.
+ */
+export const REMINDER_UNDO_WINDOW_MS = 5_000;
+
+// === SmarterEveryday Scheduler ===
+/** Matches HUD_REFRESH_INTERVAL_MS's granularity — Notification_Interval
+ *  values are always whole minutes, so per-minute tick resolution suffices. */
+export const SCHEDULER_TICK_INTERVAL_MS = 60_000;
 
 // === Weather Location ===
 export const WEATHER_LOCATION_MAX_LENGTH = 50;

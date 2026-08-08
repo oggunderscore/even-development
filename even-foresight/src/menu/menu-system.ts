@@ -101,11 +101,11 @@ export function createMenuSystem(
   }
 
   /**
-   * Builds the text content for the menu display.
-   * Shows a vertical list with a highlight indicator (">") on the selected entry.
+   * Builds the text content for the menu display: a "MENU" title line, then
+   * a vertical list with a highlight indicator (">") on the selected entry.
    */
   function buildMenuContent(): string {
-    const lines: string[] = [];
+    const lines: string[] = ["MENU"];
     for (let i = 0; i < menuEntries.length; i++) {
       const prefix = i === highlightIndex ? "> " : "  ";
       const name = truncateText(menuEntries[i].name, MENU_ENTRY_TRUNCATE);

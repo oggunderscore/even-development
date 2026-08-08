@@ -14,6 +14,7 @@ import type {
 import { STORAGE_KEYS, DEFAULT_WEATHER_CONFIG } from "../../storage/schemas";
 import type { StorageManager } from "../../storage/storage-manager";
 import { WEATHER_CACHE_MAX_AGE_MS } from "../../constants";
+import { createFakeStorage } from "../../storage/storage-manager.test-utils";
 
 // === Helper: Mock StorageManager ===
 
@@ -485,6 +486,78 @@ describe("createWeatherComponent", () => {
     const storage = createMockStorage();
     const component = createWeatherComponent({ storage });
     expect(() => component.dispose()).not.toThrow();
+  });
+});
+
+// === External WEATHER_CACHE writes (e.g. the phone's Debug tab) ===
+//
+// `cache` is otherwise only ever set by this component's own refresh(), so
+// an outside write to WEATHER_CACHE (the Debug tab's "test weather" button,
+// which has nothing else to call into) had no visible effect until render()
+// was made to notice it via storage.onChange. createMockStorage()'s onChange
+// is an inert stub, so these use the real subscription semantics from
+// storage-manager.test-utils.ts instead.
+describe("createWeatherComponent: external WEATHER_CACHE writes", () => {
+  it("adopts a cache value written after creation, without waiting for a fetch", async () => {
+    const storage = createFakeStorage({
+      [STORAGE_KEYS.WEATHER_CONFIG]: { ...DEFAULT_WEATHER_CONFIG, location: "Tokyo" },
+    });
+    const component = createWeatherComponent({ storage });
+    expect(component.render()).toContain("--");
+
+    await storage.set(STORAGE_KEYS.WEATHER_CACHE, {
+      temperature: 80,
+      condition: "sunny",
+      unit: "fahrenheit",
+      fetchedAt: Date.now(),
+    });
+
+    expect(component.render()).toContain("80");
+    component.dispose();
+  });
+
+  it("does not immediately re-fetch and clobber an externally-written value", async () => {
+    const fetchFn = vi.fn(async () => ({
+      temperature: 50,
+      condition: "cloudy" as const,
+      unit: "fahrenheit" as const,
+    }));
+    const storage = createFakeStorage({
+      [STORAGE_KEYS.WEATHER_CONFIG]: { ...DEFAULT_WEATHER_CONFIG, location: "Tokyo" },
+    });
+    const component = createWeatherComponent({ storage, fetchFn });
+
+    await storage.set(STORAGE_KEYS.WEATHER_CACHE, {
+      temperature: 80,
+      condition: "sunny",
+      unit: "fahrenheit",
+      fetchedAt: Date.now(),
+    });
+
+    await component.refresh();
+
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(component.render()).toContain("80");
+    component.dispose();
+  });
+
+  it("unsubscribes on dispose", async () => {
+    const storage = createFakeStorage({
+      [STORAGE_KEYS.WEATHER_CONFIG]: { ...DEFAULT_WEATHER_CONFIG, location: "Tokyo" },
+    });
+    const component = createWeatherComponent({ storage });
+    component.dispose();
+
+    await storage.set(STORAGE_KEYS.WEATHER_CACHE, {
+      temperature: 80,
+      condition: "sunny",
+      unit: "fahrenheit",
+      fetchedAt: Date.now(),
+    });
+
+    // No listener left to update `cache`, so render() still reflects
+    // whatever it held at dispose time (no cache set yet: "-- °F").
+    expect(component.render()).toContain("--");
   });
 });
 

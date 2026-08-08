@@ -25,13 +25,47 @@
         --font: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
       }
 
+      /*
+       * html/body are pinned to the viewport with their own scroll disabled,
+       * and #phone-ui below is the one scrollable region instead. The host
+       * Even Realities app's WebView doesn't reliably forward touch-scroll
+       * to a bare document body on real hardware (it works in a desktop
+       * browser/simulator tab, which is why this only showed up on-device) —
+       * an explicit overflow:auto container with -webkit-overflow-scrolling
+       * is the reliable way to get scrolling inside an embedded WebView.
+       */
+      html, body {
+        height: 100%;
+        overflow: hidden;
+      }
+
+      /*
+       * Mobile WebViews (including the Even Realities host app's) auto-zoom
+       * the viewport when focusing a text input/select/textarea whose
+       * computed font-size is under 16px — this app's inputs mostly sit at
+       * 12-13px. That auto-zoom is what produced the "floaty horizontal"
+       * layout after tapping any field on real hardware (a desktop
+       * browser/simulator tab never triggers it, which is why this only
+       * showed up on-device): the viewport jumps to a zoomed-in, panned
+       * position and often doesn't reliably snap back. `!important` because
+       * plenty of individual input rules set their own font-size, including
+       * inline `style.cssText` on dynamically-created elements — this one
+       * rule needs to win over all of them without editing every call site.
+       */
+      input, select, textarea {
+        font-size: 16px !important;
+      }
+
       body {
         font-family: var(--font);
         background: var(--bg);
         color: var(--text);
-        min-height: 100vh;
         font-size: 13px;
         line-height: 1.6;
+        /* Defensive: an unbroken long string (email, URL, debug-log line)
+           forcing horizontal overflow is another way to get the "floaty"
+           layout, independent of the input-zoom cause above. */
+        overflow-wrap: break-word;
       }
 
       /* Scanline overlay */
@@ -55,6 +89,10 @@
 
       #phone-ui {
         display: none;
+        height: 100%;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-y: contain;
         padding: 16px;
         padding-top: env(safe-area-inset-top, 16px);
         padding-bottom: env(safe-area-inset-bottom, 16px);
@@ -1100,6 +1138,35 @@
         color: var(--bg);
         box-shadow: 0 0 12px rgba(0, 255, 136, 0.1);
       }
+      .hud-duration-input {
+        width: 90px;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        background: #0a0a0a;
+        color: var(--text-bright);
+        font-size: 13px;
+        font-weight: 600;
+        font-family: var(--font);
+        text-align: center;
+        outline: none;
+      }
+      .hud-duration-input:focus {
+        border-color: var(--accent);
+      }
+      .hud-duration-input:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      /* Hide the spinner arrows — a plain text box reads better here than a
+         number stepper, and the up/down still work via the keyboard. */
+      .hud-duration-input::-webkit-outer-spin-button,
+      .hud-duration-input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+      .hud-duration-input[type="number"] {
+        -moz-appearance: textfield;
+      }
 
       /* Save Buttons (Weather, Assistant config) */
       .weather-config-save-btn,
@@ -1161,6 +1228,16 @@
         display: flex;
         gap: 8px;
         align-items: center;
+      }
+      /* Temp input + 2 selects + button — four flex children is tight on a
+         narrow phone even before the 16px input-zoom fix above widened the
+         text; wrap rather than overflow horizontally. */
+      .debug-panel-input-row--weather {
+        flex-wrap: wrap;
+      }
+      .debug-panel-input-row--weather > * {
+        flex: 1 1 auto;
+        min-width: 70px;
       }
       .debug-panel-input {
         flex: 1;

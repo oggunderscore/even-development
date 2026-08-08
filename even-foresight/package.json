@@ -5,8 +5,10 @@
     "author": "ogg_ <wKey Industries>",
     "type": "module",
     "scripts": {
-        "dev": "vite --host 0.0.0.0 --port 5174 & evenhub-simulator http://localhost:5174 --automation-port 9898; wait",
+        "predev": "npm run dev:stop --silent",
+        "dev": "vite --host 0.0.0.0 --port 5174 & VITE_PID=$!; trap 'kill $VITE_PID $SIM_PID 2>/dev/null' EXIT INT TERM; evenhub-simulator http://localhost:5174 --automation-port 9898 & SIM_PID=$!; wait $SIM_PID",
         "dev:vite": "vite --host 0.0.0.0 --port 5174",
+        "dev:stop": "lsof -ti tcp:5174 | xargs kill 2>/dev/null; true",
         "build": "tsc && vite build",
         "preview": "vite preview",
         "qr": "evenhub qr --http --port 5174 --ip $(tailscale ip -4)",

@@ -171,8 +171,10 @@ export const STORAGE_KEYS = {
   ASSISTANT_CONFIG: SCHEMA_KEYS.ASSISTANT_CONFIG,
   WEATHER_LOCATION: SCHEMA_KEYS.WEATHER_LOCATION,
   WEATHER_CONFIG: SCHEMA_KEYS.WEATHER_CONFIG,
+  WEATHER_CACHE: SCHEMA_KEYS.WEATHER_CACHE,
   CLOCK_CONFIG: SCHEMA_KEYS.CLOCK_CONFIG,
   REMINDERS: SCHEMA_KEYS.REMINDERS,
+  MENU_ORDER: SCHEMA_KEYS.MENU_ORDER,
   HUD_DURATION: SCHEMA_KEYS.HUD_SLEEP_DELAY,
   HUD_MODE: SCHEMA_KEYS.HUD_SLEEP,
   HUD_LAYOUT: SCHEMA_KEYS.HUD_LAYOUT,
@@ -207,11 +209,38 @@ export const DEFAULT_APPS: AppEntry[] = [
   },
   {
     id: "tasks",
-    name: "Tasks",
-    description: "Task and reminder management for quick reference",
+    name: "Reminders",
+    description: "Add reminders with a title and a timestamp",
     source: "pre-installed",
     hasConfig: true,
   },
+  {
+    id: "smarter-everyday",
+    name: "SmarterEveryday",
+    description: "Recurring learning topic notifications with quiet hours",
+    source: "pre-installed",
+    hasConfig: true,
+  },
+];
+
+// --- Menu Order ---
+
+export interface MenuOrderEntry {
+  id: string;
+  name: string;
+}
+
+/**
+ * The glasses app-launcher menu's entries, in the default (registration)
+ * order `home-screen.ts#start()` builds them in. A static mirror rather than
+ * something read live off the glasses runtime — the same relationship
+ * `DEFAULT_APPS` already has to the Apps list. Keep in sync with the ids
+ * `subApps.register(...)` and the `"exit"` entry use there.
+ */
+export const DEFAULT_MENU_ENTRIES: MenuOrderEntry[] = [
+  { id: "smarter-everyday", name: "SmarterEveryday" },
+  { id: "reminders", name: "Reminders" },
+  { id: "exit", name: "Exit Foresight" },
 ];
 
 export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
@@ -240,10 +269,11 @@ export const DEFAULT_HUD_MODE: HudModeConfig = {
 export const DEFAULT_HUD_LAYOUT: HudGrid = [];
 
 /**
- * Selectable inactivity delays, in seconds. Longer than the old banner-style
- * 3-15s range because this now governs how long the HUD stays lit between
- * glances, not how long a notification is shown.
+ * Bounds for the freeform "Sleep After" seconds input. Wider than the old
+ * 5/10/15/30/60s preset list it replaced — the input is a text box now, not
+ * a dropdown, so any wearer-chosen value in range is valid.
  */
-export const DURATION_OPTIONS = [5, 10, 15, 30, 60] as const;
+export const HUD_DURATION_MIN_S = 5;
+export const HUD_DURATION_MAX_S = 600;
 
 export const DEFAULT_DEBUG_LOG: DebugMessage[] = [];

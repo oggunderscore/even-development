@@ -282,6 +282,25 @@ export function createWeatherComponent(
   let lastFetchAttempt = 0;
   let lastFetchedLocation: string | null = null;
 
+  // `cache` above is otherwise only ever written by this component's own
+  // `refresh()`, on the assumption that nothing else touches WEATHER_CACHE
+  // (see CLAUDE.md: "glasses half is the author"). The Debug tab's test
+  // weather push is a deliberate, narrow exception — without this
+  // subscription, `render()` keeps returning the in-memory `cache` from the
+  // component's own last fetch forever, and a debug-panel write to storage
+  // has no visible effect. Treat an external write the same as a real fetch
+  // (mark it fresh, reset the fetch clock) so it isn't immediately
+  // overwritten by the next scheduled refresh.
+  const unsubscribeWeatherCache = storage.onChange(
+    STORAGE_KEYS.WEATHER_CACHE,
+    () => {
+      cache = getCache();
+      isStale = false;
+      lastFetchAttempt = nowFn();
+      lastFetchedLocation = config.location;
+    },
+  );
+
   function getConfig(): WeatherConfig {
     // Always build a fresh object. Spreading DEFAULT_WEATHER_CONFIG rather
     // than falling back to it by reference matters: the location patch below
@@ -388,8 +407,7 @@ export function createWeatherComponent(
     },
 
     dispose(): void {
-      // No timers or subscriptions to clean up in this component
-      // The HudManager handles the refresh cycle
+      unsubscribeWeatherCache();
     },
   };
 

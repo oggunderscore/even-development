@@ -11,6 +11,7 @@ import type {
   WeatherPayload,
 } from "./types";
 import { STORAGE_KEYS, DEFAULT_DEBUG_LOG } from "./types";
+import type { WeatherCache, WeatherCondition } from "../storage/schemas";
 import { loadConfig, saveConfig } from "./storage-helpers";
 
 // --- Pure functions exported for property testing ---
@@ -56,6 +57,28 @@ export function createWeatherPayload(
     unit,
     timestamp: new Date().toISOString(),
   };
+}
+
+/**
+ * Maps the Debug tab's weather condition vocabulary to the app's own
+ * `WeatherCondition` (`src/storage/schemas.ts`) — the two were never the
+ * same set of strings, which is part of why a debug weather push silently
+ * did nothing: nothing in the app understands `"partly cloudy"`. Exported
+ * for testing.
+ */
+export function mapDebugConditionToWeatherCondition(
+  condition: WeatherPayload["condition"],
+): WeatherCondition {
+  const map: Record<WeatherPayload["condition"], WeatherCondition> = {
+    clear: "sunny",
+    cloudy: "cloudy",
+    "partly cloudy": "partly-cloudy",
+    rain: "rainy",
+    thunderstorm: "stormy",
+    snow: "snowy",
+    fog: "foggy",
+  };
+  return map[condition];
 }
 
 /**
@@ -199,17 +222,19 @@ export function createDebugPanel(options: DebugPanelOptions): ViewRoute & {
     if (text.length === 0) return;
 
     const payload = createNotificationPayload(text);
-    try {
-      await bridge.setLocalStorage(
-        "foresight-debug-notification",
-        JSON.stringify(payload),
-      );
-      addLogEntry("notification", text, payload.timestamp);
-      notificationInput.value = "";
-      updateNotificationSendState();
-    } catch {
-      // Bridge call failed — button stays enabled for retry
-    }
+    // A pushed notification isn't a stored setting — it's a one-off action —
+    // so it goes out as its own same-document custom event (the glasses
+    // runtime is listening in `runtime.ts`) rather than through a storage
+    // key. `foresight-config-changed` isn't the right fit here for the same
+    // reason: there is no config value to read back later.
+    window.dispatchEvent(
+      new CustomEvent("foresight-debug-notification", {
+        detail: { text: payload.text },
+      }),
+    );
+    addLogEntry("notification", text, payload.timestamp);
+    notificationInput.value = "";
+    updateNotificationSendState();
   }
 
   async function handleNewslineSend(): Promise<void> {
@@ -239,15 +264,22 @@ export function createDebugPanel(options: DebugPanelOptions): ViewRoute & {
     const unit = unitSelect.value as WeatherPayload["unit"];
 
     const payload = createWeatherPayload(temperature, condition, unit);
-    try {
-      await bridge.setLocalStorage(
-        "foresight-debug-weather",
-        JSON.stringify(payload),
-      );
+
+    // Written to the real WEATHER_CACHE key the weather HUD component
+    // actually reads (`hud/components/weather.ts`), not a standalone
+    // "foresight-debug-weather" key nothing consumed. `saveConfig` fires
+    // `foresight-config-changed`, which `home-screen.ts#applyConfigChange`
+    // handles for WEATHER_CACHE by refreshing the HUD.
+    const cache: WeatherCache = {
+      temperature,
+      condition: mapDebugConditionToWeatherCondition(condition),
+      unit,
+      fetchedAt: Date.now(),
+    };
+    const result = await saveConfig(bridge, STORAGE_KEYS.WEATHER_CACHE, cache);
+    if (result.success) {
       const summary = `${temperature}° ${unit === "fahrenheit" ? "F" : "C"}, ${condition}`;
       addLogEntry("weather", summary, payload.timestamp);
-    } catch {
-      // Bridge call failed
     }
   }
 

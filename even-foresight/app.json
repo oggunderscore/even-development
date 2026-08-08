@@ -3,7 +3,7 @@
     "name": "Foresight",
     "version": "0.1.0",
     "edition": "202601",
-    "min_app_version": "1.0.0",
+    "min_app_version": "2.0.0",
     "min_sdk_version": "0.0.10",
     "entrypoint": "index.html",
     "author": "ogg_",
@@ -15,9 +15,10 @@
     "permissions": [
         {
             "name": "network",
-            "desc": "Fetches weather data from an external weather API for the Weather HUD component.",
+            "desc": "Fetches current weather conditions from the Open-Meteo API for the Weather HUD widget.",
             "whitelist": [
-                "https://*"
+                "https://geocoding-api.open-meteo.com",
+                "https://api.open-meteo.com"
             ]
         }
     ]

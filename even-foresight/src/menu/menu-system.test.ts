@@ -6,7 +6,7 @@ import {
   createMenuSystem,
 } from "./menu-system";
 import type { MenuEntry } from "./types";
-import { CONTAINER, CONTAINER_NAME } from "../constants";
+import { CONTAINER, CONTAINER_NAME, MENU_TIMEOUT_MS } from "../constants";
 
 // ─── Pure Function Tests ──────────────────────────────────────────────────────
 
@@ -166,10 +166,11 @@ describe("createMenuSystem", () => {
 
       await menu.show();
 
-      // Should have been rendered with only 10 entries
+      // Should have been rendered with only 10 entries, plus the "MENU" title.
       const content = bridge.textContainerUpgrade.mock.calls[0][0].content;
       const lines = content.split("\n");
-      expect(lines.length).toBe(10);
+      expect(lines[0]).toBe("MENU");
+      expect(lines.length).toBe(11);
     });
   });
 
@@ -222,7 +223,9 @@ describe("createMenuSystem", () => {
       // Re-show should start at index 0
       await menu.show();
       const content = bridge.textContainerUpgrade.mock.calls.at(-1)![0].content;
-      expect(content.startsWith("> ")).toBe(true);
+      const lines = content.split("\n");
+      expect(lines[0]).toBe("MENU");
+      expect(lines[1].startsWith("> ")).toBe(true);
     });
   });
 
@@ -241,8 +244,9 @@ describe("createMenuSystem", () => {
           bridge.textContainerUpgrade.mock.calls.length - 1
         ][0];
       const lines = call.content.split("\n");
-      expect(lines[0]).toMatch(/^\s{2}/); // first entry not highlighted
-      expect(lines[1]).toMatch(/^> /); // second entry highlighted
+      expect(lines[0]).toBe("MENU");
+      expect(lines[1]).toMatch(/^\s{2}/); // first entry not highlighted
+      expect(lines[2]).toMatch(/^> /); // second entry highlighted
     });
 
     it("does not move past the last entry", async () => {
@@ -265,7 +269,7 @@ describe("createMenuSystem", () => {
           bridge.textContainerUpgrade.mock.calls.length - 1
         ][0];
       const lines = lastCall.content.split("\n");
-      expect(lines[1]).toMatch(/^> /); // still on last entry
+      expect(lines[2]).toMatch(/^> /); // still on last entry
     });
 
     it("does nothing if menu is not visible", () => {
@@ -295,7 +299,7 @@ describe("createMenuSystem", () => {
           bridge.textContainerUpgrade.mock.calls.length - 1
         ][0];
       const lines = lastCall.content.split("\n");
-      expect(lines[0]).toMatch(/^> /); // back to first
+      expect(lines[1]).toMatch(/^> /); // back to first
     });
 
     it("does not move before the first entry", async () => {
@@ -312,7 +316,7 @@ describe("createMenuSystem", () => {
           bridge.textContainerUpgrade.mock.calls.length - 1
         ][0];
       const lines = lastCall.content.split("\n");
-      expect(lines[0]).toMatch(/^> /); // still on first
+      expect(lines[1]).toMatch(/^> /); // still on first
     });
   });
 
@@ -356,7 +360,7 @@ describe("createMenuSystem", () => {
   });
 
   describe("auto-dismiss", () => {
-    it("hides menu after 30 seconds of no input", async () => {
+    it(`hides menu after ${MENU_TIMEOUT_MS / 1000} seconds of no input`, async () => {
       const bridge = createMockBridge();
       const entries = createMockEntries(3);
       const menu = createMenuSystem(bridge, entries);
@@ -364,7 +368,7 @@ describe("createMenuSystem", () => {
       await menu.show();
       expect(menu.isVisible).toBe(true);
 
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(MENU_TIMEOUT_MS);
 
       expect(menu.isVisible).toBe(false);
     });
@@ -374,17 +378,19 @@ describe("createMenuSystem", () => {
       const entries = createMockEntries(3);
       const menu = createMenuSystem(bridge, entries);
 
+      const almostTimedOut = MENU_TIMEOUT_MS - 5_000;
+
       await menu.show();
 
-      // Advance 25 seconds, then interact
-      vi.advanceTimersByTime(25_000);
+      // Advance to just short of the timeout, then interact.
+      vi.advanceTimersByTime(almostTimedOut);
       menu.moveDown();
 
-      // Advance another 25 seconds (would have timed out at 30s without reset)
-      vi.advanceTimersByTime(25_000);
+      // Advance the same amount again (would have timed out without reset).
+      vi.advanceTimersByTime(almostTimedOut);
       expect(menu.isVisible).toBe(true);
 
-      // Now wait the full 30s from last interaction
+      // Now wait the full timeout from last interaction.
       vi.advanceTimersByTime(5_000);
       expect(menu.isVisible).toBe(false);
     });
@@ -394,13 +400,15 @@ describe("createMenuSystem", () => {
       const entries = createMockEntries(3);
       const menu = createMenuSystem(bridge, entries);
 
+      const almostTimedOut = MENU_TIMEOUT_MS - 5_000;
+
       await menu.show();
       menu.moveDown(); // move down first so moveUp has somewhere to go
 
-      vi.advanceTimersByTime(25_000);
+      vi.advanceTimersByTime(almostTimedOut);
       menu.moveUp(); // reset timer
 
-      vi.advanceTimersByTime(25_000);
+      vi.advanceTimersByTime(almostTimedOut);
       expect(menu.isVisible).toBe(true);
 
       vi.advanceTimersByTime(5_000);
@@ -462,8 +470,8 @@ describe("createMenuSystem", () => {
       await menu.show();
 
       const content = bridge.textContainerUpgrade.mock.calls[0][0].content;
-      // "> " prefix + truncated name
-      expect(content).toBe("> A Very Long Appli...");
+      // "MENU" title + "> " prefix + truncated name
+      expect(content).toBe("MENU\n> A Very Long Appli...");
     });
   });
 });

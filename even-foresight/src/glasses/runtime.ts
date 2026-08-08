@@ -21,6 +21,7 @@ import { createStorageManager } from "../storage/storage-manager";
 import { STORAGE_KEYS } from "../storage/schemas";
 import { createHomeScreen, type HomeScreen } from "./home-screen";
 import { createInputRouter, type Gesture } from "./input-router";
+import { createPressAdapter } from "../press-adapter";
 import { CONTAINER, CONTAINER_NAME } from "../constants";
 
 /** Keys the glasses side reads synchronously and must hydrate up front. */
@@ -31,10 +32,31 @@ const HYDRATED_KEYS: string[] = [
   STORAGE_KEYS.WEATHER_CACHE,
   STORAGE_KEYS.WEATHER_LOCATION,
   STORAGE_KEYS.REMINDERS,
+  // Read synchronously in `home-screen.ts#rebuildMenu()`, called once at boot
+  // and again on every MENU_ORDER config change — without hydrating it here
+  // the first menu built each session would ignore a saved order.
+  STORAGE_KEYS.MENU_ORDER,
   STORAGE_KEYS.BANNER_CONFIG,
   STORAGE_KEYS.HUD_SLEEP,
   STORAGE_KEYS.HUD_SLEEP_DELAY,
   STORAGE_KEYS.DOUBLE_TAP_DELAY,
+  // SmarterEveryday's Scheduler/TopicManager/ContentGenerator now start at
+  // boot (task 13.1), independent of whether the SubApp is on-screen, and
+  // all three read these keys synchronously via `storage.get()`
+  // (`createTopicManager.list()`, the scheduler's own topics-store read/
+  // write, and `createContentGenerator.deliver`'s Assistant_App config
+  // check) — without hydrating them here, the first tick after boot would
+  // see empty/null stores until some *other* code path happened to call
+  // `loadKey` for them.
+  STORAGE_KEYS.SMARTER_EVERYDAY_TOPICS,
+  STORAGE_KEYS.SMARTER_EVERYDAY_LOGS,
+  STORAGE_KEYS.SMARTER_EVERYDAY_SETTINGS,
+  STORAGE_KEYS.ASSISTANT_CONFIG,
+  // `createNotificationSystem` (task 13.2) seeds its state machine from the
+  // persisted Notification_History synchronously at construction, so without
+  // this the Notification_Center would come up empty after every restart even
+  // though the entries are on disk.
+  STORAGE_KEYS.NOTIFICATION_HISTORY,
 ];
 
 /** Container used for the splash and onboarding, before the home page exists. */
@@ -137,6 +159,33 @@ export async function startGlassesRuntime(
 
   input.setDoubleTapWindow(storage.get<number>(STORAGE_KEYS.DOUBLE_TAP_DELAY));
 
+  // Task 13.3: feeds the SAME raw events as `input` above through the
+  // press/release adapter (task 2.3), so a Hold gesture has a complete code
+  // path from raw SDK event through `classifyPress` to `home.handleHold()`.
+  // Per the adapter's own documented fallback (Requirements 10.1–10.3), the
+  // currently-documented SDK touchpad event surface gives no earlier
+  // touch-down signal, so `resolvePressState` can only ever observe
+  // `pressStartMs === releaseMs` and therefore always resolves `"released"`
+  // — `onResolution` is never actually called with `"hold"` today. Wiring it
+  // through anyway keeps this pipeline independent of and non-interfering
+  // with `input`'s existing tap/double-tap/scroll classification, ready for
+  // real press/release hardware signals without further changes here.
+  const pressAdapter = createPressAdapter({
+    onResolution: (resolution) => {
+      if (disposed) return;
+      if (resolution.classification !== "hold") {
+        // "released" already falls through to `input`'s own
+        // classifyEvent-based tap/double-tap path for the same raw event;
+        // "pending" means still held and not yet resolved. Neither has a
+        // gesture to emit yet.
+        return;
+      }
+      if (welcome) return; // Onboarding does not define hold semantics.
+      home?.handleHold();
+    },
+    onDiagnostic: log,
+  });
+
   // ── 4. Wiring ───────────────────────────────────────────────────────────
 
   /**
@@ -158,21 +207,54 @@ export async function startGlassesRuntime(
   };
   window.addEventListener("foresight-config-changed", onConfigChanged);
 
+  /**
+   * The Debug tab's "Notification" send button. Unlike config values, a
+   * pushed notification isn't a stored setting to read back — it's a
+   * one-off action — so it travels as its own same-document custom event
+   * rather than through `foresight-config-changed`.
+   */
+  const onDebugNotification = (event: Event): void => {
+    if (disposed) return;
+    const detail = (event as CustomEvent).detail as { text?: string } | undefined;
+    if (!detail?.text) return;
+    home?.pushDebugNotification(detail.text);
+  };
+  window.addEventListener("foresight-debug-notification", onDebugNotification);
+
   const unsubscribeEvents = bridge.onEvenHubEvent((event: any) => {
     if (disposed) return;
 
     const sysType = event?.sysEvent?.eventType ?? -1;
-    // Background/foreground transitions are lifecycle, not input.
-    if (sysType === OsEventTypeList.FOREGROUND_EXIT_EVENT) {
-      home?.pause();
-      return;
-    }
-    if (sysType === OsEventTypeList.FOREGROUND_ENTER_EVENT) {
-      home?.resume();
+    // FOREGROUND_EXIT/ENTER fire when the PHONE backgrounds or locks the
+    // Even Realities host app (`../../even-realities-docs/build/
+    // background-lifecycle.md`) — not when the wearer stops looking at the
+    // glasses. The glasses' own display and BLE link stay up regardless of
+    // the phone's screen state, so this used to call `home.pause()`, which
+    // froze the HUD refresh loop *and* the inactivity-sleep timer, and
+    // `home.resume()`, which restarted the sleep countdown from zero. Real
+    // phones lock every 30-120s; the simulator's browser tab never fires
+    // this event at all. That mismatch is why "Sleep After" (and the HUD
+    // generally going stale) worked in the simulator but not on real
+    // hardware: on-device, the countdown was being reset or frozen far more
+    // often than it could ever reach its target. Per the docs, iOS keeps
+    // running through a background with no special handling needed; Android
+    // may suspend the WebView outright, which pausing here can't prevent —
+    // if it happens, this handler doesn't run either. So there is nothing
+    // useful to do with these events beyond noting them.
+    if (
+      sysType === OsEventTypeList.FOREGROUND_EXIT_EVENT ||
+      sysType === OsEventTypeList.FOREGROUND_ENTER_EVENT
+    ) {
+      log(
+        sysType === OsEventTypeList.FOREGROUND_EXIT_EVENT
+          ? "LIFECYCLE: PHONE BACKGROUND"
+          : "LIFECYCLE: PHONE FOREGROUND",
+      );
       return;
     }
 
     input.handleEvent(event);
+    pressAdapter.handleEvent(event);
   });
 
   const onBeforeUnload = (): void => dispose();
@@ -182,6 +264,10 @@ export async function startGlassesRuntime(
     if (disposed) return;
     disposed = true;
     window.removeEventListener("foresight-config-changed", onConfigChanged);
+    window.removeEventListener(
+      "foresight-debug-notification",
+      onDebugNotification,
+    );
     window.removeEventListener("beforeunload", onBeforeUnload);
     input.dispose();
     welcome?.dispose();

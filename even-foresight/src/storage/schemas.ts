@@ -17,6 +17,7 @@ export const STORAGE_KEYS = {
   WEATHER_CACHE: "foresight-weather-cache-v1",
   WEATHER_LOCATION: "foresight-weather-location-v1",
   REMINDERS: "foresight-reminders-v1",
+  MENU_ORDER: "foresight-menu-order-v1",
   BANNER_CONFIG: "foresight-banner-config-v1",
   ASSISTANT_CONFIG: "foresight-assistant-config-v1",
   HUD_SLEEP: "foresight-hud-mode-v1",
@@ -24,6 +25,10 @@ export const STORAGE_KEYS = {
   DOUBLE_TAP_DELAY: "foresight-doubletap-delay-v1",
   DEBUG_LOG: "foresight-debug-log-v1",
   INSTALLED_APPS: "foresight-installed-apps-v1",
+  SMARTER_EVERYDAY_TOPICS: "foresight-smarter-everyday-topics-v1",
+  SMARTER_EVERYDAY_LOGS: "foresight-smarter-everyday-logs-v1",
+  SMARTER_EVERYDAY_SETTINGS: "foresight-smarter-everyday-settings-v1",
+  NOTIFICATION_HISTORY: "foresight-notification-history-v1",
 } as const;
 
 // === HUD Layout ===
@@ -100,6 +105,14 @@ export interface Reminder {
   title: string;
   targetTime: number;
   completed: boolean;
+  /**
+   * When `completed` was set to `true` (either by the wearer tapping it in
+   * the Reminders list, or by the HUD's own due-time check). Undefined while
+   * not completed. Drives the 5s undo window in `src/reminders/`: a reminder
+   * is deleted once `Date.now() - completedAt` exceeds
+   * `REMINDER_UNDO_WINDOW_MS`.
+   */
+  completedAt?: number;
 }
 
 export interface RemindersStore {
@@ -113,6 +126,20 @@ export interface RemindersStore {
 export function emptyRemindersStore(): RemindersStore {
   return { reminders: [] };
 }
+
+// === Menu Order ===
+
+/**
+ * Wearer-chosen ordering for the glasses app-launcher menu, stored as a list
+ * of menu-entry ids (e.g. `"reminders"`, `"smarter-everyday"`, `"exit"`) in
+ * the order they should appear. An empty array (the default) means
+ * registration order — the order sub-apps were registered in, then `Exit`.
+ * Unknown/stale ids are ignored; entries not mentioned are appended after the
+ * ones that are, in their natural order. See `src/menu/menu-order.ts`.
+ */
+export type MenuOrder = string[];
+
+export const DEFAULT_MENU_ORDER: MenuOrder = [];
 
 // === Banner Config ===
 
@@ -138,4 +165,81 @@ export interface SubAppRegistry {
 
 export const DEFAULT_SUB_APP_REGISTRY: SubAppRegistry = {
   apps: [],
+};
+
+// === SmarterEveryday: Topic ===
+
+export interface QuietHoursConfig {
+  enabled: boolean;
+  startMinuteOfDay: number; // 0–1439
+  endMinuteOfDay: number; // 0–1439 (may be < start, meaning the window crosses midnight)
+}
+
+export interface Topic {
+  id: string;
+  description: string; // 1–200 non-whitespace-trimmed chars
+  notificationIntervalMinutes: number; // 10–360
+  quietHours: QuietHoursConfig;
+  createdAt: number;
+  paused: boolean;
+  consecutiveFailures: number;
+  lastDeliveryAt: number | null;
+  suppressedDuringQuietHours: boolean;
+}
+
+export interface SmarterEverydayTopicsStore {
+  topics: Topic[]; // max 5
+}
+
+export const DEFAULT_SMARTER_EVERYDAY_TOPICS: SmarterEverydayTopicsStore = {
+  topics: [],
+};
+
+export const DEFAULT_QUIET_HOURS: QuietHoursConfig = {
+  enabled: false,
+  startMinuteOfDay: 22 * 60, // 22:00
+  endMinuteOfDay: 7 * 60, // 07:00
+};
+
+// === SmarterEveryday: Shown Content Log ===
+
+export interface ShownContentEntry {
+  content: string;
+  deliveredAt: number;
+}
+
+/** Keyed by Topic.id. No per-topic entry limit (Requirement 6.2). */
+export type ShownContentLogStore = Record<string, ShownContentEntry[]>;
+
+export const DEFAULT_SHOWN_CONTENT_LOG: ShownContentLogStore = {};
+
+// === SmarterEveryday: Settings ===
+
+export interface SmarterEverydaySettings {
+  notificationHistoryMax: number; // 1–20, default 10 (Requirement 9.3)
+  popupDisplayDurationSeconds: number; // 10–120, default 60 (Requirement 7.2, 7.3)
+}
+
+export const DEFAULT_SMARTER_EVERYDAY_SETTINGS: SmarterEverydaySettings = {
+  notificationHistoryMax: 10,
+  popupDisplayDurationSeconds: 60,
+};
+
+// === Notification System (evolves Banner) ===
+
+export interface NotificationEntry {
+  id: string;
+  sourceAppId: string;
+  sourceAppName: string;
+  text: string; // full, untruncated content (Expanded_Notification_View)
+  duration?: number; // seconds; per-notification override, same field banner already has
+  timestamp: number;
+}
+
+export interface NotificationHistoryStore {
+  entries: NotificationEntry[]; // stored oldest-first; UI reverses for most-recent-first display
+}
+
+export const DEFAULT_NOTIFICATION_HISTORY: NotificationHistoryStore = {
+  entries: [],
 };

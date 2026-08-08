@@ -3,9 +3,16 @@
 // and Input settings into a single settings page view route.
 
 import type { ViewRoute } from "./types";
+import { STORAGE_KEYS } from "./types";
 import { createHudLayoutEditor } from "./hud-layout-editor";
 import { createHudDurationControl } from "./hud-duration-control";
+import { createMenuOrderEditor } from "./menu-order-editor";
 import { loadConfig, saveConfig } from "./storage-helpers";
+import {
+  DOUBLE_TAP_MIN_MS,
+  DOUBLE_TAP_MAX_MS,
+  DOUBLE_TAP_DEFAULT_MS,
+} from "../constants";
 
 export interface SettingsViewOptions {
   bridge: any | null;
@@ -26,6 +33,7 @@ export function createSettingsView(options: SettingsViewOptions): ViewRoute {
 
   const layoutEditor = createHudLayoutEditor({ bridge });
   const durationControl = createHudDurationControl({ bridge });
+  const menuOrderEditor = createMenuOrderEditor({ bridge });
 
   function createSection(title: string, className: string): HTMLElement {
     const section = document.createElement("section");
@@ -73,6 +81,19 @@ export function createSettingsView(options: SettingsViewOptions): ViewRoute {
 
     durationControl.mount(displayContent);
 
+    // Menu order section
+    const menuOrderSection = createSection(
+      "Menu Order",
+      "settings-view-section--menu-order",
+    );
+    wrapper.appendChild(menuOrderSection);
+
+    const menuOrderContent = menuOrderSection.querySelector(
+      ".settings-view-section-content",
+    ) as HTMLElement;
+
+    menuOrderEditor.mount(menuOrderContent);
+
     // Input Settings section — double-tap delay
     const inputSection = createSection("Input", "settings-view-section--input");
     wrapper.appendChild(inputSection);
@@ -108,37 +129,41 @@ export function createSettingsView(options: SettingsViewOptions): ViewRoute {
     delayIncBtn.type = "button";
 
     // Load current value
-    let currentDelay = 400;
-    void loadConfig<number>(bridge, "foresight-doubletap-delay-v1", 400).then(
-      (val) => {
-        if (val >= 200 && val <= 800) currentDelay = val;
-        delayValue.textContent = `${currentDelay}ms`;
-        updateDelayBtns();
-      },
-    );
+    let currentDelay = DOUBLE_TAP_DEFAULT_MS;
+    void loadConfig<number>(
+      bridge,
+      STORAGE_KEYS.DOUBLE_TAP_DELAY,
+      DOUBLE_TAP_DEFAULT_MS,
+    ).then((val) => {
+      if (val >= DOUBLE_TAP_MIN_MS && val <= DOUBLE_TAP_MAX_MS) {
+        currentDelay = val;
+      }
+      delayValue.textContent = `${currentDelay}ms`;
+      updateDelayBtns();
+    });
     delayValue.textContent = `${currentDelay}ms`;
 
     function updateDelayBtns(): void {
-      delayDecBtn.disabled = currentDelay <= 200;
-      delayIncBtn.disabled = currentDelay >= 800;
+      delayDecBtn.disabled = currentDelay <= DOUBLE_TAP_MIN_MS;
+      delayIncBtn.disabled = currentDelay >= DOUBLE_TAP_MAX_MS;
     }
     updateDelayBtns();
 
     delayDecBtn.addEventListener("click", () => {
-      if (currentDelay > 200) {
+      if (currentDelay > DOUBLE_TAP_MIN_MS) {
         currentDelay -= 50;
         delayValue.textContent = `${currentDelay}ms`;
         updateDelayBtns();
-        void saveConfig(bridge, "foresight-doubletap-delay-v1", currentDelay);
+        void saveConfig(bridge, STORAGE_KEYS.DOUBLE_TAP_DELAY, currentDelay);
       }
     });
 
     delayIncBtn.addEventListener("click", () => {
-      if (currentDelay < 800) {
+      if (currentDelay < DOUBLE_TAP_MAX_MS) {
         currentDelay += 50;
         delayValue.textContent = `${currentDelay}ms`;
         updateDelayBtns();
-        void saveConfig(bridge, "foresight-doubletap-delay-v1", currentDelay);
+        void saveConfig(bridge, STORAGE_KEYS.DOUBLE_TAP_DELAY, currentDelay);
       }
     });
 
@@ -152,8 +177,7 @@ export function createSettingsView(options: SettingsViewOptions): ViewRoute {
     const delayHint = document.createElement("div");
     delayHint.style.cssText =
       "font-size:10px;color:var(--text-dim);margin-top:4px;letter-spacing:0.5px;";
-    delayHint.textContent =
-      "Time window for detecting double-taps (200–800ms). Lower = faster, but harder to trigger.";
+    delayHint.textContent = `Time window for detecting double-taps (${DOUBLE_TAP_MIN_MS}–${DOUBLE_TAP_MAX_MS}ms). Lower = faster, but harder to trigger. If double-tap (menu, notifications) isn't registering, try raising this — check the "show_log" panel below to see what's actually being detected.`;
     inputContent.appendChild(delayHint);
 
     return wrapper;
@@ -172,6 +196,7 @@ export function createSettingsView(options: SettingsViewOptions): ViewRoute {
     unmount(): void {
       layoutEditor.unmount();
       durationControl.unmount();
+      menuOrderEditor.unmount();
 
       if (rootEl && container) {
         container.removeChild(rootEl);
