@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <title>Honyaku</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Honyaku <span lang="ja">翻訳</span></h1>
+      <span id="conn" class="pill">offline</span>
+    </header>
+
+    <div class="modes" role="tablist" aria-label="Direction">
+      <button id="mode-speak" role="tab" aria-selected="true">I speak English<small>→ romaji to read aloud</small></button>
+      <button id="mode-listen" role="tab" aria-selected="false">They speak Japanese<small>→ English</small></button>
+    </div>
+
+    <main id="log" aria-live="polite"></main>
+
+    <form id="typed" autocomplete="off">
+      <input id="typed-text" type="text" placeholder="Type to test without the mic…" />
+      <button type="submit">Send</button>
+    </form>
+
+    <button id="hold" type="button">Hold to talk</button>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
