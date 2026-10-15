@@ -1,4 +1,4 @@
-// Honyaku proxy: G2 app ⇄ (Deepgram STT) ⇄ Claude. Keeps API keys off the device.
+// Honyaku proxy: G2 app ⇄ (Deepgram STT) ⇄ LLM (OpenRouter by default). Keeps API keys off the device.
 //
 //   client → {start,dir} → binary PCM… → {end}
 //   server → partial… → final… → done

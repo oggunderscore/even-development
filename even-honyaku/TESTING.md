@@ -1,6 +1,6 @@
 # Testing the prototype on real G2 glasses
 
-Prototype status: **builds, typechecks and passes unit tests; not yet run against a real mic, Deepgram, Claude, the simulator or glasses.** Expect rough edges.
+Prototype status: **builds, typechecks and passes unit tests; not yet run against a real mic, Deepgram, OpenRouter, the simulator or glasses.** Expect rough edges.
 
 ## 1. Run it on your own machine (phone + computer on the same Wi-Fi)
 
@@ -9,7 +9,7 @@ cd even-honyaku
 npm install && (cd server && npm install)
 
 cp server/.env.example server/.env
-#   fill in ANTHROPIC_API_KEY, DEEPGRAM_API_KEY, HONYAKU_TOKEN (any random string)
+#   fill in OPENROUTER_API_KEY, DEEPGRAM_API_KEY, HONYAKU_TOKEN (any random string)
 
 cp .env.example .env.local
 #   VITE_SERVER_URL=ws://<your computer's LAN IP>:8787
@@ -20,7 +20,7 @@ npm run dev         # terminal 2 – app dev server
 npm run qr          # terminal 3 – prints the QR; scan with "Scan QR" in the Even app
 ```
 
-Optional first: `npm run simulator` (needs a desktop), and `cd server && npm run translate -- listen "これはいくらですか？"` to check the Claude side alone.
+Optional first: `npm run simulator` (needs a desktop), and `cd server && npm run translate -- listen "これはいくらですか？"` to check the translation side alone.
 
 ## 2. What to try
 - Phone: **hold** the big button and speak English → release → romaji appears on the glasses (and Japanese script on the phone).
@@ -32,7 +32,7 @@ Optional first: `npm run simulator` (needs a desktop), and `cd server && npm run
 1. Deepgram `nova-3` Japanese streaming settings (`server/src/stt.ts`).
 2. Whether `audioEvent.audioPcm` arrives as bytes, `number[]` or base64 on a real device (handled, but untested).
 3. Whether `ws://` to a LAN IP is allowed by the app's network permission for sideloaded dev builds.
-4. Latency of the default model (`TRANSLATE_MODEL=claude-opus-5-5`); try `claude-haiku-5-5` if it feels slow.
+4. Quality + latency of the default OpenRouter model (`google/gemini-2.5-flash-lite`). Japanese quality and romaji accuracy matter most; try `OPENROUTER_MODEL=qwen/qwen3.7-flash` (cheaper) or any other OpenRouter id. `TRANSLATE_PROVIDER=anthropic` switches to Claude directly.
 5. Phone hold button behaviour inside the Even app WebView (pointer events).
 
 ## 4. The attached `even-honyaku.ehpk`

@@ -22,7 +22,7 @@ Translations stream in per phrase while the mic is open; interim transcript is s
 npm install && (cd server && npm install)
 
 # 1. server keys
-cp server/.env.example server/.env      # ANTHROPIC_API_KEY, DEEPGRAM_API_KEY, HONYAKU_TOKEN
+cp server/.env.example server/.env      # OPENROUTER_API_KEY, DEEPGRAM_API_KEY, HONYAKU_TOKEN
 # 2. app → server address (phone-reachable LAN IP, not localhost)
 cp .env.example .env.local
 
@@ -33,4 +33,4 @@ npm run simulator       # or: npm run qr  (sideload on real glasses)
 Check translation alone: `cd server && npm run translate -- listen "これはいくらですか？"`.
 
 For on-device use outside dev, deploy `server/` behind HTTPS/WSS and put its origin in `app.json` → `network.whitelist`.
-Translation model is `TRANSLATE_MODEL` (default `claude-opus-5-5`; `claude-haiku-5-5` is the lower-latency option).
+Translation goes through [OpenRouter](https://openrouter.ai) by default; pick the model with `OPENROUTER_MODEL` (default `google/gemini-2.5-flash-lite`, ~$0.10 in / $0.40 out per 1M tokens). Set `TRANSLATE_PROVIDER=anthropic` to call Claude directly instead.

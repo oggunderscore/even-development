@@ -1,10 +1,10 @@
-// Claude-backed translation + romanisation for one utterance.
+// LLM translation + romanisation for one utterance.
+//
+// TRANSLATE_PROVIDER=openrouter (default) – any model on OpenRouter, one key, pay per token.
+// TRANSLATE_PROVIDER=anthropic            – Claude directly via the Anthropic API.
 
 import Anthropic from '@anthropic-ai/sdk'
 import type { Direction, Translation } from '../../src/protocol'
-
-const client = new Anthropic()
-const MODEL = process.env['TRANSLATE_MODEL'] ?? 'claude-opus-5-5'
 
 const SYSTEM = `You are the translation engine inside smart glasses used by an English speaker talking with a Japanese speaker, in live conversation.
 
@@ -30,23 +30,10 @@ export async function translate(
     .slice(-3)
     .map((h) => `- ${h.dir === 'speak' ? 'wearer' : 'other person'}: ${h.dir === 'speak' ? h.english : h.japanese}`)
     .join('\n')
+  const userContent = `${context ? `Recent turns:\n${context}\n\n` : ''}Mode "${dir}":\n${text}`
 
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 1024,
-    output_config: { effort: 'low' },
-    system: SYSTEM,
-    messages: [
-      {
-        role: 'user',
-        content: `${context ? `Recent turns:\n${context}\n\n` : ''}Mode "${dir}":\n${text}`,
-      },
-    ],
-  })
-
-  if (response.stop_reason === 'refusal') throw new Error('translation declined by the model')
-
-  const raw = response.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('')
+  const provider = process.env['TRANSLATE_PROVIDER'] ?? 'openrouter'
+  const raw = provider === 'anthropic' ? await completeAnthropic(userContent) : await completeOpenRouter(userContent)
   const parsed = parseJson(raw)
 
   const romaji = stripMacrons(String(parsed['romaji'] ?? '')).trim()
@@ -54,6 +41,64 @@ export async function translate(
     ? { id, dir, english: text, japanese: String(parsed['ja'] ?? ''), romaji }
     : { id, dir, japanese: text, english: String(parsed['en'] ?? ''), romaji }
 }
+
+// ── OpenRouter (OpenAI-compatible chat completions) ──────────────────────────
+
+export const OPENROUTER_DEFAULT_MODEL = 'google/gemini-2.5-flash-lite'
+
+async function completeOpenRouter(userContent: string): Promise<string> {
+  const key = process.env['OPENROUTER_API_KEY']
+  if (!key) throw new Error('OPENROUTER_API_KEY is not set')
+
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      'X-Title': 'Honyaku', // shows up in OpenRouter's usage dashboard
+    },
+    body: JSON.stringify({
+      model: process.env['OPENROUTER_MODEL'] || OPENROUTER_DEFAULT_MODEL,
+      temperature: 0,
+      max_tokens: 400,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: SYSTEM },
+        { role: 'user', content: userContent },
+      ],
+    }),
+  })
+  if (!res.ok) throw new Error(`openrouter ${res.status}: ${(await res.text()).slice(0, 160)}`)
+
+  // OpenRouter can answer 200 with an `error` body when an upstream provider fails.
+  const data = (await res.json()) as {
+    error?: { message?: string }
+    choices?: { message?: { content?: string } }[]
+  }
+  if (data.error) throw new Error(`openrouter: ${data.error.message ?? 'unknown error'}`)
+  const content = data.choices?.[0]?.message?.content
+  if (!content) throw new Error('openrouter returned no content')
+  return content
+}
+
+// ── Anthropic (optional) ─────────────────────────────────────────────────────
+
+let anthropic: Anthropic | undefined
+
+async function completeAnthropic(userContent: string): Promise<string> {
+  anthropic ??= new Anthropic()
+  const response = await anthropic.messages.create({
+    model: process.env['ANTHROPIC_MODEL'] || 'claude-haiku-5-5',
+    max_tokens: 1024,
+    output_config: { effort: 'low' },
+    system: SYSTEM,
+    messages: [{ role: 'user', content: userContent }],
+  })
+  if (response.stop_reason === 'refusal') throw new Error('translation declined by the model')
+  return response.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('')
+}
+
+// ── helpers ──────────────────────────────────────────────────────────────────
 
 export function parseJson(raw: string): Record<string, unknown> {
   const start = raw.indexOf('{')
