@@ -1,15 +1,15 @@
-// Deepgram live transcription.
+// Deepgram live transcription over the standard WebSocket API, so the same code runs in Node (server, v22+)
+// and in the app's WebView. Auth uses Deepgram's browser-friendly `['token', key]` subprotocol.
 //
 //   createStt('talk', …)  – the wearer holding the phone button: one `en` stream, always English → romaji.
-//   createStt('auto', …)  – always-on listening. LISTEN_ENGINE picks how:
+//   createStt('auto', …)  – always-on listening. The engine picks how:
 //        dual  (default)  – a dedicated `ja` stream AND a dedicated `en` stream on the same audio, arbitrated
 //                           with a bias towards Japanese (see arbiter.ts). Most reliable; 2× Deepgram audio cost.
 //        ja               – Japanese only. Cheapest; everything heard is treated as Japanese → English.
 //        multi            – one `language=multi` stream. Cheapest bilingual option, but it tends to start
 //                           Japanese phrases as English text.
 
-import WebSocket from 'ws'
-import type { Direction, ListenEngine, StreamMode } from '../../src/protocol'
+import type { Direction, ListenEngine, StreamMode } from '../protocol'
 import { Arbiter } from './arbiter'
 import { hasJapanese } from './lang'
 import { log, warn } from './log'
@@ -22,7 +22,7 @@ export interface Heard {
   end: number
 }
 
-/** What the Conn sees, regardless of how many Deepgram sockets are behind it. */
+/** What the engine sees, regardless of how many Deepgram sockets are behind it. */
 export interface SttHandlers {
   onPartial(text: string, dir: Direction): void
   onFinal(text: string, dir: Direction): void
@@ -32,7 +32,7 @@ export interface SttHandlers {
 }
 
 export interface Stt {
-  audio(chunk: Buffer): void
+  audio(chunk: Uint8Array): void
   /** Flush: remaining finals are delivered, then the stream closes. */
   finish(): Promise<void>
   abort(): void
@@ -45,78 +45,100 @@ interface RawHandlers {
   onClose(): void
 }
 
+const OPEN = 1
+
+/** Deepgram keys are token-safe; anything else can't be a valid WebSocket subprotocol and isn't a real key. */
+export const DEEPGRAM_KEY_RE = /^[A-Za-z0-9._~+-]{8,200}$/
+
+export function deepgramUrl(lang: Lang, endpointing = 300): string {
+  const params = new URLSearchParams({
+    model: 'nova-3',
+    language: lang,
+    encoding: 'linear16',
+    sample_rate: '16000',
+    channels: '1',
+    interim_results: 'true',
+    endpointing: String(endpointing),
+    smart_format: 'true',
+  })
+  return `wss://api.deepgram.com/v1/listen?${params}`
+}
+
 class DeepgramStream implements Stt {
-  private readonly ws: WebSocket
-  private readonly opened: Promise<void>
-  private queue: Buffer[] = []
+  private ws: WebSocket | null = null
+  private queue: Uint8Array[] = []
   private isOpen = false
   private results = 0
-  readonly closed: Promise<void>
-
   private aborted = false
   private finishing = false
   private keepAlive: ReturnType<typeof setInterval> | undefined
+  private resolveOpen!: () => void
+  private resolveClosed!: () => void
+  private readonly opened = new Promise<void>((r) => (this.resolveOpen = r))
+  private readonly closed = new Promise<void>((r) => (this.resolveClosed = r))
 
   constructor(private readonly lang: Lang, endpointing: number, apiKey: string, private readonly handlers: RawHandlers) {
-    const params = new URLSearchParams({
-      model: 'nova-3',
-      language: lang,
-      encoding: 'linear16',
-      sample_rate: '16000',
-      channels: '1',
-      interim_results: 'true',
-      endpointing: String(endpointing),
-      smart_format: 'true',
-    })
-    this.ws = new WebSocket(`wss://api.deepgram.com/v1/listen?${params}`, {
-      headers: { Authorization: `Token ${apiKey}` },
-    })
-
-    this.opened = new Promise((resolve) => this.ws.once('open', resolve))
-    this.ws.once('open', () => {
+    try {
+      this.ws = new WebSocket(deepgramUrl(lang, endpointing), ['token', apiKey])
+    } catch (err) {
+      // e.g. a key containing characters that aren't legal in a subprotocol
+      queueMicrotask(() => {
+        handlers.onError(new Error(`[${lang}] cannot open Deepgram stream: ${err instanceof Error ? err.message : 'invalid key'}`))
+        this.resolveClosed()
+        handlers.onClose()
+      })
+      return
+    }
+    const ws = this.ws
+    ws.binaryType = 'arraybuffer'
+    ws.onopen = () => {
       log('stt', `deepgram open (${lang}), flushing ${this.queue.length} queued chunks`)
       this.isOpen = true
-      for (const chunk of this.queue) this.ws.send(chunk)
+      for (const chunk of this.queue) ws.send(chunk)
       this.queue = []
+      this.resolveOpen()
       // Deepgram drops idle sockets after ~10s; audio normally flows, this covers gaps.
       this.keepAlive = setInterval(() => {
-        if (this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'KeepAlive' }))
+        if (ws.readyState === OPEN) ws.send(JSON.stringify({ type: 'KeepAlive' }))
       }, 5000)
-    })
-    this.ws.on('message', (data) => this.onMessage(data.toString()))
-    this.ws.on('error', (err) => {
-      const hint = /401/.test(err.message) ? ' — Deepgram rejected DEEPGRAM_API_KEY' : ''
-      handlers.onError(new Error(`[${lang}] ${err.message}${hint}`))
-    })
-    this.closed = new Promise((resolve) =>
-      this.ws.once('close', (code, reason) => {
-        clearInterval(this.keepAlive)
-        log('stt', `deepgram[${lang}] closed (${code}${reason.length ? ` ${reason}` : ''}); ${this.results} result frames`)
-        if (!this.aborted && !this.finishing) handlers.onClose()
-        resolve()
-      }),
-    )
+    }
+    ws.onmessage = (e) => {
+      if (typeof e.data === 'string') this.onMessage(e.data)
+    }
+    ws.onerror = () => {
+      // Browsers hide the HTTP status; a socket that never opened almost always means a rejected key.
+      const hint = this.isOpen ? 'connection error' : 'could not connect — check the Deepgram API key and network'
+      handlers.onError(new Error(`[${lang}] ${hint}`))
+    }
+    ws.onclose = (e) => {
+      clearInterval(this.keepAlive)
+      log('stt', `deepgram[${lang}] closed (${e.code}${e.reason ? ` ${e.reason}` : ''}); ${this.results} result frames`)
+      this.resolveClosed()
+      if (!this.aborted && !this.finishing) handlers.onClose()
+    }
   }
 
-  audio(chunk: Buffer) {
-    if (this.isOpen) this.ws.send(chunk)
+  audio(chunk: Uint8Array) {
+    if (this.isOpen && this.ws) this.ws.send(chunk)
     else this.queue.push(chunk)
   }
 
-  /** Flush: Deepgram emits any remaining finals, then closes the socket. */
   async finish(): Promise<void> {
     this.finishing = true
+    if (!this.ws) return
     await Promise.race([this.opened, this.closed])
-    if (this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'CloseStream' }))
-    }
+    if (this.ws.readyState === OPEN) this.ws.send(JSON.stringify({ type: 'CloseStream' }))
     await this.closed
   }
 
   abort() {
     this.aborted = true
     clearInterval(this.keepAlive)
-    this.ws.terminate()
+    try {
+      this.ws?.close()
+    } catch {
+      /* already closed */
+    }
   }
 
   private onMessage(raw: string) {
@@ -158,7 +180,7 @@ class DualStt implements Stt {
   private lastJapanese = 0
   private dead = false
 
-  constructor(apiKey: string, private readonly handlers: SttHandlers) {
+  constructor(apiKey: string, handlers: SttHandlers) {
     this.arbiter = new Arbiter((text, dir) => handlers.onFinal(text, dir))
     const closeBoth = () => {
       if (this.dead) return
@@ -189,7 +211,7 @@ class DualStt implements Stt {
     })
   }
 
-  audio(chunk: Buffer) {
+  audio(chunk: Uint8Array) {
     this.ja.audio(chunk)
     this.en.audio(chunk)
   }
@@ -210,7 +232,7 @@ class DualStt implements Stt {
 
 // ── Factory ──────────────────────────────────────────────────────────────────
 
-export function listenEngine(value: string | undefined = process.env['LISTEN_ENGINE']): ListenEngine {
+export function listenEngine(value: string | undefined): ListenEngine {
   return value === 'ja' || value === 'multi' ? value : 'dual'
 }
 

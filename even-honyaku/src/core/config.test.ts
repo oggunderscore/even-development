@@ -1,17 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { missingKeys, resolveConfig, validateConfig } from './config'
 
-describe('per-connection config', () => {
-  beforeEach(() => {
-    vi.stubEnv('ALLOW_SERVER_KEYS', '')
-    vi.stubEnv('DEEPGRAM_API_KEY', 'server-deepgram-key')
-    vi.stubEnv('GOOGLE_TRANSLATE_API_KEY', 'server-google-key')
-    vi.stubEnv('OPENROUTER_API_KEY', 'server-openrouter-key')
-    vi.stubEnv('TRANSLATE_PROVIDER', '')
-  })
-  afterEach(() => vi.unstubAllEnvs())
+const fallback = { deepgramKey: 'server-deepgram-key', translate: { provider: 'google' as const, googleKey: 'server-google-key', openrouterKey: 'server-openrouter-key' } }
 
-  it("never falls back to the server's own keys unless ALLOW_SERVER_KEYS is on", () => {
+describe('per-user config', () => {
+  it("never falls back to the host's keys unless a fallback is supplied", () => {
     const cfg = resolveConfig({})
     expect(cfg.deepgramKey).toBeUndefined()
     expect(cfg.translate.googleKey).toBeUndefined()
@@ -34,10 +27,9 @@ describe('per-connection config', () => {
     expect(missingKeys(chosen)).toEqual(['deepgram', 'translate']) // chosen provider has no key
   })
 
-  it('falls back to server keys per key, only when allowed', () => {
-    vi.stubEnv('ALLOW_SERVER_KEYS', '1')
-    const cfg = resolveConfig({ keys: { deepgram: 'dg-user-key-123' } })
-    expect(cfg.deepgramKey).toBe('dg-user-key-123') // user's own wins
+  it("falls back to host keys per key, and the user's own win", () => {
+    const cfg = resolveConfig({ keys: { deepgram: 'dg-user-key-123' } }, fallback)
+    expect(cfg.deepgramKey).toBe('dg-user-key-123')
     expect(cfg.translate.googleKey).toBe('server-google-key')
     expect(cfg.usingServerKeys).toBe(true)
   })
@@ -47,8 +39,9 @@ describe('per-connection config', () => {
     expect(resolveConfig({ keys: { deepgram: '  dg-user-key-123  ' } }).deepgramKey).toBe('dg-user-key-123')
   })
 
-  it('rejects malformed keys (header/URL injection, junk)', () => {
+  it('rejects malformed keys (header/URL/subprotocol injection, junk)', () => {
     expect(validateConfig({ keys: { deepgram: 'abc\r\nX-Evil: 1' } })).toMatch(/deepgram/)
+    expect(validateConfig({ keys: { deepgram: 'has,comma-not-token' } })).toMatch(/deepgram/)
     expect(validateConfig({ keys: { google: 'has space in it' } })).toMatch(/google/)
     expect(validateConfig({ keys: { openrouter: 'short' } })).toMatch(/openrouter/)
     expect(validateConfig({ openrouterModel: 'a b; rm -rf' })).toMatch(/model/)

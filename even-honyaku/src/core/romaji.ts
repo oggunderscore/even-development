@@ -1,22 +1,30 @@
 // Local Japanese → Hepburn romaji (no network, no per-use cost). Google Translate only returns
 // translated text, so the romaji the wearer reads aloud is produced here with the kuromoji
 // dictionary tokenizer + wanakana. Output is plain ASCII with long vowels doubled ("arigatou").
+//
+// The dictionary (~17 MB) is loaded by a host-specific loader: Node reads it from disk
+// (server/src/romaji-node.ts), the app fetches it from its own bundle (src/romaji-browser.ts).
 
-import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
-import kuromoji from 'kuromoji'
+import type kuromoji from 'kuromoji'
 import { toRomaji } from 'wanakana'
-import { stripMacrons } from './translate'
+import { stripMacrons } from './lang'
 
-type Tokenizer = kuromoji.Tokenizer<kuromoji.IpadicFeatures>
+export type Tokenizer = kuromoji.Tokenizer<kuromoji.IpadicFeatures>
 
+let loader: (() => Promise<Tokenizer>) | undefined
 let tokenizer: Promise<Tokenizer> | undefined
 
-/** Loads the ~17 MB dictionary once; call at startup so the first phrase isn't slow. */
+export function setTokenizerLoader(load: () => Promise<Tokenizer>) {
+  loader = load
+  tokenizer = undefined
+}
+
+/** Loads the dictionary once; call early so the first phrase isn't slow. */
 export function loadRomajiDictionary(): Promise<Tokenizer> {
-  tokenizer ??= new Promise((resolve, reject) => {
-    const dicPath = join(dirname(createRequire(import.meta.url).resolve('kuromoji/package.json')), 'dict')
-    kuromoji.builder({ dicPath }).build((err, t) => (err ? reject(err) : resolve(t)))
+  if (!loader) return Promise.reject(new Error('romaji dictionary loader not configured'))
+  tokenizer ??= loader().catch((err) => {
+    tokenizer = undefined // allow a retry
+    throw err
   })
   return tokenizer
 }

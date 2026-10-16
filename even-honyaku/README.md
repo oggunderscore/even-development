@@ -26,43 +26,49 @@ Listening is **off when the app starts** — turn it on when you want it.
 
 Long press needs SDK 0.0.14+ and Even App 2.2.9+ (this build targets SDK 0.0.16 → app 2.2.10+). Single taps are ignored on purpose so a stray touch can't open the mic. A tap followed by a hold is claimed by the OS contextual menu, so use a plain hold.
 
-## Setup
-```bash
-npm install && (cd server && npm install)
+## How it runs — no server needed
+The Even app hosts the app in a phone WebView; a Node server can't run there. So by default (**DIRECT mode**) the whole engine runs *inside* the WebView and the phone calls the services itself:
 
-cp server/.env.example server/.env     # set HONYAKU_TOKEN (any secret string); API keys are optional, see below
-cp .env.example .env.local             # VITE_SERVER_URL = phone-reachable LAN/Tailscale address (not localhost)
-
-npm run server          # terminal 1
-npm run dev             # terminal 2
-npm run simulator       # or: npm run qr  (sideload on real glasses)
 ```
+glasses mic → app (WebView) ──wss──▶ Deepgram            (speech-to-text)
+                           └──https─▶ Google / OpenRouter / Claude   (translation)
+                 romaji: local dictionary (kuromoji) · keys: yours, entered in Settings
+```
+Nothing is hosted, no operator keys are bundled, and the only places your keys go are the providers you chose. `app.json` whitelists exactly those domains. This is the usual way for G2 apps with bring-your-own-key AI: the `.ehpk` is extractable, so it must never contain *your* keys, and users supply their own.
 
-### API keys: bring your own
-Open the app's **SETTINGS** tab and enter the server address + access token, your **Deepgram** key and a **translation** key (Google Translate, OpenRouter or Claude). **SAVE & TEST** connects, validates each key with its service and runs a sample translation, showing ✓/✗ per step.
+**YOUR SERVER mode** (Settings → Connection) routes the same engine through the optional proxy in `server/` instead — useful if a network blocks the providers, or you'd rather not ship the 17 MB romaji dictionary to phones. See "Server mode" below.
+
+## Setup (development)
+```bash
+npm install && (cd server && npm install)   # server/ only needed for server mode
+npm run dev                                  # copies the romaji dictionary to public/dict, starts Vite
+npm run simulator                            # or: npm run qr  (sideload on real glasses)
+```
+In the app: **SETTINGS** → enter your **Deepgram** key and a **translation** key (Google Translate, OpenRouter or Claude) → **SAVE & TEST**. It checks each key with its service and runs a sample translation, showing ✓/✗ per step.
 
 - Keys are stored on the device (Even bridge storage, mirrored to localStorage) and shown masked. **CLEAR KEYS** wipes them.
-- They're sent to the server only in the first WebSocket message, kept in memory for that connection, and never logged or stored by the server — so usage is billed to *your* accounts, not the server owner's.
-- Because keys travel over the socket, the app refuses plain `ws://` unless the address is loopback, LAN or Tailscale; use `wss://` for anything public.
-- Dev shortcut: `ALLOW_SERVER_KEYS=1` in `server/.env` lets connections without their own keys fall back to the keys in that file (you pay).
+- Google users: restrict the key by *API* (Cloud Translation), not by HTTP referrer — the WebView has no fixed origin.
 
-Check translation alone with the server's own env keys: `cd server && npm run translate -- listen "これはいくらですか？"` (`listen` = Japanese in, `speak` = English in).
+### Server mode (optional)
+```bash
+cp server/.env.example server/.env     # set HONYAKU_TOKEN (any secret string)
+npm run server
+```
+In the app choose **YOUR SERVER**, enter the address (`wss://…`, or LAN/Tailscale `ws://…`) and the token. Keys travel in the first WebSocket message, live only in that connection's memory, and are never logged or stored. The app refuses plain `ws://` unless the address is loopback, LAN or Tailscale. Add the server's origin to `app.json` → `network.whitelist` before packing. Dev shortcut: `ALLOW_SERVER_KEYS=1` lets connections without keys fall back to `server/.env` (you pay).
 
-For on-device use outside dev, deploy `server/` behind HTTPS/WSS and put its origin in `app.json` → `network.whitelist`.
+Check translation alone with the server's own env keys: `cd server && npm run translate -- listen "これはいくらですか？"`.
 
 ## Translation backends
-| Provider (Settings tab, or `TRANSLATE_PROVIDER` for server-side fallback keys) | What | Cost |
+| Provider (Settings → Translation) | What | Cost |
 | --- | --- | --- |
-| `google` (default when `GOOGLE_TRANSLATE_API_KEY` is set) | Google Cloud Translation for the text; **romaji is generated locally** (kuromoji + wanakana, `server/src/romaji.ts`) | 500k chars/month free, then $20/1M chars. No LLM. |
-| `openrouter` (default otherwise) | any OpenRouter model (`OPENROUTER_MODEL`) does translation + romaji | per token |
-| `anthropic` | Claude directly | per token |
+| Google | Google Cloud Translation for the text; **romaji is generated locally** (kuromoji + wanakana, `src/core/romaji.ts`) | 500k chars/month free, then $20/1M chars. No LLM. |
+| OpenRouter | any OpenRouter model does translation + romaji | per token |
+| Claude | Anthropic directly | per token |
 
 Google gives literal, context-free translations; the LLM backends handle tone and conversation context better.
 
 ## Packaging for the Even app (private build)
 ```bash
-# .env.local → VITE_SERVER_URL / VITE_SERVER_TOKEN become the app's *defaults* (editable in Settings).
-# Leave VITE_SERVER_TOKEN empty for a build you'll share — it is baked into the .ehpk.
-npm run pack            # build + evenhub pack → even-honyaku.ehpk
+npm run pack            # build (+ romaji dictionary) + evenhub pack → even-honyaku.ehpk (~17 MB)
 ```
-Then upload `even-honyaku.ehpk` under **Private builds** in the dev portal (hub.evenrealities.com) and install it from the Even app: **Even Hub tab → Me → Apps → Private builds → Install**. The phone must be able to reach the server (here: on your Tailscale tailnet); `app.json` → `network.whitelist` lists the server origin. The server address and token can also be changed in Settings without repacking. The wire protocol changed (token + keys now arrive in a `config` message), so re-pack and re-upload the app whenever you update the server.
+Upload `even-honyaku.ehpk` under **Private builds** in the dev portal (hub.evenrealities.com) and install it from the Even app: **Even Hub tab → Me → Apps → Private builds → Install**. The package contains no keys and no server address; each user enters theirs in Settings. The dictionary is only fetched when the Google provider is used.

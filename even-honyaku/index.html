@@ -57,17 +57,29 @@
         <div class="scroll">
           <form id="settings" autocomplete="off" spellcheck="false">
             <div class="card">
-              <h2>SERVER</h2>
+              <h2>CONNECTION</h2>
               <div class="field">
-                <label for="set-url">ADDRESS</label>
-                <input id="set-url" type="url" inputmode="url" autocapitalize="off" placeholder="wss://honyaku.example.com" />
-                <small id="url-hint" class="hint"></small>
+                <label>MODE</label>
+                <div class="seg" id="seg-mode" role="radiogroup">
+                  <button type="button" role="radio" data-v="direct">DIRECT</button>
+                  <button type="button" role="radio" data-v="server">YOUR SERVER</button>
+                </div>
+                <small id="mode-hint" class="hint"></small>
               </div>
-              <div class="field">
-                <label for="set-token">ACCESS TOKEN</label>
-                <div class="secret">
-                  <input id="set-token" type="password" autocapitalize="off" autocomplete="off" />
-                  <button class="reveal" type="button" data-for="set-token">SHOW</button>
+              <div class="reveal-row" data-mode="server">
+                <div>
+                  <div class="field">
+                    <label for="set-url">SERVER ADDRESS</label>
+                    <input id="set-url" type="url" inputmode="url" autocapitalize="off" placeholder="wss://honyaku.example.com" />
+                    <small id="url-hint" class="hint"></small>
+                  </div>
+                  <div class="field">
+                    <label for="set-token">ACCESS TOKEN</label>
+                    <div class="secret">
+                      <input id="set-token" type="password" autocapitalize="off" autocomplete="off" />
+                      <button class="reveal" type="button" data-for="set-token">SHOW</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -105,15 +117,17 @@
                 <small id="provider-hint" class="hint"></small>
               </div>
               <div class="reveal-row" data-provider="google">
+<div>
                 <div class="field">
                   <label for="set-google">GOOGLE TRANSLATE API KEY</label>
                   <div class="secret">
                     <input id="set-google" type="password" autocapitalize="off" autocomplete="off" placeholder="paste key" />
                     <button class="reveal" type="button" data-for="set-google">SHOW</button>
                   </div>
-                </div>
+                </div></div>
               </div>
               <div class="reveal-row" data-provider="openrouter">
+<div>
                 <div class="field">
                   <label for="set-openrouter">OPENROUTER API KEY</label>
                   <div class="secret">
@@ -124,16 +138,17 @@
                 <div class="field">
                   <label for="set-model">MODEL <span class="opt">OPTIONAL</span></label>
                   <input id="set-model" type="text" autocapitalize="off" placeholder="google/gemini-2.5-flash-lite" />
-                </div>
+                </div></div>
               </div>
               <div class="reveal-row" data-provider="anthropic">
+<div>
                 <div class="field">
                   <label for="set-anthropic">ANTHROPIC API KEY</label>
                   <div class="secret">
                     <input id="set-anthropic" type="password" autocapitalize="off" autocomplete="off" placeholder="paste key" />
                     <button class="reveal" type="button" data-for="set-anthropic">SHOW</button>
                   </div>
-                </div>
+                </div></div>
               </div>
             </div>
 

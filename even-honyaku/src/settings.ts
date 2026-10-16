@@ -3,9 +3,13 @@
 // configured, over the WebSocket, in the `config` message.
 
 import type { ApiKeys, ListenEngine, Provider, UserConfig } from './protocol'
-import { SERVER_TOKEN, SERVER_URL } from './config'
+import { SERVER_URL } from './config'
+
+/** direct: the app calls Deepgram + the translation provider itself. server: via your own proxy (server/). */
+export type Mode = 'direct' | 'server'
 
 export interface Settings {
+  mode: Mode
   serverUrl: string
   serverToken: string
   deepgramKey: string
@@ -20,8 +24,9 @@ export interface Settings {
 export const STORAGE_KEY = 'honyaku.settings.v1'
 
 export const defaultSettings = (): Settings => ({
+  mode: 'direct',
   serverUrl: SERVER_URL,
-  serverToken: SERVER_TOKEN,
+  serverToken: '',
   deepgramKey: '',
   provider: 'google',
   googleKey: '',
@@ -42,6 +47,7 @@ export function parseSettings(raw: string | null | undefined): Settings | null {
     const d = defaultSettings()
     const str = (k: keyof Settings, fallback: string) => (typeof o[k] === 'string' ? (o[k] as string) : fallback)
     return {
+      mode: o['mode'] === 'server' ? 'server' : 'direct',
       serverUrl: str('serverUrl', d.serverUrl).trim() || d.serverUrl,
       serverToken: str('serverToken', d.serverToken),
       deepgramKey: str('deepgramKey', ''),

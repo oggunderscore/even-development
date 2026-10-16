@@ -34,7 +34,7 @@ export interface UserConfig {
 }
 
 export interface TestResult {
-  service: 'deepgram' | Provider | 'translate'
+  service: 'deepgram' | Provider | 'translate' | 'romaji'
   ok: boolean
   detail: string
 }

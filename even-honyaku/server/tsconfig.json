@@ -8,5 +8,6 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src", "../src/protocol.ts"]
+  "include": ["src", "../src/protocol.ts", "../src/core/**/*.ts"],
+  "exclude": ["../src/core/**/*.test.ts"]
 }

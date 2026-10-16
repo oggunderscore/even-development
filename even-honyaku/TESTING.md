@@ -2,26 +2,17 @@
 
 Prototype status: **builds, typechecks and passes unit tests; not yet run against a real mic, Deepgram, OpenRouter, the simulator or glasses.** Expect rough edges.
 
-## 1. Run it on your own machine (phone + computer on the same Wi-Fi)
+## 1. Run it on your own machine (phone + computer on the same Wi-Fi; no server required)
 
 ```bash
 cd even-honyaku
-npm install && (cd server && npm install)
-
-cp server/.env.example server/.env
-#   set HONYAKU_TOKEN (any random string). API keys are entered in the app's Settings tab
-#   (or set ALLOW_SERVER_KEYS=1 and put DEEPGRAM_API_KEY + a translation key here for local dev)
-
-cp .env.example .env.local
-#   VITE_SERVER_URL=ws://<your computer's LAN IP>:8787
-#   VITE_SERVER_TOKEN=<same value as HONYAKU_TOKEN>
-
-npm run server      # terminal 1 – STT + translation proxy
-npm run dev         # terminal 2 – app dev server
-npm run qr          # terminal 3 – prints the QR; scan with "Scan QR" in the Even app
+npm install
+npm run dev         # terminal 1 – app dev server (also copies the romaji dictionary to public/dict)
+npm run qr          # terminal 2 – prints the QR; scan with "Scan QR" in the Even app
 ```
+Then open **SETTINGS** and enter your keys (DIRECT mode, the default). To try the optional proxy instead: `cp server/.env.example server/.env`, set `HONYAKU_TOKEN`, `npm run server`, and choose **YOUR SERVER** in Settings.
 
-Optional first: `npm run simulator` (needs a desktop), and `cd server && npm run translate -- listen "これはいくらですか？"` to check the translation side alone.
+Optional first: `npm run simulator` (needs a desktop).
 
 ## 2. What to try
 - Open **SETTINGS**, enter your own Deepgram + translation keys, tap **SAVE & TEST** — you should get ✓ SERVER, ✓ DEEPGRAM, ✓ provider, ✓ TRANSLATE. Wrong keys show ✗ with the reason; the feed won't start listening until keys are present.
@@ -39,4 +30,4 @@ Optional first: `npm run simulator` (needs a desktop), and `cd server && npm run
 6. Phone hold button behaviour inside the Even app WebView (pointer events).
 
 ## 4. The `even-honyaku.ehpk` package
-`npm run pack` builds with your `.env.local` (server URL + token are baked in — fine for a private build, don't publish it) and packs against SDK 0.0.10 (`min_app_version` 2.2.5). `app.json` whitelists `ws://` and `http://` for the Tailscale address `100.95.240.35:8787`. Upload it as a private build in the dev portal and install it from the Even app (see README). If the app can't connect on-device, check the Debug panel: whether the whitelist format accepts a `ws://` origin is unverified.
+`npm run pack` builds the app (plus the 17 MB romaji dictionary) and packs against SDK 0.0.16 (`min_app_version` 2.2.10). No keys or server address are baked in; `app.json` whitelists Deepgram, Google Translate, OpenRouter and Anthropic. Upload it as a private build in the dev portal, install from the Even app, then enter your keys in **SETTINGS**. Unverified on-device: that the app's network whitelist accepts `wss://api.deepgram.com` for the WebSocket (both `wss://` and `https://` origins are listed), and that a ~17 MB upload is accepted. If a direct call fails, the Debug panel shows why; **YOUR SERVER** mode is the fallback.

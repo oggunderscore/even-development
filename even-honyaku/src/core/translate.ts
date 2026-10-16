@@ -1,14 +1,14 @@
-// Translation + romanisation for one utterance.
+// Translation + romanisation for one utterance. Plain fetch, so it runs unchanged on the server and inside the app.
 //
-// TRANSLATE_PROVIDER=google      – Google Cloud Translation (no LLM). Romaji is generated locally (romaji.ts).
-//                                  Default whenever GOOGLE_TRANSLATE_API_KEY is set.
-// TRANSLATE_PROVIDER=openrouter  – any model on OpenRouter, one key, pay per token. Default otherwise.
-// TRANSLATE_PROVIDER=anthropic   – Claude directly via the Anthropic API.
+//   google      – Google Cloud Translation (no LLM). Romaji is generated locally (romaji.ts).
+//   openrouter  – any model on OpenRouter, one key, pay per token.
+//   anthropic   – Claude directly via the Anthropic API.
 
-import Anthropic from '@anthropic-ai/sdk'
 import type { Direction, Provider, Translation } from '../../src/protocol'
-import { hasJapanese } from './lang'
+import { hasJapanese, stripMacrons } from './lang'
 import { romanize } from './romaji'
+
+export { stripMacrons }
 
 /** Japanese script (kana / kanji) present → the other person spoke Japanese; otherwise English. */
 export function detectDir(text: string): Direction {
@@ -29,7 +29,7 @@ Romaji rules:
 
 Translate meaning and tone, not word-for-word. Keep it short; this is shown on a tiny display. Use earlier turns only to resolve pronouns and context.`
 
-/** Everything translate() needs. Built per connection from the user's keys (see config.ts), or from env for the CLI/tests. */
+/** Everything translate() needs. Built per user from their own keys (see config.ts). */
 export interface TranslateConfig {
   provider: Provider
   googleKey?: string
@@ -39,28 +39,12 @@ export interface TranslateConfig {
   anthropicModel?: string
 }
 
-export function envTranslateConfig(): TranslateConfig {
-  const env = process.env
-  return {
-    provider: (env['TRANSLATE_PROVIDER'] as Provider) || (env['GOOGLE_TRANSLATE_API_KEY'] ? 'google' : 'openrouter'),
-    googleKey: env['GOOGLE_TRANSLATE_API_KEY'],
-    openrouterKey: env['OPENROUTER_API_KEY'],
-    openrouterModel: env['OPENROUTER_MODEL'],
-    anthropicKey: env['ANTHROPIC_API_KEY'],
-    anthropicModel: env['ANTHROPIC_MODEL'],
-  }
-}
-
-export function translateProvider(): string {
-  return envTranslateConfig().provider
-}
-
 export async function translate(
   dir: Direction,
   text: string,
   history: Translation[] = [],
   id = 0,
-  cfg: TranslateConfig = envTranslateConfig(),
+  cfg: TranslateConfig,
 ): Promise<Translation> {
   if (cfg.provider === 'google') return translateWithGoogle(dir, text, id, cfg)
 
@@ -146,26 +130,32 @@ async function completeOpenRouter(userContent: string, cfg: TranslateConfig): Pr
 
 // ── Anthropic (optional) ─────────────────────────────────────────────────────
 
-const anthropicClients = new Map<string, Anthropic>()
-
 async function completeAnthropic(userContent: string, cfg: TranslateConfig): Promise<string> {
   const key = cfg.anthropicKey
   if (!key) throw new Error('Anthropic key is not set')
-  let client = anthropicClients.get(key)
-  if (!client) {
-    if (anthropicClients.size >= 20) anthropicClients.clear() // keys are per user; don't grow forever
-    client = new Anthropic({ apiKey: key })
-    anthropicClients.set(key, client)
-  }
-  const response = await client.messages.create({
-    model: cfg.anthropicModel || 'claude-haiku-5-5',
-    max_tokens: 1024,
-    output_config: { effort: 'low' },
-    system: SYSTEM,
-    messages: [{ role: 'user', content: userContent }],
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+      // Required for calls made straight from a browser/WebView; the key is the user's own.
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: cfg.anthropicModel || 'claude-haiku-5-5',
+      max_tokens: 1024,
+      system: SYSTEM,
+      messages: [{ role: 'user', content: userContent }],
+    }),
   })
-  if (response.stop_reason === 'refusal') throw new Error('translation declined by the model')
-  return response.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('')
+  if (!res.ok) throw new Error(`anthropic ${res.status}: ${(await res.text()).replace(/\s+/g, ' ').slice(0, 160)}`)
+  const data = (await res.json()) as { stop_reason?: string; content?: { type: string; text?: string }[] }
+  if (data.stop_reason === 'refusal') throw new Error('translation declined by the model')
+  const text = (data.content ?? []).flatMap((b) => (b.type === 'text' && b.text ? [b.text] : [])).join('')
+  if (!text) throw new Error('anthropic returned no content')
+  return text
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -175,13 +165,4 @@ export function parseJson(raw: string): Record<string, unknown> {
   const end = raw.lastIndexOf('}')
   if (start < 0 || end < start) throw new Error(`model returned no JSON: ${raw.slice(0, 80)}`)
   return JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>
-}
-
-/** The G2 font silently drops unknown glyphs, so macrons would vanish mid-word. */
-export function stripMacrons(s: string): string {
-  const map: Record<string, string> = {
-    ā: 'aa', ī: 'ii', ū: 'uu', ē: 'ee', ō: 'ou',
-    Ā: 'Aa', Ī: 'Ii', Ū: 'Uu', Ē: 'Ee', Ō: 'Ou',
-  }
-  return s.replace(/[āīūēōĀĪŪĒŌ]/g, (c) => map[c] ?? c).normalize('NFD').replace(/[̀-ͯ]/g, '')
 }

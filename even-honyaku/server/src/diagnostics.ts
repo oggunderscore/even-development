@@ -1,10 +1,11 @@
 // Startup self-check. User keys arrive per connection (see config.ts); the server's own .env keys are only
 // used, and therefore only checked, when ALLOW_SERVER_KEYS is on.
 
+import { resolveConfig } from '../../src/core/config'
+import { testConfig } from '../../src/core/probes'
+import { loadRomajiDictionary } from '../../src/core/romaji'
+import { serverFallback } from './env'
 import { log, warn } from './log'
-import { resolveConfig, serverKeysAllowed } from './config'
-import { testConfig } from './probes'
-import { loadRomajiDictionary } from './romaji'
 
 export async function runStartupChecks(token: string) {
   log('config', `HONYAKU_TOKEN: ${token ? `set (${token.length} chars)` : 'EMPTY (auth disabled)'}`)
@@ -16,7 +17,8 @@ export async function runStartupChecks(token: string) {
     (e) => warn('check', `romaji dictionary failed to load: ${e}`),
   )
 
-  if (!serverKeysAllowed()) return
-  const results = await testConfig(resolveConfig())
+  const fallback = serverFallback()
+  if (!fallback) return
+  const results = await testConfig(resolveConfig({}, fallback))
   for (const r of results) (r.ok ? log : warn)('check', `${r.service}: ${r.detail}`)
 }

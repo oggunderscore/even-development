@@ -13,9 +13,17 @@
     },
     {
       "name": "network",
-      "desc": "Sends captured speech to the Honyaku translation server and receives the translated text.",
-      "whitelist": ["ws://100.95.240.35:8787", "http://100.95.240.35:8787"]
+      "desc": "Calls speech-to-text and translation services (Deepgram, Google Translate, OpenRouter, Anthropic) with the API keys you enter, or your own Honyaku server if you choose one.",
+      "whitelist": [
+        "https://api.deepgram.com",
+        "wss://api.deepgram.com",
+        "https://translation.googleapis.com",
+        "https://openrouter.ai",
+        "https://api.anthropic.com"
+      ]
     }
   ],
-  "supported_languages": ["en"]
+  "supported_languages": [
+    "en"
+  ]
 }

@@ -1,7 +1,10 @@
-// Timestamped console logger. Set DEBUG_AUDIO=1 to also log every audio chunk.
+// Timestamped console logging for the server, plugged into the shared core's log sink.
 
-export const log = (tag: string, ...args: unknown[]) =>
-  console.log(new Date().toISOString().slice(11, 23), `[${tag}]`, ...args)
+import { setLogSink } from '../../src/core/log'
 
-export const warn = (tag: string, ...args: unknown[]) =>
-  console.warn(new Date().toISOString().slice(11, 23), `[${tag}] ⚠`, ...args)
+const stamp = () => new Date().toISOString().slice(11, 23)
+
+export const log = (tag: string, ...args: unknown[]) => console.log(stamp(), `[${tag}]`, ...args)
+export const warn = (tag: string, ...args: unknown[]) => console.warn(stamp(), `[${tag}] ⚠`, ...args)
+
+setLogSink(log, warn)

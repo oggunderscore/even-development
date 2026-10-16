@@ -1,5 +1,6 @@
 import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
 import { MAX_TURN_MS, describeConfig } from './config'
+import { setLogSink } from './core/log'
 import { dbg } from './debug'
 import { Display, type UiState } from './display'
 import { classifyInput } from './input'
@@ -8,6 +9,13 @@ import type { ServerMsg, Translation } from './protocol'
 import { Session } from './session'
 import { type Settings, hasKeys, loadSettings, loadSettingsFromBridge, providerKey, saveSettings, toUserConfig, withoutKeys } from './settings'
 import { type Phase, PhoneUi } from './ui'
+import './romaji-browser'
+
+// The shared engine logs through the debug panel (it never receives a key or token).
+setLogSink(
+  (tag, ...a) => dbg(`[${tag}] ${a.join(' ')}`),
+  (tag, ...a) => dbg(`[${tag}] ⚠ ${a.join(' ')}`),
+)
 
 // Listening starts PAUSED. Once the user resumes it, the glasses mic streams continuously until they pause again:
 //   listening  – always-on; server detects English / Japanese per utterance (JP → English, EN → romaji)
@@ -32,7 +40,7 @@ let settings: Settings = loadSettings()
 /** What the server told us after `config`: whether it can transcribe/translate with the keys it has. */
 let serverCan: { stt: boolean; translate: boolean; serverKeys: boolean } | null = null
 
-const describe = () => describeConfig(settings.serverUrl, settings.serverToken, { deepgram: !!settings.deepgramKey, translate: !!providerKey(settings) })
+const describe = () => describeConfig(settings.mode, settings.serverUrl, settings.serverToken, { deepgram: !!settings.deepgramKey, translate: !!providerKey(settings) })
 dbg(describe())
 
 // Listening is OFF until the wearer turns it on (tap on the glasses / button on the phone).
@@ -82,7 +90,7 @@ const session = new Session({
     syncState()
   },
   onMessage: handleServerMessage,
-  getServer: () => ({ url: settings.serverUrl, config: toUserConfig(settings) }),
+  getTarget: () => ({ mode: settings.mode, url: settings.serverUrl, config: toUserConfig(settings) }),
 })
 void session.connect().catch(() => {})
 
@@ -315,7 +323,9 @@ function handleServerMessage(msg: ServerMsg) {
       ui.setNeedsKeys(!keysAvailable())
       break
     case 'test_result':
-      ui.showResults([{ service: 'server', ok: true, detail: 'connected · access token accepted' }, ...msg.results])
+      ui.showResults(
+        settings.mode === 'server' ? [{ service: 'server', ok: true, detail: 'connected · access token accepted' }, ...msg.results] : msg.results,
+      )
       break
     case 'ready':
       break
