@@ -2,7 +2,7 @@
 // (the user's own API keys, with a Test button). All DOM is built with textContent — no innerHTML —
 // so text from the network or from a key field can never inject markup.
 
-import type { Direction, ListenEngine, Provider, Translation } from './protocol'
+import type { Direction, EnglishInput, ListenEngine, Provider, Translation } from './protocol'
 import { type Settings, normalizeSettings, setupSteps } from './settings'
 
 export type Phase = 'idle' | 'paused' | 'listening' | 'talking' | 'processing'
@@ -27,6 +27,11 @@ const STATUS_TEXT: Record<Phase | 'offline', string> = {
   listening: 'LISTENING',
   talking: 'TALKING · EN',
   processing: 'TRANSLATING',
+}
+
+const ENGLISH_HINT: Record<EnglishInput, string> = {
+  hold: 'English is heard only while you hold the talk button, so Japanese you read aloud never shows up as a translation. Always-on listening hears Japanese only.',
+  always: 'English and Japanese are both picked up automatically. Japanese you read aloud may show up in the feed.',
 }
 
 const ENGINE_HINT: Record<ListenEngine, string> = {
@@ -61,6 +66,7 @@ export class PhoneUi {
   private base: Settings
   private provider: Provider = 'google'
   private engine: ListenEngine = 'dual'
+  private english: EnglishInput = 'hold'
   private spinnerTimer: ReturnType<typeof setInterval> | undefined
 
   constructor(private readonly handlers: PhoneUiHandlers, initial: Settings) {
@@ -249,6 +255,7 @@ export class PhoneUi {
 
     this.wireHelp()
     this.wireSeg('seg-provider', (v) => this.setProvider(v as Provider))
+    this.wireSeg('seg-english', (v) => this.setEnglishInput(v as EnglishInput))
     this.wireSeg('seg-engine', (v) => this.setEngine(v as ListenEngine))
     // Live checklist: tick steps off as the user pastes keys.
     for (const id of ['set-deepgram', 'set-google', 'set-openrouter', 'set-anthropic']) {
@@ -282,6 +289,13 @@ export class PhoneUi {
       row.classList.toggle('open', row.dataset['provider'] === p)
     }
     this.renderSetup()
+  }
+
+  private setEnglishInput(e: EnglishInput) {
+    this.english = e
+    this.setSeg('seg-english', e)
+    $('english-hint').textContent = ENGLISH_HINT[e]
+    $('field-engine').hidden = e === 'hold' // the engine choice only matters when English is also picked up automatically
   }
 
   private setEngine(e: ListenEngine) {
@@ -327,6 +341,7 @@ export class PhoneUi {
     $<HTMLInputElement>('set-anthropic').value = s.anthropicKey
     $<HTMLInputElement>('set-model').value = s.openrouterModel
     this.setProvider(s.provider)
+    this.setEnglishInput(s.englishInput)
     this.setEngine(s.listenEngine)
     this.renderSetup()
   }
@@ -342,6 +357,7 @@ export class PhoneUi {
       openrouterKey: key('set-openrouter'),
       anthropicKey: key('set-anthropic'),
       openrouterModel: v('set-model'),
+      englishInput: this.english,
       listenEngine: this.engine,
     }
   }

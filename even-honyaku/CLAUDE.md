@@ -3,7 +3,7 @@
 G2 app for live English ⇄ Japanese conversation. Sibling project in the `even-` workspace
 (https://github.com/oggunderscore/even-development) — platform docs are in that repo's `even-realities-docs/`.
 
-- **Always-on listening** (`start auto`, off until the wearer resumes it): Deepgram nova-3 with a dedicated `ja` and a dedicated `en` stream arbitrated in `src/core/arbiter.ts` (Japanese-biased; Settings → listening mode dual | ja | multi). Japanese heard → glasses show **English**; English heard → **romaji** to read aloud.
+- **Always-on listening** (`start auto`, off until the wearer resumes it): Deepgram nova-3 with a dedicated `ja` and a dedicated `en` stream arbitrated in `src/core/arbiter.ts` (Japanese-biased; Settings → English input `hold` (default: always-on is forced to the `ja` engine so the wearer's own spoken Japanese isn't mistaken for English, English only via the hold button) | `always` (then the always-on engine dual | ja | multi applies); mapping lives in `toUserConfig`). Japanese heard → glasses show **English**; English heard → **romaji** to read aloud.
 - **Hold to talk** (`start talk`): English-only stream for the wearer; releasing returns to always-on. No mode switch anywhere.
 
 ## Layout

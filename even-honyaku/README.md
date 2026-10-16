@@ -2,7 +2,7 @@
 
 Live English ⇄ Japanese for Even Realities G2.
 
-The glasses mic listens for English and Japanese (Deepgram nova-3). By default (Settings → **Listening mode: DUAL**) the same audio goes to a **dedicated Japanese model and a dedicated English model** and the result is arbitrated with a bias towards Japanese — a single multilingual stream tended to start Japanese phrases as English text:
+**English input** (Settings) decides how your own English gets in. **HOLD TO TALK** (the default): English is heard only while you hold the phone's talk button, and always-on listening hears **Japanese only**, so Japanese you read aloud to the other person never turns into a translation on the glasses. **ALWAYS ON**: the glasses mic picks up English and Japanese automatically (Deepgram nova-3). In that mode (Settings → **Always-on engine: DUAL**, the default) the same audio goes to a **dedicated Japanese model and a dedicated English model** and the result is arbitrated with a bias towards Japanese — a single multilingual stream tended to start Japanese phrases as English text:
 
 | Heard | Glasses show |
 | --- | --- |
@@ -11,7 +11,7 @@ The glasses mic listens for English and Japanese (Deepgram nova-3). By default (
 
 **Hold to talk** forces English-only for one phrase when you want a clean, deliberate translation to read aloud; releasing drops straight back to always-on listening. Interim transcript is shown live.
 
-Note: always-on listening streams audio to Deepgram for as long as it's on (billed per audio minute). `dual` uses two streams, so twice the minutes; pick **JA ONLY** (Japanese only, translate everything to English) or **MULTI** (one multilingual stream) in Settings to spend less. Hold-to-talk on the phone is always English.
+Note: always-on listening streams audio to Deepgram for as long as it's on (billed per audio minute). In ALWAYS ON mode `dual` uses two streams, so twice the minutes; pick **JA ONLY** (Japanese only, translate everything to English) or **MULTI** (one multilingual stream) in Settings to spend less. HOLD TO TALK mode (the default) uses a single Japanese stream, so it is also the cheapest.
 
 ## Controls
 Listening is **off when the app starts** — turn it on when you want it.

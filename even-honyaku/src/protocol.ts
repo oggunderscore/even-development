@@ -14,6 +14,10 @@ export type Provider = 'google' | 'openrouter' | 'anthropic'
 /** How always-on listening tells English from Japanese (see core/stt.ts). */
 export type ListenEngine = 'dual' | 'ja' | 'multi'
 
+/** How the wearer's English gets in: only while the phone's hold button is pressed (so the Japanese they read aloud
+ *  is never mistaken for English), or picked up automatically along with Japanese. */
+export type EnglishInput = 'hold' | 'always'
+
 export interface ApiKeys {
   deepgram?: string
   google?: string

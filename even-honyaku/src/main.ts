@@ -17,12 +17,12 @@ import './romaji-browser'
 //                hold-to-talk still works and returns here afterwards
 //   idle       – not capturing (offline, no Even bridge, or startup)
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>
-type GlassesDisplay = Pick<Display, 'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll' | 'setSetup'>
+type GlassesDisplay = Pick<Display, 'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll' | 'setSetup' | 'setEnglishHold'>
 
 // The phone UI + engine are set up BEFORE we wait for the Even bridge, so they work (and the
 // typed-text form doesn't fall back to a native page-reloading submit) even when the bridge is
 // missing, e.g. when the page is opened in a plain browser instead of the Even app / simulator.
-const noDisplay: GlassesDisplay = { setState() {}, setLive() {}, addTranslation() {}, note() {}, scroll() {}, setSetup() {} }
+const noDisplay: GlassesDisplay = { setState() {}, setLive() {}, addTranslation() {}, note() {}, scroll() {}, setSetup() {}, setEnglishHold() {} }
 let bridge: Bridge | null = null
 let display: GlassesDisplay = noDisplay
 
@@ -81,11 +81,12 @@ function missingSetup(): string[] | null {
   return missing.length ? missing : null
 }
 
-/** Phone banner + glasses screen that say "finish setup" while a key is missing. */
+/** Phone banner + glasses screen that say "finish setup" while a key is missing (also syncs the glasses' hint text). */
 function refreshSetup() {
   const missing = missingSetup()
   ui.setNeedsKeys(missing !== null)
   display.setSetup(missing)
+  display.setEnglishHold(settings.englishInput === 'hold')
 }
 
 /** A key is missing: stop listening and point the user at Settings (phone) and at the phone (glasses). */
