@@ -7,8 +7,8 @@ G2 app for live English ⇄ Japanese conversation. Sibling project in the `even-
 - **Hold to talk** (`start talk`): English-only stream for the wearer; releasing returns to always-on. No mode switch anywhere.
 
 ## Layout
-- `src/` — Vite + TS WebView app. `main.ts` controller, `display.ts` glasses containers, `ui.ts` phone UI (hold button, Japanese script), `session.ts` WebSocket client, `protocol.ts` wire types (shared with server).
-- `server/` — Node proxy: Deepgram streaming STT (nova-3, en/ja) → translate+romanise: Google Cloud Translation + local kuromoji romaji when `GOOGLE_TRANSLATE_API_KEY` is set (no LLM), else OpenRouter, or Claude via `TRANSLATE_PROVIDER=anthropic`. Holds the API keys; the app only knows `VITE_SERVER_URL` + a shared token.
+- `src/` — Vite + TS WebView app. `main.ts` controller, `display.ts` glasses containers, `ui.ts` phone UI (terminal theme, sharp corners; Feed + Settings tabs), `settings.ts` user keys/server address (bridge storage + localStorage), `session.ts` WebSocket client (sends `config` first), `input.ts` gesture classification, `protocol.ts` wire types (shared with server).
+- `server/` — Node proxy: Deepgram streaming STT (nova-3, en/ja) → translate+romanise: Google Cloud Translation + local kuromoji romaji when `GOOGLE_TRANSLATE_API_KEY` is set (no LLM), else OpenRouter, or Claude via `TRANSLATE_PROVIDER=anthropic`. **Users bring their own keys**: the app sends them in the first `config` message (`config.ts` resolves/validates, `probes.ts` powers the Test button); they live only in that connection's memory. The server's own `.env` keys are ignored unless `ALLOW_SERVER_KEYS=1`.
 
 ## Constraints that shaped the design
 - **Input** (SDK 0.0.14+ / Even App 2.2.9+ has long press, arriving as `sysEvent` types 9/10; classified in `src/input.ts`): on the glasses a **long press** pauses/resumes always-on listening (starts paused; mic closed while paused), a swipe scrolls/hides the feed, double-tap exits (`shutDownPageContainer(1)`); single taps are ignored. Hold-to-talk-in-English lives on the phone button (pointer events).

@@ -88,7 +88,7 @@ describe('translate via OpenRouter (mocked fetch)', () => {
     await expect(translate('speak', 'hi')).rejects.toThrow(/upstream down/)
 
     vi.stubEnv('OPENROUTER_API_KEY', '')
-    await expect(translate('speak', 'hi')).rejects.toThrow(/OPENROUTER_API_KEY/)
+    await expect(translate('speak', 'hi')).rejects.toThrow(/OpenRouter key is not set/)
   })
 })
 

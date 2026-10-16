@@ -30,20 +30,28 @@ Long press needs SDK 0.0.14+ and Even App 2.2.9+ (this build targets SDK 0.0.16 
 ```bash
 npm install && (cd server && npm install)
 
-# 1. server keys
-cp server/.env.example server/.env      # DEEPGRAM_API_KEY, GOOGLE_TRANSLATE_API_KEY (or an LLM key), HONYAKU_TOKEN
-# 2. app → server address (phone-reachable LAN IP, not localhost)
-cp .env.example .env.local
+cp server/.env.example server/.env     # set HONYAKU_TOKEN (any secret string); API keys are optional, see below
+cp .env.example .env.local             # VITE_SERVER_URL = phone-reachable LAN/Tailscale address (not localhost)
 
 npm run server          # terminal 1
 npm run dev             # terminal 2
 npm run simulator       # or: npm run qr  (sideload on real glasses)
 ```
-Check translation alone: `cd server && npm run translate -- listen "これはいくらですか？"` (`listen` = Japanese in, `speak` = English in).
+
+### API keys: bring your own
+Open the app's **SETTINGS** tab and enter the server address + access token, your **Deepgram** key and a **translation** key (Google Translate, OpenRouter or Claude). **SAVE & TEST** connects, validates each key with its service and runs a sample translation, showing ✓/✗ per step.
+
+- Keys are stored on the device (Even bridge storage, mirrored to localStorage) and shown masked. **CLEAR KEYS** wipes them.
+- They're sent to the server only in the first WebSocket message, kept in memory for that connection, and never logged or stored by the server — so usage is billed to *your* accounts, not the server owner's.
+- Because keys travel over the socket, the app refuses plain `ws://` unless the address is loopback, LAN or Tailscale; use `wss://` for anything public.
+- Dev shortcut: `ALLOW_SERVER_KEYS=1` in `server/.env` lets connections without their own keys fall back to the keys in that file (you pay).
+
+Check translation alone with the server's own env keys: `cd server && npm run translate -- listen "これはいくらですか？"` (`listen` = Japanese in, `speak` = English in).
 
 For on-device use outside dev, deploy `server/` behind HTTPS/WSS and put its origin in `app.json` → `network.whitelist`.
+
 ## Translation backends
-| `TRANSLATE_PROVIDER` | What | Cost |
+| Provider (Settings tab, or `TRANSLATE_PROVIDER` for server-side fallback keys) | What | Cost |
 | --- | --- | --- |
 | `google` (default when `GOOGLE_TRANSLATE_API_KEY` is set) | Google Cloud Translation for the text; **romaji is generated locally** (kuromoji + wanakana, `server/src/romaji.ts`) | 500k chars/month free, then $20/1M chars. No LLM. |
 | `openrouter` (default otherwise) | any OpenRouter model (`OPENROUTER_MODEL`) does translation + romaji | per token |
@@ -53,7 +61,8 @@ Google gives literal, context-free translations; the LLM backends handle tone an
 
 ## Packaging for the Even app (private build)
 ```bash
-# .env.local → VITE_SERVER_URL / VITE_SERVER_TOKEN are baked into the bundle at build time
+# .env.local → VITE_SERVER_URL / VITE_SERVER_TOKEN become the app's *defaults* (editable in Settings).
+# Leave VITE_SERVER_TOKEN empty for a build you'll share — it is baked into the .ehpk.
 npm run pack            # build + evenhub pack → even-honyaku.ehpk
 ```
-Then upload `even-honyaku.ehpk` under **Private builds** in the dev portal (hub.evenrealities.com) and install it from the Even app: **Even Hub tab → Me → Apps → Private builds → Install**. The phone must be able to reach the server (here: on your Tailscale tailnet); `app.json` → `network.whitelist` lists the server origin. Re-run `npm run pack` and re-upload after changing the server address or token.
+Then upload `even-honyaku.ehpk` under **Private builds** in the dev portal (hub.evenrealities.com) and install it from the Even app: **Even Hub tab → Me → Apps → Private builds → Install**. The phone must be able to reach the server (here: on your Tailscale tailnet); `app.json` → `network.whitelist` lists the server origin. The server address and token can also be changed in Settings without repacking. The wire protocol changed (token + keys now arrive in a `config` message), so re-pack and re-upload the app whenever you update the server.

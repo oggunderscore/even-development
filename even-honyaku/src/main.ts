@@ -6,7 +6,8 @@ import { classifyInput } from './input'
 import { toBytes } from './pcm'
 import type { ServerMsg, Translation } from './protocol'
 import { Session } from './session'
-import { PhoneUi } from './ui'
+import { type Settings, hasKeys, loadSettings, loadSettingsFromBridge, providerKey, saveSettings, toUserConfig, withoutKeys } from './settings'
+import { type Phase, PhoneUi } from './ui'
 
 // Listening starts PAUSED. Once the user resumes it, the glasses mic streams continuously until they pause again:
 //   listening  – always-on; server detects English / Japanese per utterance (JP → English, EN → romaji)
@@ -15,8 +16,6 @@ import { PhoneUi } from './ui'
 //   paused     – user toggled listening off (swipe / phone button): mic closed, nothing streamed or billed;
 //                hold-to-talk still works and returns here afterwards
 //   idle       – not capturing (offline, no Even bridge, or startup)
-type Phase = 'idle' | 'paused' | 'listening' | 'talking' | 'processing'
-
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>
 type GlassesDisplay = Pick<Display, 'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll'>
 
@@ -27,7 +26,14 @@ const noDisplay: GlassesDisplay = { setState() {}, setLive() {}, addTranslation(
 let bridge: Bridge | null = null
 let display: GlassesDisplay = noDisplay
 
-dbg(describeConfig())
+// The user's own server address + API keys. Loaded synchronously from localStorage for first paint, then
+// reconciled with the bridge's store once it's up (see initGlasses).
+let settings: Settings = loadSettings()
+/** What the server told us after `config`: whether it can transcribe/translate with the keys it has. */
+let serverCan: { stt: boolean; translate: boolean; serverKeys: boolean } | null = null
+
+const describe = () => describeConfig(settings.serverUrl, settings.serverToken, { deepgram: !!settings.deepgramKey, translate: !!providerKey(settings) })
+dbg(describe())
 
 // Listening is OFF until the wearer turns it on (tap on the glasses / button on the phone).
 let phase: Phase = 'paused'
@@ -50,6 +56,7 @@ const ui = new PhoneUi({
   onHoldEnd: () => void stopTalk(),
   onToggleListen: () => void toggleListening(),
   onTyped: (text) => {
+    if (!keysAvailable()) return needKeys()
     ui.markWorking()
     dbg(`typed: "${text}"`)
     void session.translateText(text).catch(() => {
@@ -57,7 +64,9 @@ const ui = new PhoneUi({
       ui.addError(session.lastError ?? 'Server unreachable')
     })
   },
-})
+  onSave: (next, opts) => void applySettings(next, opts.test),
+  onClear: () => void applySettings(withoutKeys(ui.readSettings()), false, 'Keys cleared'),
+}, settings)
 
 const session = new Session({
   onConnection(ok) {
@@ -73,8 +82,47 @@ const session = new Session({
     syncState()
   },
   onMessage: handleServerMessage,
+  getServer: () => ({ url: settings.serverUrl, config: toUserConfig(settings) }),
 })
 void session.connect().catch(() => {})
+
+/** True when the app has its own keys, or the server reported it has fallback keys of its own. */
+function keysAvailable(): boolean {
+  return hasKeys(settings) || (serverCan?.serverKeys === true && serverCan.stt && serverCan.translate)
+}
+
+/** A key is missing: stop listening and point the user at Settings. */
+function needKeys(message = 'Add your Deepgram and translation keys in Settings to start') {
+  dbg(`needKeys: ${message}`)
+  ui.setNeedsKeys(true)
+  ui.addError(message)
+  ui.showView('settings')
+  if (!paused) void toggleListening()
+}
+
+/** Persist settings, reconnect so the server gets the new config, and optionally run the key test. */
+async function applySettings(next: Settings, test: boolean, note?: string) {
+  settings = next
+  serverCan = null
+  await saveSettings(settings, bridge)
+  ui.setSettings(settings)
+  ui.setNeedsKeys(!hasKeys(settings))
+  dbg(`settings saved. ${describe()}`)
+  if (note) ui.addNote(note)
+
+  session.reset() // closes the socket; connect() below re-sends config with the new values
+  if (!test) {
+    void session.connect().catch(() => {})
+    return
+  }
+  ui.showTesting()
+  try {
+    await Promise.race([session.connect(), new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timed out after 8s')), 8000))])
+    await session.test()
+  } catch (err) {
+    ui.showResults([{ service: 'server', ok: false, detail: session.lastError ?? (err instanceof Error ? err.message : 'unreachable') }])
+  }
+}
 
 function scheduleReconnect() {
   if (reconnectTimer) return
@@ -152,6 +200,7 @@ async function haltCapture() {
 async function toggleListening() {
   if (phase === 'talking') return // don't yank the mic out from under a held button
   if (paused) {
+    if (!keysAvailable()) return needKeys()
     paused = false
     dbg('listening resumed')
     if (phase === 'paused') phase = 'idle'
@@ -182,6 +231,7 @@ async function startTalk() {
     ui.addError(session.lastError ?? 'Server offline')
     return
   }
+  if (!keysAvailable()) return needKeys()
   const mine = ++turn
   clearTimeout(doneTimer)
   phase = 'talking'
@@ -252,8 +302,20 @@ function handleServerMessage(msg: ServerMsg) {
     case 'error':
       display.note(msg.message.slice(0, 80))
       ui.setLive('speak', '')
+      if (msg.code === 'no_keys') {
+        needKeys(msg.message)
+        if (phase === 'processing') settle()
+        break
+      }
       ui.addError(msg.message)
       if (phase === 'processing') settle()
+      break
+    case 'config_ok':
+      serverCan = { stt: msg.stt, translate: msg.translate, serverKeys: msg.serverKeys }
+      ui.setNeedsKeys(!keysAvailable())
+      break
+    case 'test_result':
+      ui.showResults([{ service: 'server', ok: true, detail: 'connected · access token accepted' }, ...msg.results])
       break
     case 'ready':
       break
@@ -289,6 +351,15 @@ async function initGlasses() {
   }
   bridge = found
   display = glasses
+  // The bridge's store outlives the WebView's localStorage; prefer it (and re-seed it from localStorage).
+  const stored = await loadSettingsFromBridge(found)
+  if (JSON.stringify(stored) !== JSON.stringify(settings)) {
+    dbg('settings loaded from the Even bridge store')
+    settings = stored
+    ui.setSettings(settings)
+    ui.setNeedsKeys(!hasKeys(settings))
+    session.reset() // reconnect with the stored server address / keys
+  }
   unsubscribe = bridge.onEvenHubEvent(onGlassesEvent)
   syncState()
   void startAmbient() // no-op until the socket is up; onConnection(true) covers that case
@@ -354,6 +425,7 @@ async function exit() {
 }
 
 syncState()
+ui.setNeedsKeys(!hasKeys(settings))
 void initGlasses().catch((err) => {
   const msg = `glasses init failed: ${err instanceof Error ? err.message : err}`
   dbg(msg)

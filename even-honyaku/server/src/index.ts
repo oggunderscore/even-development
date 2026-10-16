@@ -1,6 +1,9 @@
-// Honyaku proxy: G2 app ⇄ (Deepgram STT) ⇄ LLM (OpenRouter by default). Keeps API keys off the device.
+// Honyaku proxy: G2 app ⇄ Deepgram STT ⇄ translation (Google / OpenRouter / Anthropic).
 //
-//   client → {start,mode} → binary PCM… (continuous)  → {end}?
+// Each user brings their own API keys: the app's first message is {config} (access token + keys), held only in
+// that connection's memory. Nothing else is accepted until it arrives, and keys are never logged or stored.
+//
+//   client → {config} → {start,mode} → binary PCM… (continuous)  → {end}?
 //   server → partial… → final… → done (after an explicit end)
 //
 // mode "auto": always-on, English + Japanese detected per utterance (restarted automatically if Deepgram drops).
@@ -9,8 +12,10 @@
 import { createServer } from 'node:http'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { ClientMsg, Direction, ServerMsg, StreamMode, Translation } from '../../src/protocol'
+import { type ResolvedConfig, missingKeys, resolveConfig, serverKeysAllowed, validateConfig } from './config'
 import { runStartupChecks } from './diagnostics'
 import { log, warn } from './log'
+import { testConfig } from './probes'
 import { type Stt, createStt } from './stt'
 import { detectDir, translate } from './translate'
 
@@ -21,20 +26,15 @@ if (!TOKEN) console.warn('HONYAKU_TOKEN is empty — anyone who can reach this p
 const http = createServer((req, res) => {
   res.writeHead(req.url === '/health' ? 200 : 404).end(req.url === '/health' ? 'ok' : '')
 })
-const wss = new WebSocketServer({ server: http })
+// Control messages are tiny; an oversized frame is never legitimate (audio chunks are ~3 KB).
+const wss = new WebSocketServer({ server: http, maxPayload: 256 * 1024 })
 
 let nextConn = 1
+const AUTH_TIMEOUT_MS = 5000
 
 wss.on('connection', (socket, req) => {
-  const url = new URL(req.url ?? '/', 'http://x')
-  const from = `${req.socket.remoteAddress} origin=${req.headers.origin ?? '-'}`
-  const sent = url.searchParams.get('token') ?? ''
-  if (TOKEN && sent !== TOKEN) {
-    warn('conn', `REJECTED ${from}: token mismatch (client sent ${sent ? `${sent.length} chars` : 'nothing'}, server expects ${TOKEN.length} chars). Set VITE_SERVER_TOKEN in .env.local to HONYAKU_TOKEN and restart \`npm run dev\`.`)
-    socket.close(4401, 'unauthorized: token mismatch')
-    return
-  }
   const id = nextConn++
+  const from = `${req.socket.remoteAddress} origin=${req.headers.origin ?? '-'}`
   log('conn', `#${id} open from ${from}`)
   new Conn(socket, id)
 })
@@ -44,6 +44,9 @@ const tooShort = (text: string) => text.replace(/\s/g, '').length < 2
 
 class Conn {
   private stt: Stt | null = null
+  /** The access token is checked on `config`; with no HONYAKU_TOKEN set the server is open. */
+  private authed = !TOKEN
+  private cfg: ResolvedConfig = resolveConfig()
   private mode: StreamMode | null = null
   private history: Translation[] = []
   private nextId = 1
@@ -57,7 +60,17 @@ class Conn {
 
   constructor(private readonly socket: WebSocket, private readonly id: number) {
     this.send({ type: 'ready' })
+    const authTimer = TOKEN
+      ? setTimeout(() => {
+          if (!this.authed) {
+            warn(this.tag, 'no valid config/token within 5s — closing')
+            socket.close(4401, 'unauthorized')
+          }
+        }, AUTH_TIMEOUT_MS)
+      : undefined
+    socket.on('close', () => clearTimeout(authTimer))
     socket.on('message', (data, isBinary) => {
+      if (!this.authed && isBinary) return
       if (isBinary) {
         const buf = data as Buffer
         this.audioBytes += buf.length
@@ -94,8 +107,20 @@ class Conn {
       warn(this.tag, `ignoring non-JSON text frame: ${raw.slice(0, 60)}`)
       return
     }
+    // Never log a whole message: `config` carries the user's keys.
     log(this.tag, `← ${msg.type}${'mode' in msg ? ` mode=${msg.mode}` : ''}${msg.type === 'text' ? ` "${msg.text}"` : ''}`)
+    if (msg.type === 'config') {
+      this.onConfig(msg.config)
+      return
+    }
+    if (!this.authed) {
+      this.send({ type: 'error', message: 'Not authenticated — send config with the access token first' })
+      return
+    }
     switch (msg.type) {
+      case 'test':
+        void this.runTest()
+        break
       case 'start':
         this.start(msg.mode)
         break
@@ -103,14 +128,60 @@ class Conn {
         void this.end()
         break
       case 'text':
-        this.enqueue(detectDir(msg.text), msg.text)
+        if (this.requireKeys(['translate'])) this.enqueue(detectDir(msg.text), msg.text)
         break
+    }
+  }
+
+  private onConfig(user: Parameters<typeof validateConfig>[0]) {
+    if (TOKEN && user?.token !== TOKEN) {
+      warn(this.tag, `REJECTED: token mismatch (client sent ${user?.token ? `${user.token.length} chars` : 'nothing'}, server expects ${TOKEN.length}). Set the same access token in the app's Settings (or VITE_SERVER_TOKEN).`)
+      this.socket.close(4401, 'unauthorized: token mismatch')
+      return
+    }
+    const problem = user ? validateConfig(user) : null
+    if (problem) {
+      this.send({ type: 'error', message: problem })
+      return
+    }
+    this.authed = true
+    this.cfg = resolveConfig(user)
+    const missing = missingKeys(this.cfg)
+    log(this.tag, `config ok: provider=${this.cfg.translate.provider} engine=${this.cfg.listenEngine} stt=${!missing.includes('deepgram')} translate=${!missing.includes('translate')} serverKeys=${this.cfg.usingServerKeys}`)
+    this.send({
+      type: 'config_ok',
+      stt: !missing.includes('deepgram'),
+      translate: !missing.includes('translate'),
+      provider: this.cfg.translate.provider,
+      serverKeys: this.cfg.usingServerKeys,
+    })
+  }
+
+  /** Tell the app which key is missing (it opens Settings) instead of failing deep inside a stream. */
+  private requireKeys(needed: ('deepgram' | 'translate')[]): boolean {
+    const missing = missingKeys(this.cfg).filter((m) => needed.includes(m))
+    if (missing.length === 0) return true
+    const names = missing.map((m) => (m === 'deepgram' ? 'Deepgram' : this.cfg.translate.provider)).join(' and ')
+    this.send({ type: 'error', code: 'no_keys', message: `Missing ${names} key — add it in Settings` })
+    return false
+  }
+
+  private async runTest() {
+    try {
+      this.send({ type: 'test_result', results: await testConfig(this.cfg) })
+    } catch (err) {
+      this.send({ type: 'error', message: `test failed: ${err instanceof Error ? err.message : 'unknown error'}` })
     }
   }
 
   /** (Re)start the STT stream. Replaces whatever stream was running; the mic itself never stops. */
   private start(mode: StreamMode) {
     this.stt?.abort()
+    if (!this.requireKeys(['deepgram', 'translate'])) {
+      this.mode = null
+      this.stt = null
+      return
+    }
     this.mode = mode
     this.audioBytes = 0
     this.audioChunks = 0
@@ -137,7 +208,7 @@ class Conn {
         this.stt = null
         this.restartAuto()
       },
-    })
+    }, { deepgramKey: this.cfg.deepgramKey!, engine: this.cfg.listenEngine })
     this.stt = stt
   }
 
@@ -181,7 +252,7 @@ class Conn {
       const t0 = Date.now()
       log(this.tag, `translate #${id} (${dir}): "${text}"`)
       try {
-        const t = await translate(dir, text, this.history, id)
+        const t = await translate(dir, text, this.history, id, this.cfg.translate)
         this.history.push(t)
         if (this.history.length > 6) this.history.shift()
         log(this.tag, `translate #${id} ok in ${Date.now() - t0}ms → ja="${t.japanese}" romaji="${t.romaji}" en="${t.english}"`)
@@ -201,5 +272,7 @@ class Conn {
 
 http.listen(PORT, () => {
   log('server', `honyaku server listening on :${PORT} (health: http://localhost:${PORT}/health)`)
+  if (serverKeysAllowed()) log('server', 'ALLOW_SERVER_KEYS is on: connections without their own keys use this server\'s .env keys (you will be billed)')
+  else log('server', 'users must bring their own API keys (set ALLOW_SERVER_KEYS=1 to fall back to this server\'s .env keys in dev)')
   void runStartupChecks(TOKEN)
 })

@@ -1,7 +1,12 @@
-// Phone-side companion UI inside the WebView. Unlike the glasses it can render Japanese script,
-// and it hosts the real press-and-hold control.
+// Phone-side companion UI inside the WebView: the translation feed, hold-to-talk, typed input, and Settings
+// (server + the user's own API keys, with a Test button). All DOM is built with textContent — no innerHTML —
+// so text from the network or from a key field can never inject markup.
 
-import type { Direction, Translation } from './protocol'
+import type { Direction, ListenEngine, Provider, Translation } from './protocol'
+import { type Settings, isSecureEnough } from './settings'
+
+export type Phase = 'idle' | 'paused' | 'listening' | 'talking' | 'processing'
+export type View = 'feed' | 'settings'
 
 export interface PhoneUiHandlers {
   onHoldStart(): void
@@ -9,35 +14,64 @@ export interface PhoneUiHandlers {
   /** Pause / resume always-on listening. */
   onToggleListen(): void
   onTyped(text: string): void
+  /** Settings form submitted. `test` = also run the connection test afterwards. */
+  onSave(settings: Settings, opts: { test: boolean }): void
+  onClear(): void
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
+const STATUS_TEXT: Record<Phase | 'offline', string> = {
+  offline: 'OFFLINE',
+  idle: 'PAUSED',
+  paused: 'PAUSED',
+  listening: 'LISTENING',
+  talking: 'TALKING · EN',
+  processing: 'TRANSLATING',
+}
+
+const ENGINE_HINT: Record<ListenEngine, string> = {
+  dual: 'separate Japanese + English models, Japanese wins ties · most accurate · 2× Deepgram minutes',
+  ja: 'Japanese only, everything is translated to English · cheapest',
+  multi: 'one multilingual model · cheaper, but may start Japanese as English text',
+}
+
+const PROVIDER_HINT: Record<Provider, string> = {
+  google: 'Google Cloud Translation · literal · 500k chars/month free, then ~$20 per 1M',
+  openrouter: 'any LLM via openrouter.ai · better tone and context · pay per token',
+  anthropic: 'Claude directly · best tone and context · pay per token',
+}
+
+const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+const MAX_ENTRIES = 80
+
+const pad = (n: number) => String(n).padStart(2, '0')
+const clock = () => {
+  const d = new Date()
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
 export class PhoneUi {
   private readonly hold = $<HTMLButtonElement>('hold')
   private readonly log = $<HTMLElement>('log')
-  private readonly conn = $<HTMLElement>('conn')
+  private readonly empty = $<HTMLElement>('empty')
+  private readonly status = $<HTMLElement>('status')
+  private readonly listenBtn = $<HTMLButtonElement>('listen')
   private liveEl: HTMLElement | null = null
+  private view: View = 'feed'
+  private base: Settings
+  private provider: Provider = 'google'
+  private engine: ListenEngine = 'dual'
+  private clearTimer: ReturnType<typeof setTimeout> | undefined
+  private spinnerTimer: ReturnType<typeof setInterval> | undefined
 
-  constructor(handlers: PhoneUiHandlers) {
-    const hold = this.hold
-    let holding = false
-    const end = () => {
-      if (!holding) return
-      holding = false
-      handlers.onHoldEnd()
-    }
-    hold.addEventListener('pointerdown', (e) => {
-      e.preventDefault()
-      hold.setPointerCapture(e.pointerId)
-      holding = true
-      handlers.onHoldStart()
-    })
-    hold.addEventListener('pointerup', end)
-    hold.addEventListener('pointercancel', end)
-    hold.addEventListener('lostpointercapture', end)
-    hold.addEventListener('contextmenu', (e) => e.preventDefault())
-    $('listen').addEventListener('click', () => handlers.onToggleListen())
+  constructor(private readonly handlers: PhoneUiHandlers, initial: Settings) {
+    this.base = initial
+    this.wireHold()
+    this.wireTabs()
+    this.wireSettings()
+    this.listenBtn.addEventListener('click', () => handlers.onToggleListen())
+    $('open-settings').addEventListener('click', () => this.showView('settings'))
 
     const form = $<HTMLFormElement>('typed')
     const input = $<HTMLInputElement>('typed-text')
@@ -48,19 +82,78 @@ export class PhoneUi {
       input.value = ''
       handlers.onTyped(text)
     })
+
+    $('debug-toggle').addEventListener('click', () => {
+      const pre = $('debug-log')
+      pre.hidden = !pre.hidden
+      $('debug-toggle').textContent = pre.hidden ? '[ SHOW DEBUG LOG ]' : '[ HIDE DEBUG LOG ]'
+      pre.scrollTop = pre.scrollHeight
+    })
+
+    this.setSettings(initial)
   }
 
-  /** Header pill + hold button, from one place so they can't disagree. */
-  setStatus(connected: boolean, phase: 'idle' | 'paused' | 'listening' | 'talking' | 'processing') {
-    const label = !connected ? 'offline' : phase === 'idle' || phase === 'paused' ? 'paused' : phase === 'talking' ? 'talking (EN)' : phase === 'processing' ? 'translating' : 'listening'
-    this.conn.textContent = label
-    this.conn.classList.toggle('on', connected && phase !== 'idle' && phase !== 'paused')
-    $('listen').textContent = phase === 'paused' ? 'Resume listening' : 'Pause listening'
+  // ── status / controls ──────────────────────────────────────────────────────
+
+  /** Header indicator, listen toggle and hold button, from one place so they can't disagree. */
+  setStatus(connected: boolean, phase: Phase) {
+    const state = !connected ? 'offline' : phase === 'idle' ? 'paused' : phase
+    this.status.dataset['state'] = state
+    $('status-text').textContent = STATUS_TEXT[connected ? phase : 'offline']
+
+    const paused = phase === 'paused' || phase === 'idle'
+    this.listenBtn.textContent = paused ? 'RESUME LISTENING' : 'PAUSE LISTENING'
     this.hold.classList.toggle('rec', phase === 'talking')
-    this.hold.textContent =
-      phase === 'talking' ? 'Release to translate' : phase === 'processing' ? 'Translating… (hold to talk again)' : 'Hold to talk in English'
+    $('hold').querySelector('.hold-label')!.textContent =
+      phase === 'talking' ? 'RELEASE TO TRANSLATE' : phase === 'processing' ? 'TRANSLATING…' : 'HOLD TO TALK'
   }
 
+  setNeedsKeys(needs: boolean) {
+    $('needs-keys').hidden = !needs
+  }
+
+  showView(view: View) {
+    if (view === this.view) return
+    this.view = view
+    for (const v of ['feed', 'settings'] as const) {
+      const on = v === view
+      $(`view-${v}`).classList.toggle('active', on)
+      $(`tab-${v}`).setAttribute('aria-selected', String(on))
+    }
+  }
+
+  get currentView(): View {
+    return this.view
+  }
+
+  private wireHold() {
+    const hold = this.hold
+    let holding = false
+    const end = () => {
+      if (!holding) return
+      holding = false
+      this.handlers.onHoldEnd()
+    }
+    hold.addEventListener('pointerdown', (e) => {
+      e.preventDefault()
+      hold.setPointerCapture(e.pointerId)
+      holding = true
+      this.handlers.onHoldStart()
+    })
+    hold.addEventListener('pointerup', end)
+    hold.addEventListener('pointercancel', end)
+    hold.addEventListener('lostpointercapture', end)
+    hold.addEventListener('contextmenu', (e) => e.preventDefault())
+  }
+
+  private wireTabs() {
+    $('tab-feed').addEventListener('click', () => this.showView('feed'))
+    $('tab-settings').addEventListener('click', () => this.showView('settings'))
+  }
+
+  // ── feed ───────────────────────────────────────────────────────────────────
+
+  /** Placeholder while a typed phrase is being translated. */
   markWorking() {
     this.setLive('speak', '…')
   }
@@ -72,43 +165,247 @@ export class PhoneUi {
       return
     }
     if (!this.liveEl) {
-      this.liveEl = document.createElement('div')
-      this.liveEl.className = 'item live'
-      this.log.append(this.liveEl)
+      this.liveEl = this.entry('live', dir === 'speak' ? 'EN · HEARING' : 'JP · HEARING')
+      this.append(this.liveEl)
     }
-    this.liveEl.textContent = `${dir === 'speak' ? 'You' : 'JP'}: ${text}…`
+    this.liveEl.querySelector('.big')!.textContent = text
     this.scroll()
   }
 
   addTranslation(t: Translation) {
     this.setLive(t.dir, '')
-    const el = document.createElement('div')
-    el.className = 'item'
-    const big = document.createElement('div')
-    big.className = 'big'
-    const sub = document.createElement('div')
-    sub.className = 'sub'
+    const el = this.entry(t.dir, t.dir === 'speak' ? 'EN → JP' : 'JP → EN')
+    const big = el.querySelector('.big')!
+    const sub = el.querySelector('.sub') as HTMLElement
     if (t.dir === 'speak') {
+      // The wearer reads the romaji aloud; the rest is for reference.
       big.textContent = t.romaji
-      sub.textContent = `${t.english} · ${t.japanese}`
+      sub.append(this.span(t.english), ' · ', this.span(t.japanese))
     } else {
       big.textContent = t.english
-      sub.textContent = `${t.japanese} · ${t.romaji}`
+      sub.append(this.span(t.japanese), ' · ', this.bold(t.romaji))
     }
-    el.append(big, sub)
-    this.log.append(el)
+    this.append(el)
     this.scroll()
   }
 
   addError(message: string) {
-    const el = document.createElement('div')
-    el.className = 'item sub'
-    el.textContent = `⚠ ${message}`
-    this.log.append(el)
+    this.addLine('err', 'ERROR', message)
+  }
+
+  addNote(message: string) {
+    this.addLine('note', 'INFO', message)
+  }
+
+  private addLine(kind: 'err' | 'note', label: string, message: string) {
+    const el = this.entry(kind, label)
+    el.querySelector('.big')!.textContent = message
+    el.querySelector('.sub')!.remove()
+    this.append(el)
     this.scroll()
   }
 
+  private entry(kind: string, label: string): HTMLElement {
+    const el = document.createElement('div')
+    el.className = `entry ${kind}`
+    const meta = document.createElement('div')
+    meta.className = 'entry-meta'
+    meta.textContent = `${clock()}  ${label}`
+    const big = document.createElement('div')
+    big.className = 'big'
+    const sub = document.createElement('div')
+    sub.className = 'sub'
+    el.append(meta, big, sub)
+    return el
+  }
+
+  private span(text: string) {
+    const s = document.createElement('span')
+    s.textContent = text
+    return s
+  }
+
+  private bold(text: string) {
+    const b = document.createElement('b')
+    b.textContent = text
+    return b
+  }
+
+  private append(el: HTMLElement) {
+    this.empty.hidden = true
+    this.log.append(el)
+    while (this.log.querySelectorAll('.entry').length > MAX_ENTRIES) this.log.querySelector('.entry')?.remove()
+  }
+
   private scroll() {
-    this.log.scrollTop = this.log.scrollHeight
+    this.log.scrollTo({ top: this.log.scrollHeight, behavior: 'smooth' })
+  }
+
+  // ── settings ───────────────────────────────────────────────────────────────
+
+  private wireSettings() {
+    for (const btn of document.querySelectorAll<HTMLButtonElement>('.reveal')) {
+      btn.addEventListener('click', () => {
+        const input = $<HTMLInputElement>(btn.dataset['for']!)
+        const show = input.type === 'password'
+        input.type = show ? 'text' : 'password'
+        btn.textContent = show ? 'HIDE' : 'SHOW'
+        btn.setAttribute('aria-pressed', String(show))
+      })
+    }
+
+    this.wireSeg('seg-provider', (v) => this.setProvider(v as Provider))
+    this.wireSeg('seg-engine', (v) => this.setEngine(v as ListenEngine))
+    $<HTMLInputElement>('set-url').addEventListener('input', () => this.updateUrlHint())
+
+    $<HTMLFormElement>('settings').addEventListener('submit', (e) => {
+      e.preventDefault()
+      this.submit(true)
+    })
+    $('btn-save').addEventListener('click', () => this.submit(false))
+
+    // Two-step clear so a stray tap can't wipe keys.
+    const clear = $<HTMLButtonElement>('btn-clear')
+    clear.addEventListener('click', () => {
+      if (!clear.classList.contains('armed')) {
+        clear.classList.add('armed')
+        clear.textContent = 'TAP AGAIN TO CONFIRM'
+        this.clearTimer = setTimeout(() => this.disarmClear(), 3000)
+        return
+      }
+      this.disarmClear()
+      this.handlers.onClear()
+    })
+  }
+
+  private disarmClear() {
+    clearTimeout(this.clearTimer)
+    const clear = $('btn-clear')
+    clear.classList.remove('armed')
+    clear.textContent = 'CLEAR KEYS'
+  }
+
+  private wireSeg(id: string, onPick: (value: string) => void) {
+    for (const btn of $(id).querySelectorAll<HTMLButtonElement>('button')) {
+      btn.addEventListener('click', () => onPick(btn.dataset['v']!))
+    }
+  }
+
+  private setSeg(id: string, value: string) {
+    for (const btn of $(id).querySelectorAll<HTMLButtonElement>('button')) {
+      btn.setAttribute('aria-checked', String(btn.dataset['v'] === value))
+    }
+  }
+
+  private setProvider(p: Provider) {
+    this.provider = p
+    this.setSeg('seg-provider', p)
+    $('provider-hint').textContent = PROVIDER_HINT[p]
+    for (const row of document.querySelectorAll<HTMLElement>('.reveal-row')) {
+      row.classList.toggle('open', row.dataset['provider'] === p)
+    }
+  }
+
+  private setEngine(e: ListenEngine) {
+    this.engine = e
+    this.setSeg('seg-engine', e)
+    $('engine-hint').textContent = ENGINE_HINT[e]
+  }
+
+  private updateUrlHint() {
+    const url = $<HTMLInputElement>('set-url').value.trim()
+    const hint = $('url-hint')
+    const ok = isSecureEnough(url)
+    hint.classList.toggle('bad', !ok)
+    hint.textContent = ok
+      ? url.startsWith('wss://')
+        ? 'encrypted connection'
+        : 'private network (LAN / Tailscale) · keys stay on it'
+      : url
+        ? 'blocked: use wss:// or a private address so your keys are never sent in cleartext'
+        : 'wss://your-server'
+  }
+
+  /** Fill the form from stored settings. */
+  setSettings(s: Settings) {
+    this.base = s
+    $<HTMLInputElement>('set-url').value = s.serverUrl
+    $<HTMLInputElement>('set-token').value = s.serverToken
+    $<HTMLInputElement>('set-deepgram').value = s.deepgramKey
+    $<HTMLInputElement>('set-google').value = s.googleKey
+    $<HTMLInputElement>('set-openrouter').value = s.openrouterKey
+    $<HTMLInputElement>('set-anthropic').value = s.anthropicKey
+    $<HTMLInputElement>('set-model').value = s.openrouterModel
+    this.setProvider(s.provider)
+    this.setEngine(s.listenEngine)
+    this.updateUrlHint()
+  }
+
+  readSettings(): Settings {
+    const v = (id: string) => $<HTMLInputElement>(id).value.trim()
+    return {
+      ...this.base,
+      serverUrl: v('set-url'),
+      serverToken: v('set-token'),
+      deepgramKey: v('set-deepgram'),
+      provider: this.provider,
+      googleKey: v('set-google'),
+      openrouterKey: v('set-openrouter'),
+      anthropicKey: v('set-anthropic'),
+      openrouterModel: v('set-model'),
+      listenEngine: this.engine,
+    }
+  }
+
+  private submit(test: boolean) {
+    this.handlers.onSave(this.readSettings(), { test })
+  }
+
+  // ── test results ───────────────────────────────────────────────────────────
+
+  /** Spinner row while the test runs. */
+  showTesting() {
+    this.stopSpinner()
+    const box = $('results')
+    box.replaceChildren()
+    const row = this.resultRow('pending', '', 'working', 'connecting and checking keys')
+    box.append(row)
+    const mark = row.querySelector('.mark')!
+    let i = 0
+    this.spinnerTimer = setInterval(() => (mark.textContent = SPINNER[i++ % SPINNER.length]!), 80)
+    box.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }
+
+  showResults(results: { service: string; ok: boolean; detail: string }[]) {
+    this.stopSpinner()
+    const box = $('results')
+    box.replaceChildren()
+    results.forEach((r, i) => {
+      const row = this.resultRow(r.ok ? 'ok' : 'fail', r.ok ? '✓' : '✗', r.service.toUpperCase(), r.detail)
+      row.style.animationDelay = `${i * 90}ms`
+      box.append(row)
+    })
+    box.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }
+
+  private stopSpinner() {
+    clearInterval(this.spinnerTimer)
+    this.spinnerTimer = undefined
+  }
+
+  private resultRow(kind: string, mark: string, service: string, detail: string): HTMLElement {
+    const row = document.createElement('div')
+    row.className = `result ${kind}`
+    const m = document.createElement('span')
+    m.className = 'mark'
+    m.textContent = mark
+    const s = document.createElement('span')
+    s.className = 'svc'
+    s.textContent = service
+    const d = document.createElement('span')
+    d.className = 'detail'
+    d.textContent = detail
+    row.append(m, s, d)
+    return row
   }
 }

@@ -9,7 +9,7 @@
 //                           Japanese phrases as English text.
 
 import WebSocket from 'ws'
-import type { Direction, StreamMode } from '../../src/protocol'
+import type { Direction, ListenEngine, StreamMode } from '../../src/protocol'
 import { Arbiter } from './arbiter'
 import { hasJapanese } from './lang'
 import { log, warn } from './log'
@@ -57,7 +57,7 @@ class DeepgramStream implements Stt {
   private finishing = false
   private keepAlive: ReturnType<typeof setInterval> | undefined
 
-  constructor(private readonly lang: Lang, endpointing: number, private readonly handlers: RawHandlers) {
+  constructor(private readonly lang: Lang, endpointing: number, apiKey: string, private readonly handlers: RawHandlers) {
     const params = new URLSearchParams({
       model: 'nova-3',
       language: lang,
@@ -69,7 +69,7 @@ class DeepgramStream implements Stt {
       smart_format: 'true',
     })
     this.ws = new WebSocket(`wss://api.deepgram.com/v1/listen?${params}`, {
-      headers: { Authorization: `Token ${process.env['DEEPGRAM_API_KEY'] ?? ''}` },
+      headers: { Authorization: `Token ${apiKey}` },
     })
 
     this.opened = new Promise((resolve) => this.ws.once('open', resolve))
@@ -158,7 +158,7 @@ class DualStt implements Stt {
   private lastJapanese = 0
   private dead = false
 
-  constructor(private readonly handlers: SttHandlers) {
+  constructor(apiKey: string, private readonly handlers: SttHandlers) {
     this.arbiter = new Arbiter((text, dir) => handlers.onFinal(text, dir))
     const closeBoth = () => {
       if (this.dead) return
@@ -168,7 +168,7 @@ class DualStt implements Stt {
       this.en.abort()
       handlers.onClose()
     }
-    this.ja = new DeepgramStream('ja', 300, {
+    this.ja = new DeepgramStream('ja', 300, apiKey, {
       onPartial: (text) => {
         if (!hasJapanese(text)) return
         this.lastJapanese = Date.now()
@@ -178,7 +178,7 @@ class DualStt implements Stt {
       onError: (err) => handlers.onError(err),
       onClose: closeBoth,
     })
-    this.en = new DeepgramStream('en', 300, {
+    this.en = new DeepgramStream('en', 300, apiKey, {
       // While Japanese is being heard, English guesses are the English model misreading it.
       onPartial: (text) => {
         if (Date.now() - this.lastJapanese > 1500) handlers.onPartial(text, 'speak')
@@ -210,36 +210,40 @@ class DualStt implements Stt {
 
 // ── Factory ──────────────────────────────────────────────────────────────────
 
-export function listenEngine(): 'dual' | 'ja' | 'multi' {
-  const v = process.env['LISTEN_ENGINE']
-  return v === 'ja' || v === 'multi' ? v : 'dual'
+export function listenEngine(value: string | undefined = process.env['LISTEN_ENGINE']): ListenEngine {
+  return value === 'ja' || value === 'multi' ? value : 'dual'
 }
 
-export function createStt(mode: StreamMode, handlers: SttHandlers): Stt {
+export interface SttOptions {
+  deepgramKey: string
+  engine: ListenEngine
+}
+
+export function createStt(mode: StreamMode, handlers: SttHandlers, { deepgramKey, engine }: SttOptions): Stt {
   if (mode === 'talk') {
-    return new DeepgramStream('en', 400, {
+    return new DeepgramStream('en', 400, deepgramKey, {
       onPartial: (text) => handlers.onPartial(text, 'speak'),
       onFinal: (text) => handlers.onFinal(text, 'speak'),
       onError: handlers.onError,
       onClose: handlers.onClose,
     })
   }
-  switch (listenEngine()) {
+  switch (engine) {
     case 'ja':
-      return new DeepgramStream('ja', 300, {
+      return new DeepgramStream('ja', 300, deepgramKey, {
         onPartial: (text) => handlers.onPartial(text, 'listen'),
         onFinal: (text) => handlers.onFinal(text, 'listen'),
         onError: handlers.onError,
         onClose: handlers.onClose,
       })
     case 'multi':
-      return new DeepgramStream('multi', 300, {
+      return new DeepgramStream('multi', 300, deepgramKey, {
         onPartial: (text) => handlers.onPartial(text, hasJapanese(text) ? 'listen' : 'speak'),
         onFinal: (text) => handlers.onFinal(text, hasJapanese(text) ? 'listen' : 'speak'),
         onError: handlers.onError,
         onClose: handlers.onClose,
       })
     default:
-      return new DualStt(handlers)
+      return new DualStt(deepgramKey, handlers)
   }
 }

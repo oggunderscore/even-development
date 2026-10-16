@@ -6,7 +6,7 @@
 // TRANSLATE_PROVIDER=anthropic   – Claude directly via the Anthropic API.
 
 import Anthropic from '@anthropic-ai/sdk'
-import type { Direction, Translation } from '../../src/protocol'
+import type { Direction, Provider, Translation } from '../../src/protocol'
 import { hasJapanese } from './lang'
 import { romanize } from './romaji'
 
@@ -29,8 +29,30 @@ Romaji rules:
 
 Translate meaning and tone, not word-for-word. Keep it short; this is shown on a tiny display. Use earlier turns only to resolve pronouns and context.`
 
+/** Everything translate() needs. Built per connection from the user's keys (see config.ts), or from env for the CLI/tests. */
+export interface TranslateConfig {
+  provider: Provider
+  googleKey?: string
+  openrouterKey?: string
+  openrouterModel?: string
+  anthropicKey?: string
+  anthropicModel?: string
+}
+
+export function envTranslateConfig(): TranslateConfig {
+  const env = process.env
+  return {
+    provider: (env['TRANSLATE_PROVIDER'] as Provider) || (env['GOOGLE_TRANSLATE_API_KEY'] ? 'google' : 'openrouter'),
+    googleKey: env['GOOGLE_TRANSLATE_API_KEY'],
+    openrouterKey: env['OPENROUTER_API_KEY'],
+    openrouterModel: env['OPENROUTER_MODEL'],
+    anthropicKey: env['ANTHROPIC_API_KEY'],
+    anthropicModel: env['ANTHROPIC_MODEL'],
+  }
+}
+
 export function translateProvider(): string {
-  return process.env['TRANSLATE_PROVIDER'] || (process.env['GOOGLE_TRANSLATE_API_KEY'] ? 'google' : 'openrouter')
+  return envTranslateConfig().provider
 }
 
 export async function translate(
@@ -38,8 +60,9 @@ export async function translate(
   text: string,
   history: Translation[] = [],
   id = 0,
+  cfg: TranslateConfig = envTranslateConfig(),
 ): Promise<Translation> {
-  if (translateProvider() === 'google') return translateWithGoogle(dir, text, id)
+  if (cfg.provider === 'google') return translateWithGoogle(dir, text, id, cfg)
 
   const context = history
     .slice(-3)
@@ -47,8 +70,7 @@ export async function translate(
     .join('\n')
   const userContent = `${context ? `Recent turns:\n${context}\n\n` : ''}Mode "${dir}":\n${text}`
 
-  const provider = translateProvider()
-  const raw = provider === 'anthropic' ? await completeAnthropic(userContent) : await completeOpenRouter(userContent)
+  const raw = cfg.provider === 'anthropic' ? await completeAnthropic(userContent, cfg) : await completeOpenRouter(userContent, cfg)
   const parsed = parseJson(raw)
 
   const romaji = stripMacrons(String(parsed['romaji'] ?? '')).trim()
@@ -59,9 +81,8 @@ export async function translate(
 
 // ── Google Cloud Translation (Basic / v2) ────────────────────────────────────
 
-async function googleTranslate(text: string, source: 'en' | 'ja', target: 'en' | 'ja'): Promise<string> {
-  const key = process.env['GOOGLE_TRANSLATE_API_KEY']
-  if (!key) throw new Error('GOOGLE_TRANSLATE_API_KEY is not set')
+async function googleTranslate(key: string | undefined, text: string, source: 'en' | 'ja', target: 'en' | 'ja'): Promise<string> {
+  if (!key) throw new Error('Google Translate key is not set')
 
   const res = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(key)}`, {
     method: 'POST',
@@ -75,12 +96,12 @@ async function googleTranslate(text: string, source: 'en' | 'ja', target: 'en' |
   return out
 }
 
-async function translateWithGoogle(dir: Direction, text: string, id: number): Promise<Translation> {
+async function translateWithGoogle(dir: Direction, text: string, id: number, cfg: TranslateConfig): Promise<Translation> {
   if (dir === 'speak') {
-    const japanese = await googleTranslate(text, 'en', 'ja')
+    const japanese = await googleTranslate(cfg.googleKey, text, 'en', 'ja')
     return { id, dir, english: text, japanese, romaji: await romanize(japanese) }
   }
-  const [english, romaji] = await Promise.all([googleTranslate(text, 'ja', 'en'), romanize(text)])
+  const [english, romaji] = await Promise.all([googleTranslate(cfg.googleKey, text, 'ja', 'en'), romanize(text)])
   return { id, dir, japanese: text, english, romaji }
 }
 
@@ -88,9 +109,9 @@ async function translateWithGoogle(dir: Direction, text: string, id: number): Pr
 
 export const OPENROUTER_DEFAULT_MODEL = 'google/gemini-2.5-flash-lite'
 
-async function completeOpenRouter(userContent: string): Promise<string> {
-  const key = process.env['OPENROUTER_API_KEY']
-  if (!key) throw new Error('OPENROUTER_API_KEY is not set')
+async function completeOpenRouter(userContent: string, cfg: TranslateConfig): Promise<string> {
+  const key = cfg.openrouterKey
+  if (!key) throw new Error('OpenRouter key is not set')
 
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -100,7 +121,7 @@ async function completeOpenRouter(userContent: string): Promise<string> {
       'X-Title': 'Honyaku', // shows up in OpenRouter's usage dashboard
     },
     body: JSON.stringify({
-      model: process.env['OPENROUTER_MODEL'] || OPENROUTER_DEFAULT_MODEL,
+      model: cfg.openrouterModel || OPENROUTER_DEFAULT_MODEL,
       temperature: 0,
       max_tokens: 400,
       response_format: { type: 'json_object' },
@@ -125,12 +146,19 @@ async function completeOpenRouter(userContent: string): Promise<string> {
 
 // ── Anthropic (optional) ─────────────────────────────────────────────────────
 
-let anthropic: Anthropic | undefined
+const anthropicClients = new Map<string, Anthropic>()
 
-async function completeAnthropic(userContent: string): Promise<string> {
-  anthropic ??= new Anthropic()
-  const response = await anthropic.messages.create({
-    model: process.env['ANTHROPIC_MODEL'] || 'claude-haiku-5-5',
+async function completeAnthropic(userContent: string, cfg: TranslateConfig): Promise<string> {
+  const key = cfg.anthropicKey
+  if (!key) throw new Error('Anthropic key is not set')
+  let client = anthropicClients.get(key)
+  if (!client) {
+    if (anthropicClients.size >= 20) anthropicClients.clear() // keys are per user; don't grow forever
+    client = new Anthropic({ apiKey: key })
+    anthropicClients.set(key, client)
+  }
+  const response = await client.messages.create({
+    model: cfg.anthropicModel || 'claude-haiku-5-5',
     max_tokens: 1024,
     output_config: { effort: 'low' },
     system: SYSTEM,

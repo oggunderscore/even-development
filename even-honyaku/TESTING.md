@@ -9,7 +9,8 @@ cd even-honyaku
 npm install && (cd server && npm install)
 
 cp server/.env.example server/.env
-#   fill in OPENROUTER_API_KEY, DEEPGRAM_API_KEY, HONYAKU_TOKEN (any random string)
+#   set HONYAKU_TOKEN (any random string). API keys are entered in the app's Settings tab
+#   (or set ALLOW_SERVER_KEYS=1 and put DEEPGRAM_API_KEY + a translation key here for local dev)
 
 cp .env.example .env.local
 #   VITE_SERVER_URL=ws://<your computer's LAN IP>:8787
@@ -23,6 +24,7 @@ npm run qr          # terminal 3 – prints the QR; scan with "Scan QR" in the E
 Optional first: `npm run simulator` (needs a desktop), and `cd server && npm run translate -- listen "これはいくらですか？"` to check the translation side alone.
 
 ## 2. What to try
+- Open **SETTINGS**, enter your own Deepgram + translation keys, tap **SAVE & TEST** — you should get ✓ SERVER, ✓ DEEPGRAM, ✓ provider, ✓ TRANSLATE. Wrong keys show ✗ with the reason; the feed won't start listening until keys are present.
 - The app starts **paused**. Hold on the glasses (or press the phone's *Resume listening* button) → header says **listening**. Have someone speak Japanese → English appears; speak English → romaji appears.
 - Phone: **hold** the big button and speak English → release → romaji (forced English, ignores language detection).
 - Glasses: hold (long press) = pause/resume listening, swipe = scroll the feed (past the newest = hide, swipe again = show), double-tap = exit. Which physical swipe direction is "older" vs "newer" is unverified — if it feels backwards, swap `SCROLL_TOP_EVENT`/`SCROLL_BOTTOM_EVENT` in `src/main.ts`.
