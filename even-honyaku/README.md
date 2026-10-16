@@ -2,7 +2,7 @@
 
 Live English ⇄ Japanese for Even Realities G2.
 
-**English input** (Settings) decides how your own English gets in. **HOLD TO TALK** (the default): English is heard only while you hold the phone's talk button, and always-on listening hears **Japanese only**, so Japanese you read aloud to the other person never turns into a translation on the glasses. **ALWAYS ON**: the glasses mic picks up English and Japanese automatically (Deepgram nova-3). In that mode (Settings → **Always-on engine: DUAL**, the default) the same audio goes to a **dedicated Japanese model and a dedicated English model** and the result is arbitrated with a bias towards Japanese — a single multilingual stream tended to start Japanese phrases as English text:
+The glasses mic listens for English and Japanese (Deepgram nova-3). Always-on listening is dual-stream: the same audio goes to a **dedicated Japanese model and a dedicated English model** and the result is arbitrated with a bias towards Japanese — a single multilingual stream tended to start Japanese phrases as English text:
 
 | Heard | Glasses show |
 | --- | --- |
@@ -11,20 +11,20 @@ Live English ⇄ Japanese for Even Realities G2.
 
 **Hold to talk** forces English-only for one phrase when you want a clean, deliberate translation to read aloud; releasing drops straight back to always-on listening. Interim transcript is shown live.
 
-Note: always-on listening streams audio to Deepgram for as long as it's on (billed per audio minute). In ALWAYS ON mode `dual` uses two streams, so twice the minutes; pick **JA ONLY** (Japanese only, translate everything to English) or **MULTI** (one multilingual stream) in Settings to spend less. HOLD TO TALK mode (the default) uses a single Japanese stream, so it is also the cheapest.
+Note: always-on listening streams audio to Deepgram for as long as it's on (billed per audio minute). Dual listening uses two streams, so twice the minutes; pause listening when you don't need it. Hold-to-talk on the phone is always English.
 
 ## Controls
 Listening is **off when the app starts** — turn it on when you want it.
 
 | Where | Gesture | Action |
 | --- | --- | --- |
-| Glasses | **tap** | pause / resume always-on listening (mic closes while paused, nothing is streamed or billed) |
+| Glasses | **hold** (long press) | pause / resume always-on listening (mic closes while paused, nothing is streamed or billed) |
 | Glasses | swipe | scroll the feed one translation (the two-line pair) at a time. Swipe **up** pushes the top pair off the screen (keep going and the view is empty, every earlier translation hidden); swipe **down** brings one back. New translations appear at the bottom of the text, which starts at the top of the screen |
 | Glasses | double tap | exit |
-| Phone | Pause / Resume listening button | same as the glasses tap |
+| Phone | Pause / Resume listening button | same as the glasses hold |
 | Phone | **Hold** big button | talk English while held, translate on release (works while paused) |
 
-A tap waits about a third of a second before acting, so the first tap of a double tap (exit) doesn't also toggle listening. Long press does nothing.
+Long press needs SDK 0.0.14+ and Even App 2.2.9+ (this build targets SDK 0.0.16 → app 2.2.10+). Single taps are ignored on purpose so a stray touch can't open the mic. A tap followed by a hold is claimed by the OS contextual menu, so use a plain hold.
 
 ## How it runs — no server
 The Even app hosts this app in a phone WebView, where a Node server can't run — so there is no server. The whole engine runs *inside* the WebView and the phone calls the services itself:

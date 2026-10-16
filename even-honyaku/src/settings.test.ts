@@ -6,21 +6,12 @@ describe('settings', () => {
     const s = { ...defaultSettings(), deepgramKey: 'dg', provider: 'openrouter' as const }
     expect(parseSettings(JSON.stringify(s))).toEqual(s)
     expect(parseSettings('not json')).toBeNull()
-    expect(parseSettings(JSON.stringify({ provider: 'evil', listenEngine: 5, deepgramKey: 7, serverUrl: 'ws://x', mode: 'server' }))).toEqual(defaultSettings())
+    expect(parseSettings(JSON.stringify({ provider: 'evil', deepgramKey: 7, serverUrl: 'ws://x', mode: 'server' }))).toEqual(defaultSettings())
   })
 
   it('toUserConfig omits empty keys and trims', () => {
     const cfg = toUserConfig({ ...defaultSettings(), deepgramKey: '  dg-key  ', googleKey: '' })
     expect(cfg.keys).toEqual({ deepgram: 'dg-key' })
-  })
-
-  it('hold-to-talk English (the default) makes always-on listening Japanese only', () => {
-    expect(defaultSettings().englishInput).toBe('hold')
-    expect(toUserConfig({ ...defaultSettings(), listenEngine: 'dual' }).listenEngine).toBe('ja')
-    expect(toUserConfig({ ...defaultSettings(), englishInput: 'always', listenEngine: 'dual' }).listenEngine).toBe('dual')
-    expect(toUserConfig({ ...defaultSettings(), englishInput: 'always', listenEngine: 'multi' }).listenEngine).toBe('multi')
-    // a bad stored value falls back to the default
-    expect(parseSettings(JSON.stringify({ englishInput: 'sometimes' }))?.englishInput).toBe('hold')
   })
 
   it('hasKeys needs Deepgram plus the chosen provider', () => {

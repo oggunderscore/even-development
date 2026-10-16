@@ -85,7 +85,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 
 .empty { margin: auto 0; padding: 4px 0; color: var(--dim); display: grid; gap: 8px; animation: fade-in 0.5s var(--ease) both; }
 .empty-title { color: var(--accent-dim); letter-spacing: 2px; }
-.empty[hidden], .field[hidden] { display: none; }
+.empty[hidden] { display: none; }
 .needs-keys { margin-bottom: 12px; padding: 14px; border: 1px solid var(--warn); display: grid; gap: 10px; color: var(--dim); animation: entry-in 0.3s var(--ease) both; }
 .needs-keys[hidden] { display: none; }
 .warn { color: var(--warn); letter-spacing: 1px; }

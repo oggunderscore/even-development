@@ -1,7 +1,7 @@
 // A user's configuration — their own API keys and choices — validated and resolved into what the STT and
 // translation layers need. Pure (no env, no I/O). Keys are never logged or persisted here.
 
-import type { ApiKeys, ListenEngine, Provider, UserConfig } from '../protocol'
+import type { ApiKeys, Provider, UserConfig } from '../protocol'
 import { DEEPGRAM_KEY_RE } from './stt'
 import type { TranslateConfig } from './translate'
 
@@ -13,7 +13,6 @@ const PROVIDERS: Provider[] = ['google', 'openrouter', 'anthropic']
 export interface ResolvedConfig {
   deepgramKey?: string
   translate: TranslateConfig
-  listenEngine: ListenEngine
 }
 
 /** Returns an error message if any supplied key is malformed. */
@@ -42,7 +41,6 @@ export function resolveConfig(user: UserConfig = {}): ResolvedConfig {
   return {
     deepgramKey,
     translate: { provider, googleKey, openrouterKey, openrouterModel: clean(user.openrouterModel), anthropicKey },
-    listenEngine: user.listenEngine ?? 'dual',
   }
 }
 

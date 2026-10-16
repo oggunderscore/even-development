@@ -2,18 +2,15 @@
 // and in the app's WebView. Auth uses Deepgram's browser-friendly `['token', key]` subprotocol.
 //
 //   createStt('talk', …)  – the wearer holding the phone button: one `en` stream, always English → romaji.
-//   createStt('auto', …)  – always-on listening. The engine picks how:
-//        dual  (default)  – a dedicated `ja` stream AND a dedicated `en` stream on the same audio, arbitrated
-//                           with a bias towards Japanese (see arbiter.ts). Most reliable; 2× Deepgram audio cost.
-//        ja               – Japanese only. Cheapest; everything heard is treated as Japanese → English.
-//        multi            – one `language=multi` stream. Cheapest bilingual option, but it tends to start
-//                           Japanese phrases as English text.
+//   createStt('auto', …)  – always-on listening: a dedicated `ja` stream AND a dedicated `en` stream on the same
+//                           audio, arbitrated with a bias towards Japanese (see arbiter.ts). A single multilingual
+//                           stream tended to start Japanese phrases as English text, so we pay for two streams.
 
-import type { Direction, ListenEngine, StreamMode } from '../protocol'
+import type { Direction, StreamMode } from '../protocol'
 import { Arbiter } from './arbiter'
 import { hasJapanese } from './lang'
 
-type Lang = 'ja' | 'en' | 'multi'
+type Lang = 'ja' | 'en'
 
 export interface Heard {
   confidence: number
@@ -223,16 +220,11 @@ class DualStt implements Stt {
 
 // ── Factory ──────────────────────────────────────────────────────────────────
 
-export function listenEngine(value: string | undefined): ListenEngine {
-  return value === 'ja' || value === 'multi' ? value : 'dual'
-}
-
 export interface SttOptions {
   deepgramKey: string
-  engine: ListenEngine
 }
 
-export function createStt(mode: StreamMode, handlers: SttHandlers, { deepgramKey, engine }: SttOptions): Stt {
+export function createStt(mode: StreamMode, handlers: SttHandlers, { deepgramKey }: SttOptions): Stt {
   if (mode === 'talk') {
     return new DeepgramStream('en', 400, deepgramKey, {
       onPartial: (text) => handlers.onPartial(text, 'speak'),
@@ -241,22 +233,5 @@ export function createStt(mode: StreamMode, handlers: SttHandlers, { deepgramKey
       onClose: handlers.onClose,
     })
   }
-  switch (engine) {
-    case 'ja':
-      return new DeepgramStream('ja', 300, deepgramKey, {
-        onPartial: (text) => handlers.onPartial(text, 'listen'),
-        onFinal: (text) => handlers.onFinal(text, 'listen'),
-        onError: handlers.onError,
-        onClose: handlers.onClose,
-      })
-    case 'multi':
-      return new DeepgramStream('multi', 300, deepgramKey, {
-        onPartial: (text) => handlers.onPartial(text, hasJapanese(text) ? 'listen' : 'speak'),
-        onFinal: (text) => handlers.onFinal(text, hasJapanese(text) ? 'listen' : 'speak'),
-        onError: handlers.onError,
-        onClose: handlers.onClose,
-      })
-    default:
-      return new DualStt(deepgramKey, handlers)
-  }
+  return new DualStt(deepgramKey, handlers)
 }

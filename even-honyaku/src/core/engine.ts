@@ -146,7 +146,7 @@ export class Engine {
           this.restartAuto()
         },
       },
-      { deepgramKey: this.cfg.deepgramKey!, engine: this.cfg.listenEngine },
+      { deepgramKey: this.cfg.deepgramKey! },
     )
     this.stt = stt
   }

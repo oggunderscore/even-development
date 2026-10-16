@@ -2,7 +2,7 @@
 // mirrored to the browser's localStorage) and is only ever sent to Deepgram and the translation provider the user
 // picked — straight from the phone.
 
-import type { ApiKeys, EnglishInput, ListenEngine, Provider, UserConfig } from './protocol'
+import type { ApiKeys, Provider, UserConfig } from './protocol'
 
 export interface Settings {
   deepgramKey: string
@@ -11,10 +11,6 @@ export interface Settings {
   openrouterKey: string
   anthropicKey: string
   openrouterModel: string
-  /** 'hold' (default): English only while the hold button is pressed; always-on listening is Japanese only. */
-  englishInput: EnglishInput
-  /** Only used when englishInput is 'always'. */
-  listenEngine: ListenEngine
 }
 
 export const STORAGE_KEY = 'honyaku.settings.v1'
@@ -26,13 +22,9 @@ export const defaultSettings = (): Settings => ({
   openrouterKey: '',
   anthropicKey: '',
   openrouterModel: '',
-  englishInput: 'hold',
-  listenEngine: 'dual',
 })
 
 const PROVIDERS: Provider[] = ['google', 'openrouter', 'anthropic']
-const ENGINES: ListenEngine[] = ['dual', 'ja', 'multi']
-const ENGLISH_INPUTS: EnglishInput[] = ['hold', 'always']
 
 /** Parse stored JSON defensively: unknown fields (e.g. from older versions) are dropped, wrong types fall back. */
 export function parseSettings(raw: string | null | undefined): Settings | null {
@@ -48,8 +40,6 @@ export function parseSettings(raw: string | null | undefined): Settings | null {
       openrouterKey: str('openrouterKey'),
       anthropicKey: str('anthropicKey'),
       openrouterModel: str('openrouterModel'),
-      englishInput: ENGLISH_INPUTS.includes(o['englishInput'] as EnglishInput) ? (o['englishInput'] as EnglishInput) : d.englishInput,
-      listenEngine: ENGINES.includes(o['listenEngine'] as ListenEngine) ? (o['listenEngine'] as ListenEngine) : d.listenEngine,
     }
   } catch {
     return null
@@ -63,8 +53,7 @@ export function toUserConfig(s: Settings): UserConfig {
   if (s.googleKey.trim()) keys.google = s.googleKey.trim()
   if (s.openrouterKey.trim()) keys.openrouter = s.openrouterKey.trim()
   if (s.anthropicKey.trim()) keys.anthropic = s.anthropicKey.trim()
-  return { keys, provider: s.provider, openrouterModel: s.openrouterModel.trim() || undefined, // hold-to-talk English: the always-on stream only needs to hear Japanese, so English is never auto-detected
-    listenEngine: s.englishInput === 'hold' ? 'ja' : s.listenEngine }
+  return { keys, provider: s.provider, openrouterModel: s.openrouterModel.trim() || undefined }
 }
 
 const keyFor = (s: Settings, p: Provider) => (p === 'google' ? s.googleKey : p === 'openrouter' ? s.openrouterKey : s.anthropicKey).trim()
