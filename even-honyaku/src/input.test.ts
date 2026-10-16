@@ -20,8 +20,8 @@ describe('classifyInput', () => {
     expect(classifyInput(ev({ sysEvent: { eventSource: 1 } }))).toBe('click')
   })
   it('swipes and double tap', () => {
-    expect(classifyInput(ev({ textEvent: { eventType: T.SCROLL_TOP_EVENT } }))).toBe('scroll_older')
-    expect(classifyInput(ev({ textEvent: { eventType: T.SCROLL_BOTTOM_EVENT } }))).toBe('scroll_newer')
+    expect(classifyInput(ev({ textEvent: { eventType: T.SCROLL_TOP_EVENT } }))).toBe('scroll_up')
+    expect(classifyInput(ev({ textEvent: { eventType: T.SCROLL_BOTTOM_EVENT } }))).toBe('scroll_down')
     expect(classifyInput(ev({ textEvent: { eventType: T.DOUBLE_CLICK_EVENT } }))).toBe('double_click')
     expect(classifyInput(ev({ sysEvent: { eventType: T.DOUBLE_CLICK_EVENT } }))).toBe('double_click')
   })

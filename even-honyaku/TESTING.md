@@ -18,7 +18,7 @@ Optional first: `npm run simulator` (needs a desktop).
 - First run: the glasses say *Please set up Honyaku in the Even Realities app / Error: Missing API keys*; the phone shows **SETTINGS** with a SETUP checklist and **? HOW TO GET ONE** help under each key. Enter keys → **SAVE & TEST** → ✓ DEEPGRAM, ✓ provider, ✓ TRANSLATE (plus ✓ ROMAJI for Google). Wrong keys show ✗ with the reason; the feed won't start listening until keys are present.
 - The app starts **paused**. Hold on the glasses (or press the phone's *Resume listening* button) → header says **listening**. Have someone speak Japanese → English appears; speak English → romaji appears.
 - Phone: **hold** the big button and speak English → release → romaji (forced English, ignores language detection).
-- Glasses: hold (long press) = pause/resume listening, swipe = scroll the feed (past the newest = hide, swipe again = show), double-tap = exit. Which physical swipe direction is "older" vs "newer" is unverified — if it feels backwards, swap `SCROLL_TOP_EVENT`/`SCROLL_BOTTOM_EVENT` in `src/main.ts`.
+- Glasses: hold (long press) = pause/resume listening, swipe up/down = scroll the feed a row at a time (up pushes rows off the top until the view is empty, down brings them back; header shows `[+n]`, `[-n]` or `[cleared]`), double-tap = exit. Swipe up = `SCROLL_TOP_EVENT` per the docs; if it feels backwards on the glasses, swap the two in `src/input.ts`.
 - No mic handy? Use the text box on the phone UI.
 
 ## 3. Things I could not verify (please report what you see)

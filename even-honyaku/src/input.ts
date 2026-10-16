@@ -12,8 +12,8 @@ import { type EvenHubEvent, OsEventTypeList } from '@evenrealities/even_hub_sdk'
 export type GlassesInput =
   | 'click'
   | 'double_click'
-  | 'scroll_older'
-  | 'scroll_newer'
+  | 'scroll_up'
+  | 'scroll_down'
   | 'long_press'
   | 'long_press_release'
   | 'foreground'
@@ -27,9 +27,9 @@ function fromType(type: OsEventTypeList | undefined): GlassesInput {
     case OsEventTypeList.DOUBLE_CLICK_EVENT:
       return 'double_click'
     case OsEventTypeList.SCROLL_TOP_EVENT:
-      return 'scroll_older'
+      return 'scroll_up'
     case OsEventTypeList.SCROLL_BOTTOM_EVENT:
-      return 'scroll_newer'
+      return 'scroll_down'
     case OsEventTypeList.LONG_PRESS_EVENT:
       return 'long_press'
     case OsEventTypeList.LONG_PRESS_RELEASE_EVENT:

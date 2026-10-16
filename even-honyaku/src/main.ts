@@ -290,7 +290,7 @@ function handleServerMessage(msg: ServerMsg) {
 
 // ── Glasses ──────────────────────────────────────────────────────────────────
 // Glasses: hold (long press, SDK 0.0.14+ / Even App 2.2.9+) pauses / resumes always-on listening,
-// swipe scrolls / hides the feed, double tap exits. Hold-to-talk-in-English lives on the phone button.
+// swipe scrolls the feed, double tap exits. Hold-to-talk-in-English lives on the phone button.
 
 let unsubscribe: () => void = () => {}
 let lastScrollAt = 0
@@ -352,12 +352,12 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
       // Capture stops when the WebView is suspended; re-arm it.
       if (micOpen) void bridge?.audioControl(true)
       break
-    case 'scroll_older':
-    case 'scroll_newer': {
+    case 'scroll_up':
+    case 'scroll_down': {
       const now = Date.now()
       if (now - lastScrollAt > 300) {
         lastScrollAt = now
-        display.scroll(input === 'scroll_older' ? 'older' : 'newer')
+        display.scroll(input === 'scroll_up' ? 'up' : 'down')
       }
       break
     }

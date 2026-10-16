@@ -11,6 +11,7 @@ import {
   TextContainerUpgrade,
   type waitForEvenAppBridge,
 } from '@evenrealities/even_hub_sdk'
+import { Feed } from './feed'
 import type { Direction, Translation } from './protocol'
 
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>
@@ -19,10 +20,7 @@ const ID_HEADER = 1
 const ID_BODY = 2
 const ID_FOOTER = 3
 
-/** A full-screen text container holds ~400–500 chars; the body is ~3/4 of it. */
-const BODY_CHAR_BUDGET = 320
-
-const FOOTER = 'swipe: scroll/hide   hold: pause/resume'
+const FOOTER = 'swipe: scroll   hold: pause/resume'
 const FOOTER_SETUP = 'Even app > Honyaku > Settings'
 
 export type UiState = 'idle' | 'listening' | 'talking' | 'processing' | 'offline'
@@ -36,15 +34,9 @@ const STATE_LABEL: Record<UiState, string> = {
 }
 
 export class Display {
-  private entries: string[] = []
-  private live = ''
-  /** How many entries back from the newest the view is scrolled (0 = following the newest). */
-  private offset = 0
-  /** Feed hidden by the wearer so it doesn't clutter their view. */
-  private hidden = false
+  private feed = new Feed()
   /** First-run setup isn't finished: the lines naming what's missing (null = set up). Replaces the feed. */
   private setup: string[] | null = null
-  private liveDir: Direction = 'speak'
   private state: UiState = 'offline'
 
   constructor(private readonly bridge: Bridge) {}
@@ -99,16 +91,13 @@ export class Display {
     this.renderFooter()
   }
 
-  /** Interim transcript while the mic is open. Not shown while the feed is hidden or scrolled back. */
+  /** Interim transcript while the mic is open; shown below the finished rows. */
   setLive(text: string, dir: Direction = 'speak') {
-    this.live = text
-    this.liveDir = dir
+    this.feed.setLive(text ? `${dir === 'speak' ? 'you' : 'JP'}: ${text}…` : '')
     this.renderBody()
   }
 
-  /** New content always brings the feed back and jumps to the newest entry. */
   addTranslation(t: Translation) {
-    this.live = ''
     this.push(formatEntry(t))
   }
 
@@ -116,37 +105,24 @@ export class Display {
     this.push(text)
   }
 
-  /**
-   * Swipe handling. older = back through history; newer = forward, and swiping newer while already on
-   * the newest entry hides the feed. Any swipe while hidden shows it again.
-   */
-  scroll(direction: 'older' | 'newer') {
+  /** Swipe up pushes rows off the top (past the last one the view is empty); swipe down brings them back. */
+  scroll(direction: 'up' | 'down') {
     if (this.setup) return
-    if (this.hidden) {
-      this.hidden = false
-    } else if (direction === 'older') {
-      this.offset = Math.min(this.offset + 1, Math.max(this.entries.length - 1, 0))
-    } else if (this.offset > 0) {
-      this.offset--
-    } else {
-      this.hidden = true
-    }
+    if (!this.feed.scroll(direction)) return
     this.renderHeader()
     this.renderBody()
   }
 
   private push(text: string) {
-    this.entries.push(text)
-    if (this.entries.length > 20) this.entries.shift()
-    this.offset = 0
-    this.hidden = false
+    this.feed.add(text)
     this.renderHeader()
     this.renderBody()
   }
 
   private headerText() {
     if (this.setup) return 'EN<>JP   x setup needed'
-    const where = this.hidden ? '  [hidden]' : this.offset > 0 ? `  [-${this.offset}]` : ''
+    const off = this.feed.offset
+    const where = this.feed.cleared ? '  [cleared]' : off ? `  [${off > 0 ? '+' : ''}${off}]` : ''
     return `EN<>JP   ${STATE_LABEL[this.state]}${where}`
   }
 
@@ -154,25 +130,12 @@ export class Display {
     if (this.setup) {
       return ['Please set up Honyaku in the', 'Even Realities app.', '', 'Error: Missing API keys', ...this.setup.map((m) => `- ${m}`)].join('\n')
     }
-    if (this.hidden) return ' ' // a blank view, but the container stays valid
-    const parts = this.entries.slice(0, this.entries.length - this.offset)
-    if (this.live && this.offset === 0) parts.push(`${this.liveDir === 'speak' ? 'you' : 'JP'}: ${this.live}…`)
-    if (parts.length === 0 && this.state === 'idle') {
-      return 'Paused - not listening.\nHold to resume.'
-    }
-    if (parts.length === 0) {
-      return 'Listening for English and Japanese.\nJapanese -> English shows here.\nEnglish -> romaji shows here.'
-    }
-    // Keep the newest entries that fit the budget.
-    const kept: string[] = []
-    let used = 0
-    for (let i = parts.length - 1; i >= 0; i--) {
-      const part = parts[i]!
-      if (used + part.length > BODY_CHAR_BUDGET && kept.length > 0) break
-      kept.unshift(part.length > BODY_CHAR_BUDGET ? part.slice(0, BODY_CHAR_BUDGET) : part)
-      used += part.length + 1
-    }
-    return kept.join('\n')
+    const rows = this.feed.visible()
+    if (rows.length) return rows.join('\n')
+    if (this.feed.cleared) return ' ' // a blank view, but the container stays valid
+    return this.state === 'idle'
+      ? 'Paused - not listening.\nHold to resume.'
+      : 'Listening for English and Japanese.\nJapanese -> English shows here.\nEnglish -> romaji shows here.'
   }
 
   private renderHeader() {
