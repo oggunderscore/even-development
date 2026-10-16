@@ -18,13 +18,13 @@ Listening is **off when the app starts** — turn it on when you want it.
 
 | Where | Gesture | Action |
 | --- | --- | --- |
-| Glasses | **hold** (long press) | pause / resume always-on listening (mic closes while paused, nothing is streamed or billed) |
+| Glasses | **tap** | pause / resume always-on listening (mic closes while paused, nothing is streamed or billed) |
 | Glasses | swipe | scroll the feed one translation (the two-line pair) at a time. Swipe **up** pushes the top pair off the screen (keep going and the view is empty, every earlier translation hidden); swipe **down** brings one back. New translations appear at the bottom of the text, which starts at the top of the screen |
 | Glasses | double tap | exit |
-| Phone | Pause / Resume listening button | same as the glasses hold |
+| Phone | Pause / Resume listening button | same as the glasses tap |
 | Phone | **Hold** big button | talk English while held, translate on release (works while paused) |
 
-Long press needs SDK 0.0.14+ and Even App 2.2.9+ (this build targets SDK 0.0.16 → app 2.2.10+). Single taps are ignored on purpose so a stray touch can't open the mic. A tap followed by a hold is claimed by the OS contextual menu, so use a plain hold.
+A tap waits about a third of a second before acting, so the first tap of a double tap (exit) doesn't also toggle listening. Long press does nothing.
 
 ## How it runs — no server
 The Even app hosts this app in a phone WebView, where a Node server can't run — so there is no server. The whole engine runs *inside* the WebView and the phone calls the services itself:

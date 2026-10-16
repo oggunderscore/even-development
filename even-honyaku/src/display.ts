@@ -20,7 +20,7 @@ const ID_HEADER = 1
 const ID_BODY = 2
 const ID_FOOTER = 3
 
-const FOOTER = 'swipe: scroll   hold: pause/resume'
+const FOOTER = 'swipe: scroll   tap: pause/resume'
 const FOOTER_SETUP = 'Even app > Honyaku > Settings'
 
 export type UiState = 'idle' | 'listening' | 'talking' | 'processing' | 'offline'
@@ -141,7 +141,7 @@ export class Display {
     if (rows.length) return rows.join('\n')
     if (this.feed.cleared) return ' ' // a blank view, but the container stays valid
     return this.state === 'idle'
-      ? 'Paused - not listening.\nHold to resume.'
+      ? 'Paused - not listening.\nTap to resume.'
       : this.englishHold
         ? 'Listening for Japanese.\nJapanese -> English shows here.\nHold the phone button to speak\nEnglish -> romaji shows here.'
         : 'Listening for English and Japanese.\nJapanese -> English shows here.\nEnglish -> romaji shows here.'

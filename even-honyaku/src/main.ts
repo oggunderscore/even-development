@@ -14,7 +14,7 @@ import './romaji-browser'
 //   talking    – the wearer is holding the button (or tapped the glasses): English only → romaji
 //   processing – just released; ambient listening is already running again, UI waits for `done`
 //   paused     – user toggled listening off (swipe / phone button): mic closed, nothing streamed or billed;
-//                hold-to-talk still works and returns here afterwards
+//                hold-to-talk (phone) still works and returns here afterwards
 //   idle       – not capturing (offline, no Even bridge, or startup)
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>
 type GlassesDisplay = Pick<Display, 'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll' | 'setSetup' | 'setEnglishHold'>
@@ -109,7 +109,7 @@ async function applySettings(raw: Settings, test: boolean) {
   await session.connect()
   if (!test) {
     if (hasKeys(settings)) {
-      ui.addNote('Setup complete. Hold the glasses or tap RESUME LISTENING to start.')
+      ui.addNote('Setup complete. Tap the glasses or tap RESUME LISTENING to start.')
       ui.showView('feed')
     }
     return
@@ -176,7 +176,7 @@ async function haltCapture() {
   await closeMic()
 }
 
-/** Long press on the glasses / phone button: stop or resume always-on listening. */
+/** Tap on the glasses / phone button: stop or resume always-on listening. */
 async function toggleListening() {
   if (phase === 'talking') return // don't yank the mic out from under a held button
   if (paused) {
@@ -197,7 +197,7 @@ async function toggleListening() {
   await closeMic()
 }
 
-/** Wearer starts talking English (phone hold button down, or glasses tap). */
+/** Wearer starts talking English (phone hold button pressed). */
 async function startTalk() {
   if (phase === 'talking') return
   if (!bridge) {
@@ -290,12 +290,14 @@ function handleServerMessage(msg: ServerMsg) {
 }
 
 // ── Glasses ──────────────────────────────────────────────────────────────────
-// Glasses: hold (long press, SDK 0.0.14+ / Even App 2.2.9+) pauses / resumes always-on listening,
-// swipe scrolls the feed, double tap exits. Hold-to-talk-in-English lives on the phone button.
+// Glasses: tap pauses / resumes always-on listening, swipe scrolls the feed, double tap exits.
+// Hold-to-talk-in-English lives on the phone button.
 
 let unsubscribe: () => void = () => {}
 let lastScrollAt = 0
-let lastHoldAt = 0
+/** A tap waits briefly so the first tap of a double tap (exit) doesn't also toggle listening. */
+const TAP_DELAY_MS = 350
+let tapTimer: ReturnType<typeof setTimeout> | undefined
 
 async function initGlasses() {
   const found = await Promise.race([
@@ -344,9 +346,11 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
 
   switch (input) {
     case 'double_click':
+      clearTimeout(tapTimer)
       void exit()
       break
     case 'exit':
+      clearTimeout(tapTimer)
       void haltCapture().then(unsubscribe)
       break
     case 'foreground':
@@ -362,17 +366,12 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
       }
       break
     }
-    case 'long_press': {
-      // Fires once when the hold registers; the release event is ignored. Debounced against repeats.
-      const now = Date.now()
-      if (now - lastHoldAt > 800) {
-        lastHoldAt = now
-        void toggleListening()
-      }
+    case 'click':
+      clearTimeout(tapTimer)
+      tapTimer = setTimeout(() => void toggleListening(), TAP_DELAY_MS)
       break
-    }
     default:
-      break // single taps are deliberately ignored so a stray touch can't open the mic
+      break // long press and the rest are ignored
   }
 }
 
