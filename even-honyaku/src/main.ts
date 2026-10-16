@@ -1,105 +1,235 @@
-import { OsEventTypeList, waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
-import { MAX_TURN_MS } from './config'
+import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
+import { MAX_TURN_MS, describeConfig } from './config'
+import { dbg } from './debug'
 import { Display, type UiState } from './display'
+import { classifyInput } from './input'
 import { toBytes } from './pcm'
-import type { Direction, ServerMsg, Translation } from './protocol'
+import type { ServerMsg, Translation } from './protocol'
 import { Session } from './session'
 import { PhoneUi } from './ui'
 
-type Phase = 'idle' | 'listening' | 'processing'
+// Listening starts PAUSED. Once the user resumes it, the glasses mic streams continuously until they pause again:
+//   listening  – always-on; server detects English / Japanese per utterance (JP → English, EN → romaji)
+//   talking    – the wearer is holding the button (or tapped the glasses): English only → romaji
+//   processing – just released; ambient listening is already running again, UI waits for `done`
+//   paused     – user toggled listening off (swipe / phone button): mic closed, nothing streamed or billed;
+//                hold-to-talk still works and returns here afterwards
+//   idle       – not capturing (offline, no Even bridge, or startup)
+type Phase = 'idle' | 'paused' | 'listening' | 'talking' | 'processing'
 
-const bridge = await waitForEvenAppBridge()
-const display = new Display(bridge)
-const initResult = await display.init()
-if (initResult !== 0) throw new Error(`createStartUpPageContainer failed: ${initResult}`)
+type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>
+type GlassesDisplay = Pick<Display, 'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll'>
 
-let dir: Direction = 'speak'
-let phase: Phase = 'idle'
+// The phone UI + server link are set up BEFORE we wait for the Even bridge, so they work (and the
+// typed-text form doesn't fall back to a native page-reloading submit) even when the bridge is
+// missing, e.g. when the page is opened in a plain browser instead of the Even app / simulator.
+const noDisplay: GlassesDisplay = { setState() {}, setLive() {}, addTranslation() {}, note() {}, scroll() {} }
+let bridge: Bridge | null = null
+let display: GlassesDisplay = noDisplay
+
+dbg(describeConfig())
+
+// Listening is OFF until the wearer turns it on (tap on the glasses / button on the phone).
+let phase: Phase = 'paused'
+/** User intent: always-on listening is switched off. Survives reconnects. */
+let paused = true
 let connected = false
-/** Bumped per turn so a late startTurn()/timer from an abandoned turn can't touch the current one. */
+let micOpen = false
+/** Bumped on every phase change that invalidates in-flight async work (late timers, abandoned starts). */
 let turn = 0
 let maxTimer: ReturnType<typeof setTimeout> | undefined
 let doneTimer: ReturnType<typeof setTimeout> | undefined
+let micWatchdog: ReturnType<typeof setTimeout> | undefined
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+/** Mic chunks received since the mic was opened (debugging aid). */
+let micChunks = 0
+let micBytes = 0
 
 const ui = new PhoneUi({
-  onHoldStart: () => void startListening(),
-  onHoldEnd: () => void stopListening(),
-  onMode: (d) => setDir(d),
+  onHoldStart: () => void startTalk(),
+  onHoldEnd: () => void stopTalk(),
+  onToggleListen: () => void toggleListening(),
   onTyped: (text) => {
     ui.markWorking()
-    void session.translateText(dir, text).catch(() => ui.addError('Server unreachable'))
+    dbg(`typed: "${text}"`)
+    void session.translateText(text).catch(() => {
+      ui.setLive('speak', '')
+      ui.addError(session.lastError ?? 'Server unreachable')
+    })
   },
 })
 
 const session = new Session({
   onConnection(ok) {
+    dbg(`connection ${ok ? 'UP' : 'DOWN'}`)
     connected = ok
-    ui.setConnected(ok)
-    if (!ok && phase !== 'idle') void abortTurn()
+    if (ok) {
+      clearTimeout(reconnectTimer)
+      void startAmbient()
+    } else {
+      void haltCapture()
+      scheduleReconnect()
+    }
     syncState()
   },
   onMessage: handleServerMessage,
 })
 void session.connect().catch(() => {})
 
+function scheduleReconnect() {
+  if (reconnectTimer) return
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = undefined
+    dbg('reconnecting…')
+    void session.connect().catch(() => {})
+  }, 2000)
+}
+
 function syncState() {
-  const s: UiState = !connected ? 'offline' : phase
+  const s: UiState = !connected ? 'offline' : phase === 'paused' || phase === 'idle' ? 'idle' : phase
   display.setState(s)
-  ui.setPhase(phase)
+  ui.setStatus(connected, phase)
 }
 
-function setDir(next: Direction) {
-  if (phase !== 'idle') return // don't flip direction mid-turn
-  dir = next
-  display.setMode(dir)
-  ui.setMode(dir)
+// ── Capture lifecycle ────────────────────────────────────────────────────────
+
+async function openMic() {
+  if (micOpen || !bridge) return
+  micChunks = 0
+  micBytes = 0
+  const ok = await bridge.audioControl(true)
+  dbg(`audioControl(true) → ${ok}`)
+  if (!ok) {
+    dbg('mic did not open — is the g2-microphone permission granted and the glasses connected?')
+    ui.addError('Mic did not open')
+    return
+  }
+  micOpen = true
+  clearTimeout(micWatchdog)
+  micWatchdog = setTimeout(() => {
+    if (micOpen && micChunks === 0) {
+      dbg('NO audio events 3s after opening the mic — check mic permission / glasses connection / simulator audio input')
+      ui.addError('No audio from the mic yet')
+    }
+  }, 3000)
 }
 
-async function startListening() {
-  if (phase !== 'idle') return
+async function closeMic() {
+  clearTimeout(micWatchdog)
+  if (!micOpen) return
+  micOpen = false
+  await bridge?.audioControl(false).catch(() => {})
+  dbg('mic closed')
+}
+
+/** Connected → start the always-on stream and open the mic. */
+async function startAmbient() {
+  if (phase !== 'idle' || paused || !bridge || !connected) return
   const mine = ++turn
   phase = 'listening'
   syncState()
   try {
-    await session.startTurn(dir)
-    if (mine !== turn || phase !== 'listening') return // released before the socket was ready
-    await bridge.audioControl(true)
-    maxTimer = setTimeout(() => void stopListening(), MAX_TURN_MS)
-  } catch {
-    if (mine === turn) await abortTurn('Server unreachable')
+    await session.startStream('auto')
+    if (mine !== turn) return
+    await openMic()
+  } catch (err) {
+    dbg(`startAmbient failed: ${err instanceof Error ? err.message : err}`)
   }
 }
 
-async function stopListening() {
-  if (phase !== 'listening') return
-  clearTimeout(maxTimer)
-  phase = 'processing'
-  syncState()
-  await bridge.audioControl(false)
-  session.endTurn()
-  // If the server never answers, don't leave the UI stuck.
-  const mine = turn
-  doneTimer = setTimeout(() => {
-    if (mine === turn && phase === 'processing') finishTurn()
-  }, 20_000)
-}
-
-async function abortTurn(reason?: string) {
+/** Connection lost: stop everything; startAmbient() re-arms it when the socket comes back. */
+async function haltCapture() {
   turn++
   clearTimeout(maxTimer)
   clearTimeout(doneTimer)
-  phase = 'idle'
-  await bridge.audioControl(false).catch(() => {})
-  if (reason) {
-    display.note(reason)
-    ui.addError(reason)
-  }
+  clearTimeout(micWatchdog)
+  phase = paused ? 'paused' : 'idle'
   syncState()
+  await closeMic()
 }
 
-function finishTurn() {
+/** Long press on the glasses / phone button: stop or resume always-on listening. */
+async function toggleListening() {
+  if (phase === 'talking') return // don't yank the mic out from under a held button
+  if (paused) {
+    paused = false
+    dbg('listening resumed')
+    if (phase === 'paused') phase = 'idle'
+    if (phase === 'processing') void session.startStream('auto').then(openMic).catch(() => {}) // mid-flush: just re-arm
+    else void startAmbient()
+    syncState()
+    return
+  }
+  paused = true
+  dbg('listening paused')
+  turn++
   clearTimeout(doneTimer)
-  phase = 'idle'
+  phase = 'paused'
+  syncState()
+  if (connected) session.endStream() // flush the last phrase; `done` just refreshes the UI
+  await closeMic()
+}
+
+/** Wearer starts talking English (phone hold button down, or glasses tap). */
+async function startTalk() {
+  if (phase === 'talking') return
+  if (!bridge) {
+    dbg('talk ignored: no Even bridge, so no mic')
+    ui.addError('No glasses mic — Even bridge not connected')
+    return
+  }
+  if (!connected) {
+    ui.addError(session.lastError ?? 'Server offline')
+    return
+  }
+  const mine = ++turn
+  clearTimeout(doneTimer)
+  phase = 'talking'
+  dbg('startTalk')
+  syncState()
+  try {
+    await session.startStream('talk')
+    if (mine !== turn) return
+    await openMic()
+    clearTimeout(maxTimer)
+    maxTimer = setTimeout(() => void stopTalk(), MAX_TURN_MS)
+  } catch (err) {
+    dbg(`startTalk failed: ${err instanceof Error ? err.message : err}`)
+  }
+}
+
+/** Wearer is done: flush English → romaji, and drop straight back to always-on listening. */
+async function stopTalk() {
+  if (phase !== 'talking') return
+  clearTimeout(maxTimer)
+  const mine = ++turn
+  phase = 'processing'
+  dbg(`stopTalk: ${micChunks} mic chunks / ${micBytes} bytes so far`)
+  syncState()
+  session.endStream()
+  if (paused) {
+    await closeMic() // the talk stream was already flushed by `end`; nothing more to capture
+  } else {
+    try {
+      await session.startStream('auto') // resumes ambient immediately; `done` for the talk stream still arrives
+    } catch {
+      /* connection loss is handled by onConnection */
+    }
+  }
+  // If the server never answers, don't leave the UI stuck on "translating".
+  doneTimer = setTimeout(() => {
+    if (mine === turn && phase === 'processing') {
+      dbg('no "done" from server after 20s — giving up on this turn')
+      ui.addError('Server did not answer in 20s')
+      settle()
+    }
+  }, 20_000)
+}
+
+/** Back to plain always-on listening. */
+function settle() {
+  clearTimeout(doneTimer)
+  if (phase === 'processing') phase = paused ? 'paused' : 'listening'
   display.setLive('')
   syncState()
 }
@@ -107,7 +237,7 @@ function finishTurn() {
 function handleServerMessage(msg: ServerMsg) {
   switch (msg.type) {
     case 'partial':
-      display.setLive(msg.text)
+      display.setLive(msg.text, msg.dir)
       ui.setLive(msg.dir, msg.text)
       break
     case 'final': {
@@ -117,69 +247,115 @@ function handleServerMessage(msg: ServerMsg) {
       break
     }
     case 'done':
-      finishTurn()
+      settle()
       break
     case 'error':
       display.note(msg.message.slice(0, 80))
+      ui.setLive('speak', '')
       ui.addError(msg.message)
-      if (phase !== 'idle') finishTurn()
+      if (phase === 'processing') settle()
       break
     case 'ready':
       break
   }
 }
 
-// ── Glasses input ────────────────────────────────────────────────────────────
-// The SDK exposes tap / double-tap / swipe only — there is no press-and-hold gesture on the G2.
-// So on the glasses a tap toggles the mic; the true hold-to-talk control is the phone button.
+// ── Glasses ──────────────────────────────────────────────────────────────────
+// Glasses: hold (long press, SDK 0.0.14+ / Even App 2.2.9+) pauses / resumes always-on listening,
+// swipe scrolls / hides the feed, double tap exits. Hold-to-talk-in-English lives on the phone button.
+
+let unsubscribe: () => void = () => {}
 let lastScrollAt = 0
+let lastHoldAt = 0
 
-const unsubscribe = bridge.onEvenHubEvent((event) => {
+async function initGlasses() {
+  const found = await Promise.race([
+    waitForEvenAppBridge(),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+  ])
+  if (!found) {
+    const msg = 'Even bridge not found after 4s — open this page via the Even app or simulator. Typed text still works; mic and glasses are disabled.'
+    dbg(msg)
+    ui.addError(msg)
+    return
+  }
+  dbg('bridge ready')
+  const glasses = new Display(found)
+  const initResult = await glasses.init()
+  dbg(`glasses page init result: ${initResult} (0 = ok)`)
+  if (initResult !== 0) {
+    ui.addError(`Glasses page failed to start (code ${initResult}); phone UI only`)
+    return
+  }
+  bridge = found
+  display = glasses
+  unsubscribe = bridge.onEvenHubEvent(onGlassesEvent)
+  syncState()
+  void startAmbient() // no-op until the socket is up; onConnection(true) covers that case
+}
+
+function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0]>[0]) {
   if (event.audioEvent) {
-    const pcm = toBytes(event.audioEvent.audioPcm)
-    if (pcm && phase === 'listening') session.sendAudio(pcm)
-    return
-  }
-
-  const sysType = event.sysEvent?.eventType ?? -1
-  const textType = event.textEvent?.eventType ?? OsEventTypeList.CLICK_EVENT // protobuf omits 0
-
-  if (sysType === OsEventTypeList.DOUBLE_CLICK_EVENT || textType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
-    void exit()
-    return
-  }
-  if (sysType === OsEventTypeList.SYSTEM_EXIT_EVENT || sysType === OsEventTypeList.ABNORMAL_EXIT_EVENT) {
-    void abortTurn().then(unsubscribe)
-    return
-  }
-  if (sysType === OsEventTypeList.FOREGROUND_ENTER_EVENT) {
-    // Capture stops when the WebView is suspended; re-arm if we were mid-turn.
-    if (phase === 'listening') void bridge.audioControl(true)
-    return
-  }
-
-  if (event.textEvent === undefined) return
-
-  if (textType === OsEventTypeList.SCROLL_TOP_EVENT || textType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
-    const now = Date.now()
-    if (now - lastScrollAt > 300) {
-      lastScrollAt = now
-      setDir(dir === 'speak' ? 'listen' : 'speak')
+    const raw = event.audioEvent.audioPcm
+    const pcm = toBytes(raw)
+    if (micChunks === 0) {
+      const shape = Array.isArray(raw) ? 'number[]' : raw instanceof Uint8Array ? 'Uint8Array' : typeof raw
+      dbg(`first audio event: ${shape}, ${pcm ? `${pcm.length} bytes` : 'UNRECOGNISED (dropped)'}, phase=${phase}`)
+    }
+    if (pcm && phase !== 'idle' && phase !== 'paused') {
+      micChunks++
+      micBytes += pcm.length
+      session.sendAudio(pcm)
     }
     return
   }
 
-  if (textType === OsEventTypeList.CLICK_EVENT) {
-    if (phase === 'idle') void startListening()
-    else if (phase === 'listening') void stopListening()
-  }
-})
+  const input = classifyInput(event)
+  dbg(`glasses event → ${input}  raw=${JSON.stringify(event).slice(0, 140)}`)
 
-async function exit() {
-  await abortTurn()
-  unsubscribe()
-  await bridge.shutDownPageContainer(1) // mode 1 = system exit dialog (required on the root page)
+  switch (input) {
+    case 'double_click':
+      void exit()
+      break
+    case 'exit':
+      void haltCapture().then(unsubscribe)
+      break
+    case 'foreground':
+      // Capture stops when the WebView is suspended; re-arm it.
+      if (micOpen) void bridge?.audioControl(true)
+      break
+    case 'scroll_older':
+    case 'scroll_newer': {
+      const now = Date.now()
+      if (now - lastScrollAt > 300) {
+        lastScrollAt = now
+        display.scroll(input === 'scroll_older' ? 'older' : 'newer')
+      }
+      break
+    }
+    case 'long_press': {
+      // Fires once when the hold registers; the release event is ignored. Debounced against repeats.
+      const now = Date.now()
+      if (now - lastHoldAt > 800) {
+        lastHoldAt = now
+        void toggleListening()
+      }
+      break
+    }
+    default:
+      break // single taps are deliberately ignored so a stray touch can't open the mic
+  }
 }
 
-ui.setMode(dir)
+async function exit() {
+  await haltCapture()
+  unsubscribe()
+  await bridge?.shutDownPageContainer(1) // mode 1 = system exit dialog (required on the root page)
+}
+
 syncState()
+void initGlasses().catch((err) => {
+  const msg = `glasses init failed: ${err instanceof Error ? err.message : err}`
+  dbg(msg)
+  ui.addError(msg)
+})

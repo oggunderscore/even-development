@@ -6,7 +6,8 @@ import type { Direction, Translation } from './protocol'
 export interface PhoneUiHandlers {
   onHoldStart(): void
   onHoldEnd(): void
-  onMode(dir: Direction): void
+  /** Pause / resume always-on listening. */
+  onToggleListen(): void
   onTyped(text: string): void
 }
 
@@ -36,9 +37,7 @@ export class PhoneUi {
     hold.addEventListener('pointercancel', end)
     hold.addEventListener('lostpointercapture', end)
     hold.addEventListener('contextmenu', (e) => e.preventDefault())
-
-    $('mode-speak').addEventListener('click', () => handlers.onMode('speak'))
-    $('mode-listen').addEventListener('click', () => handlers.onMode('listen'))
+    $('listen').addEventListener('click', () => handlers.onToggleListen())
 
     const form = $<HTMLFormElement>('typed')
     const input = $<HTMLInputElement>('typed-text')
@@ -51,21 +50,15 @@ export class PhoneUi {
     })
   }
 
-  setConnected(ok: boolean) {
-    this.conn.textContent = ok ? 'connected' : 'offline'
-    this.conn.classList.toggle('on', ok)
-  }
-
-  setMode(dir: Direction) {
-    $('mode-speak').setAttribute('aria-selected', String(dir === 'speak'))
-    $('mode-listen').setAttribute('aria-selected', String(dir === 'listen'))
-  }
-
-  setPhase(phase: 'idle' | 'listening' | 'processing') {
-    this.hold.classList.toggle('rec', phase === 'listening')
-    this.hold.disabled = phase === 'processing'
+  /** Header pill + hold button, from one place so they can't disagree. */
+  setStatus(connected: boolean, phase: 'idle' | 'paused' | 'listening' | 'talking' | 'processing') {
+    const label = !connected ? 'offline' : phase === 'idle' || phase === 'paused' ? 'paused' : phase === 'talking' ? 'talking (EN)' : phase === 'processing' ? 'translating' : 'listening'
+    this.conn.textContent = label
+    this.conn.classList.toggle('on', connected && phase !== 'idle' && phase !== 'paused')
+    $('listen').textContent = phase === 'paused' ? 'Resume listening' : 'Pause listening'
+    this.hold.classList.toggle('rec', phase === 'talking')
     this.hold.textContent =
-      phase === 'listening' ? 'Listening… release to translate' : phase === 'processing' ? 'Translating…' : 'Hold to talk'
+      phase === 'talking' ? 'Release to translate' : phase === 'processing' ? 'Translating… (hold to talk again)' : 'Hold to talk in English'
   }
 
   markWorking() {

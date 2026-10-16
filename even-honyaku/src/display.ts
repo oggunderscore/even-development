@@ -22,16 +22,12 @@ const ID_FOOTER = 3
 /** A full-screen text container holds ~400–500 chars; the body is ~3/4 of it. */
 const BODY_CHAR_BUDGET = 320
 
-export type UiState = 'idle' | 'listening' | 'processing' | 'offline'
-
-const MODE_LABEL: Record<Direction, string> = {
-  speak: 'EN>JP  YOU SPEAK',
-  listen: 'JP>EN  THEY SPEAK',
-}
+export type UiState = 'idle' | 'listening' | 'talking' | 'processing' | 'offline'
 
 const STATE_LABEL: Record<UiState, string> = {
-  idle: '○ ready',
+  idle: '○ paused',
   listening: '● listening',
+  talking: '● talking (EN)',
   processing: '… translating',
   offline: '× offline',
 }
@@ -39,7 +35,11 @@ const STATE_LABEL: Record<UiState, string> = {
 export class Display {
   private entries: string[] = []
   private live = ''
-  private dir: Direction = 'speak'
+  /** How many entries back from the newest the view is scrolled (0 = following the newest). */
+  private offset = 0
+  /** Feed hidden by the wearer so it doesn't clutter their view. */
+  private hidden = false
+  private liveDir: Direction = 'speak'
   private state: UiState = 'offline'
 
   constructor(private readonly bridge: Bridge) {}
@@ -70,18 +70,12 @@ export class Display {
             containerName: 'footer',
             xPosition: 0, yPosition: 248, width: 576, height: 40,
             paddingLength: 2,
-            content: 'tap: talk   swipe: mode   2x tap: exit',
+            content: 'swipe: scroll/hide   hold: pause/resume',
             isEventCapture: 0,
           }),
         ],
       }),
     )
-  }
-
-  setMode(dir: Direction) {
-    this.dir = dir
-    this.renderHeader()
-    this.renderBody()
   }
 
   setState(state: UiState) {
@@ -90,35 +84,64 @@ export class Display {
     this.renderBody()
   }
 
-  /** Interim transcript while the mic is open. */
-  setLive(text: string) {
+  /** Interim transcript while the mic is open. Not shown while the feed is hidden or scrolled back. */
+  setLive(text: string, dir: Direction = 'speak') {
     this.live = text
+    this.liveDir = dir
     this.renderBody()
   }
 
+  /** New content always brings the feed back and jumps to the newest entry. */
   addTranslation(t: Translation) {
     this.live = ''
-    this.entries.push(formatEntry(t))
-    if (this.entries.length > 20) this.entries.shift()
-    this.renderBody()
+    this.push(formatEntry(t))
   }
 
   note(text: string) {
+    this.push(text)
+  }
+
+  /**
+   * Swipe handling. older = back through history; newer = forward, and swiping newer while already on
+   * the newest entry hides the feed. Any swipe while hidden shows it again.
+   */
+  scroll(direction: 'older' | 'newer') {
+    if (this.hidden) {
+      this.hidden = false
+    } else if (direction === 'older') {
+      this.offset = Math.min(this.offset + 1, Math.max(this.entries.length - 1, 0))
+    } else if (this.offset > 0) {
+      this.offset--
+    } else {
+      this.hidden = true
+    }
+    this.renderHeader()
+    this.renderBody()
+  }
+
+  private push(text: string) {
     this.entries.push(text)
+    if (this.entries.length > 20) this.entries.shift()
+    this.offset = 0
+    this.hidden = false
+    this.renderHeader()
     this.renderBody()
   }
 
   private headerText() {
-    return `${MODE_LABEL[this.dir]}   ${STATE_LABEL[this.state]}`
+    const where = this.hidden ? '  [hidden]' : this.offset > 0 ? `  [-${this.offset}]` : ''
+    return `EN<>JP   ${STATE_LABEL[this.state]}${where}`
   }
 
   private bodyText(): string {
-    const parts = [...this.entries]
-    if (this.live) parts.push(`${this.dir === 'speak' ? 'you' : 'JP'}: ${this.live}…`)
+    if (this.hidden) return ' ' // a blank view, but the container stays valid
+    const parts = this.entries.slice(0, this.entries.length - this.offset)
+    if (this.live && this.offset === 0) parts.push(`${this.liveDir === 'speak' ? 'you' : 'JP'}: ${this.live}…`)
+    if (parts.length === 0 && this.state === 'idle') {
+      return 'Paused - not listening.\nHold to resume.'
+    }
     if (parts.length === 0) {
-      return this.dir === 'speak'
-        ? 'Tap, then speak English.\nRomaji will appear here to read aloud.'
-        : 'Tap while the other person speaks Japanese.\nEnglish will appear here.'
+      return 'Listening for English and Japanese.\nJapanese -> English shows here.\nEnglish -> romaji shows here.'
     }
     // Keep the newest entries that fit the budget.
     const kept: string[] = []

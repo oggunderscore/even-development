@@ -9,22 +9,25 @@
   <body>
     <header>
       <h1>Honyaku <span lang="ja">翻訳</span></h1>
-      <span id="conn" class="pill">offline</span>
+      <div class="status">
+        <span id="conn" class="pill">offline</span>
+        <button id="listen" type="button" class="pill">Pause</button>
+      </div>
     </header>
 
-    <div class="modes" role="tablist" aria-label="Direction">
-      <button id="mode-speak" role="tab" aria-selected="true">I speak English<small>→ romaji to read aloud</small></button>
-      <button id="mode-listen" role="tab" aria-selected="false">They speak Japanese<small>→ English</small></button>
-    </div>
-
     <main id="log" aria-live="polite"></main>
+
+    <details id="debug" open>
+      <summary>Debug</summary>
+      <pre id="debug-log"></pre>
+    </details>
 
     <form id="typed" autocomplete="off">
       <input id="typed-text" type="text" placeholder="Type to test without the mic…" />
       <button type="submit">Send</button>
     </form>
 
-    <button id="hold" type="button">Hold to talk</button>
+    <button id="hold" type="button">Hold to talk in English</button>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

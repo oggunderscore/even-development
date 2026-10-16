@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { OPENROUTER_DEFAULT_MODEL, parseJson, stripMacrons, translate } from './translate'
+import { OPENROUTER_DEFAULT_MODEL, detectDir, parseJson, stripMacrons, translate, translateProvider } from './translate'
 
 describe('stripMacrons', () => {
   it('doubles long vowels so the G2 font never drops a glyph', () => {
@@ -13,6 +13,15 @@ describe('stripMacrons', () => {
   })
   it('output is ASCII-only', () => {
     expect(stripMacrons('Tōkyō é ñ')).toMatch(/^[\x20-\x7e]*$/)
+  })
+})
+
+describe('detectDir', () => {
+  it('Japanese script → listen, anything else → speak', () => {
+    expect(detectDir('これはいくらですか？')).toBe('listen')
+    expect(detectDir('ありがとう thanks')).toBe('listen')
+    expect(detectDir('カタカナ')).toBe('listen')
+    expect(detectDir('How much is this?')).toBe('speak')
   })
 })
 
@@ -34,6 +43,7 @@ describe('translate via OpenRouter (mocked fetch)', () => {
 
   beforeEach(() => {
     vi.stubEnv('TRANSLATE_PROVIDER', '')
+    vi.stubEnv('GOOGLE_TRANSLATE_API_KEY', '')
     vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-test')
     vi.stubEnv('OPENROUTER_MODEL', '')
   })
@@ -79,5 +89,48 @@ describe('translate via OpenRouter (mocked fetch)', () => {
 
     vi.stubEnv('OPENROUTER_API_KEY', '')
     await expect(translate('speak', 'hi')).rejects.toThrow(/OPENROUTER_API_KEY/)
+  })
+})
+
+describe('translate via Google Cloud Translation (mocked fetch)', () => {
+  const reply = (translatedText: string) =>
+    new Response(JSON.stringify({ data: { translations: [{ translatedText }] } }), { status: 200 })
+
+  beforeEach(() => {
+    vi.stubEnv('TRANSLATE_PROVIDER', '')
+    vi.stubEnv('GOOGLE_TRANSLATE_API_KEY', 'g-key')
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+  })
+
+  it('is picked automatically when GOOGLE_TRANSLATE_API_KEY is set', () => {
+    expect(translateProvider()).toBe('google')
+    vi.stubEnv('TRANSLATE_PROVIDER', 'openrouter')
+    expect(translateProvider()).toBe('openrouter')
+  })
+
+  it('speak: en→ja via Google, romaji generated locally', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(reply('これはいくらですか？'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const t = await translate('speak', 'How much is this?', [], 3)
+
+    expect(t).toEqual({ id: 3, dir: 'speak', english: 'How much is this?', japanese: 'これはいくらですか？', romaji: 'kore wa ikura desu ka?' })
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toContain('https://translation.googleapis.com/language/translate/v2?key=g-key')
+    expect(JSON.parse(init.body)).toEqual({ q: 'How much is this?', source: 'en', target: 'ja', format: 'text' })
+  })
+
+  it('listen: ja→en via Google, romaji of the heard Japanese', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply('Where is the station?')))
+    const t = await translate('listen', '駅はどこですか', [], 4)
+    expect(t).toEqual({ id: 4, dir: 'listen', japanese: '駅はどこですか', english: 'Where is the station?', romaji: 'eki wa doko desu ka' })
+  })
+
+  it('surfaces API errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"error":{"message":"API key not valid"}}', { status: 400 })))
+    await expect(translate('speak', 'hi')).rejects.toThrow(/google translate 400/)
   })
 })

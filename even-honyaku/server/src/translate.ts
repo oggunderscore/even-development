@@ -1,10 +1,19 @@
-// LLM translation + romanisation for one utterance.
+// Translation + romanisation for one utterance.
 //
-// TRANSLATE_PROVIDER=openrouter (default) – any model on OpenRouter, one key, pay per token.
-// TRANSLATE_PROVIDER=anthropic            – Claude directly via the Anthropic API.
+// TRANSLATE_PROVIDER=google      – Google Cloud Translation (no LLM). Romaji is generated locally (romaji.ts).
+//                                  Default whenever GOOGLE_TRANSLATE_API_KEY is set.
+// TRANSLATE_PROVIDER=openrouter  – any model on OpenRouter, one key, pay per token. Default otherwise.
+// TRANSLATE_PROVIDER=anthropic   – Claude directly via the Anthropic API.
 
 import Anthropic from '@anthropic-ai/sdk'
 import type { Direction, Translation } from '../../src/protocol'
+import { hasJapanese } from './lang'
+import { romanize } from './romaji'
+
+/** Japanese script (kana / kanji) present → the other person spoke Japanese; otherwise English. */
+export function detectDir(text: string): Direction {
+  return hasJapanese(text) ? 'listen' : 'speak'
+}
 
 const SYSTEM = `You are the translation engine inside smart glasses used by an English speaker talking with a Japanese speaker, in live conversation.
 
@@ -20,19 +29,25 @@ Romaji rules:
 
 Translate meaning and tone, not word-for-word. Keep it short; this is shown on a tiny display. Use earlier turns only to resolve pronouns and context.`
 
+export function translateProvider(): string {
+  return process.env['TRANSLATE_PROVIDER'] || (process.env['GOOGLE_TRANSLATE_API_KEY'] ? 'google' : 'openrouter')
+}
+
 export async function translate(
   dir: Direction,
   text: string,
   history: Translation[] = [],
   id = 0,
 ): Promise<Translation> {
+  if (translateProvider() === 'google') return translateWithGoogle(dir, text, id)
+
   const context = history
     .slice(-3)
     .map((h) => `- ${h.dir === 'speak' ? 'wearer' : 'other person'}: ${h.dir === 'speak' ? h.english : h.japanese}`)
     .join('\n')
   const userContent = `${context ? `Recent turns:\n${context}\n\n` : ''}Mode "${dir}":\n${text}`
 
-  const provider = process.env['TRANSLATE_PROVIDER'] ?? 'openrouter'
+  const provider = translateProvider()
   const raw = provider === 'anthropic' ? await completeAnthropic(userContent) : await completeOpenRouter(userContent)
   const parsed = parseJson(raw)
 
@@ -40,6 +55,33 @@ export async function translate(
   return dir === 'speak'
     ? { id, dir, english: text, japanese: String(parsed['ja'] ?? ''), romaji }
     : { id, dir, japanese: text, english: String(parsed['en'] ?? ''), romaji }
+}
+
+// ── Google Cloud Translation (Basic / v2) ────────────────────────────────────
+
+async function googleTranslate(text: string, source: 'en' | 'ja', target: 'en' | 'ja'): Promise<string> {
+  const key = process.env['GOOGLE_TRANSLATE_API_KEY']
+  if (!key) throw new Error('GOOGLE_TRANSLATE_API_KEY is not set')
+
+  const res = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ q: text, source, target, format: 'text' }),
+  })
+  if (!res.ok) throw new Error(`google translate ${res.status}: ${(await res.text()).replace(/\s+/g, ' ').slice(0, 200)}`)
+  const data = (await res.json()) as { data?: { translations?: { translatedText?: string }[] } }
+  const out = data.data?.translations?.[0]?.translatedText
+  if (out === undefined) throw new Error('google translate returned no translation')
+  return out
+}
+
+async function translateWithGoogle(dir: Direction, text: string, id: number): Promise<Translation> {
+  if (dir === 'speak') {
+    const japanese = await googleTranslate(text, 'en', 'ja')
+    return { id, dir, english: text, japanese, romaji: await romanize(japanese) }
+  }
+  const [english, romaji] = await Promise.all([googleTranslate(text, 'ja', 'en'), romanize(text)])
+  return { id, dir, japanese: text, english, romaji }
 }
 
 // ── OpenRouter (OpenAI-compatible chat completions) ──────────────────────────

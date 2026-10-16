@@ -3,8 +3,8 @@
   "edition": "202601",
   "name": "Honyaku",
   "version": "0.1.0",
-  "min_app_version": "2.2.5",
-  "min_sdk_version": "0.0.10",
+  "min_app_version": "2.2.10",
+  "min_sdk_version": "0.0.16",
   "entrypoint": "index.html",
   "permissions": [
     {
@@ -14,7 +14,7 @@
     {
       "name": "network",
       "desc": "Sends captured speech to the Honyaku translation server and receives the translated text.",
-      "whitelist": ["https://honyaku.example.com"]
+      "whitelist": ["ws://100.95.240.35:8787", "http://100.95.240.35:8787"]
     }
   ],
   "supported_languages": ["en"]
