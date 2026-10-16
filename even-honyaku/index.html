@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="color-scheme" content="dark" />
+    <title>Honyaku</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="top">
+        <div class="brand">
+          <h1>HONYAKU</h1>
+          <span class="jp" lang="ja">翻訳</span>
+        </div>
+        <div id="status" class="status" data-state="offline" role="status" aria-live="polite">
+          <i class="dot"></i><span id="status-text">OFFLINE</span>
+        </div>
+      </header>
+
+      <nav class="tabs" role="tablist" aria-label="Views">
+        <button id="tab-feed" class="tab" role="tab" aria-selected="true" aria-controls="view-feed" type="button">FEED</button>
+        <button id="tab-settings" class="tab" role="tab" aria-selected="false" aria-controls="view-settings" type="button">SETTINGS</button>
+        <span class="tab-ind" aria-hidden="true"></span>
+      </nav>
+
+      <!-- ───────────── FEED ───────────── -->
+      <section id="view-feed" class="view active" role="tabpanel">
+        <div id="needs-keys" class="needs-keys" hidden>
+          <p class="warn">&gt; API KEYS REQUIRED</p>
+          <p>Add your own Deepgram and translation keys so usage is billed to you, not the server owner.</p>
+          <button id="open-settings" class="btn" type="button">OPEN SETTINGS</button>
+        </div>
+        <main id="log" class="feed" aria-live="polite">
+          <div id="empty" class="empty">
+            <p class="empty-title">// READY</p>
+            <p>Hold the button to speak English and get romaji to read aloud.</p>
+            <p>Resume listening to hear Japanese and get English.</p>
+            <p>Double-tap the glasses to exit.</p>
+          </div>
+        </main>
+
+        <div class="dock">
+          <button id="listen" class="btn ghost" type="button">RESUME LISTENING</button>
+          <form id="typed" class="typed" autocomplete="off">
+            <label class="prompt" for="typed-text" aria-hidden="true">&gt;</label>
+            <input id="typed-text" type="text" placeholder="type to translate" enterkeyhint="send" autocapitalize="off" spellcheck="false" />
+            <button class="btn" type="submit">SEND</button>
+          </form>
+          <button id="hold" class="hold" type="button"><span class="hold-label">HOLD TO TALK</span><span class="hold-sub">ENGLISH → ROMAJI</span></button>
+        </div>
+      </section>
+
+      <!-- ───────────── SETTINGS ───────────── -->
+      <section id="view-settings" class="view" role="tabpanel">
+        <div class="scroll">
+          <form id="settings" autocomplete="off" spellcheck="false">
+            <div class="card setup" id="setup-card" data-done="false">
+              <h2 id="setup-title">SETUP</h2>
+              <p class="lead" id="setup-lead">Two keys and you are done. They are your own accounts, so usage is billed to you.</p>
+              <ol class="steps">
+                <li data-step="deepgram"><i class="check" aria-hidden="true"></i><span>Deepgram key<em>speech-to-text</em></span></li>
+                <li data-step="translate"><i class="check" aria-hidden="true"></i><span>One translation key<em>Google, OpenRouter or Claude</em></span></li>
+              </ol>
+            </div>
+
+            <div class="card">
+              <h2>SPEECH-TO-TEXT</h2>
+              <div class="field">
+                <div class="label-row"><label for="set-deepgram">DEEPGRAM API KEY</label><button class="help" type="button" data-help="help-deepgram" aria-expanded="false">? HOW TO GET ONE</button></div>
+                <div class="reveal-row help-panel" id="help-deepgram"><div><ol><li>Go to <b>console.deepgram.com</b> and sign up (new accounts get free credit).</li><li>Open your project, then <b>API Keys → Create a New API Key</b>.</li><li>Name it "Honyaku" and leave the default (Member) access.</li><li>Copy the key right away (Deepgram shows it only once) and paste it here.</li></ol></div></div>
+                <div class="secret">
+                  <input id="set-deepgram" type="password" autocapitalize="off" autocomplete="off" placeholder="paste key" />
+                  <button class="reveal" type="button" data-for="set-deepgram">SHOW</button>
+                </div>
+                <small class="hint">billed per minute of audio to your Deepgram account</small>
+              </div>
+            </div>
+
+            <div class="card">
+              <h2>TRANSLATION</h2>
+              <div class="field">
+                <label>PROVIDER</label>
+                <div class="seg" id="seg-provider" role="radiogroup">
+                  <button type="button" role="radio" data-v="google">GOOGLE</button>
+                  <button type="button" role="radio" data-v="openrouter">OPENROUTER</button>
+                  <button type="button" role="radio" data-v="anthropic">CLAUDE</button>
+                </div>
+                <small id="provider-hint" class="hint"></small>
+              </div>
+              <div class="reveal-row" data-provider="google">
+<div>
+                <div class="field">
+                  <div class="label-row"><label for="set-google">GOOGLE TRANSLATE API KEY</label><button class="help" type="button" data-help="help-google" aria-expanded="false">? HOW TO GET ONE</button></div>
+                  <div class="reveal-row help-panel" id="help-google"><div><ol><li>Go to <b>console.cloud.google.com</b>, create or pick a project and turn on billing (the first 500,000 characters a month are free).</li><li>Open <b>APIs &amp; Services → Library</b>, search <b>Cloud Translation API</b> and press <b>Enable</b>.</li><li>Open <b>APIs &amp; Services → Credentials → Create credentials → API key</b>.</li><li>Edit the key and set <b>API restrictions → Restrict key → Cloud Translation API</b>. Do not add website restrictions: the app has no fixed address.</li><li>Copy the key and paste it here.</li></ol></div></div>
+                  <div class="secret">
+                    <input id="set-google" type="password" autocapitalize="off" autocomplete="off" placeholder="paste key" />
+                    <button class="reveal" type="button" data-for="set-google">SHOW</button>
+                  </div>
+                </div></div>
+              </div>
+              <div class="reveal-row" data-provider="openrouter">
+<div>
+                <div class="field">
+                  <div class="label-row"><label for="set-openrouter">OPENROUTER API KEY</label><button class="help" type="button" data-help="help-openrouter" aria-expanded="false">? HOW TO GET ONE</button></div>
+                  <div class="reveal-row help-panel" id="help-openrouter"><div><ol><li>Go to <b>openrouter.ai</b> and sign in.</li><li>Open <b>Credits</b> and add a few dollars. Models are billed per token and a phrase costs a fraction of a cent.</li><li>Open <b>Keys → Create Key</b>, name it "Honyaku" and optionally set a spending limit.</li><li>Copy the key and paste it here. The model is optional; the default is fast and cheap.</li></ol></div></div>
+                  <div class="secret">
+                    <input id="set-openrouter" type="password" autocapitalize="off" autocomplete="off" placeholder="paste key" />
+                    <button class="reveal" type="button" data-for="set-openrouter">SHOW</button>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="set-model">MODEL <span class="opt">OPTIONAL</span></label>
+                  <input id="set-model" type="text" autocapitalize="off" placeholder="google/gemini-2.5-flash-lite" />
+                </div></div>
+              </div>
+              <div class="reveal-row" data-provider="anthropic">
+<div>
+                <div class="field">
+                  <div class="label-row"><label for="set-anthropic">ANTHROPIC (CLAUDE) API KEY</label><button class="help" type="button" data-help="help-anthropic" aria-expanded="false">? HOW TO GET ONE</button></div>
+                  <div class="reveal-row help-panel" id="help-anthropic"><div><ol><li>Go to <b>console.anthropic.com</b> and sign in.</li><li>Open <b>Plans &amp; Billing</b> and add credits. The API is billed per token, separately from a Claude chat subscription.</li><li>Open <b>API Keys → Create Key</b> and name it "Honyaku".</li><li>Copy the key right away (it is shown only once) and paste it here.</li></ol></div></div>
+                  <div class="secret">
+                    <input id="set-anthropic" type="password" autocapitalize="off" autocomplete="off" placeholder="paste key" />
+                    <button class="reveal" type="button" data-for="set-anthropic">SHOW</button>
+                  </div>
+                </div></div>
+              </div>
+            </div>
+
+            <div class="actions">
+              <button id="btn-test" class="btn primary" type="submit">SAVE &amp; TEST</button>
+              <button id="btn-save" class="btn" type="button">SAVE</button>
+            </div>
+          </form>
+
+          <div id="results" class="results" aria-live="polite"></div>
+
+          <p class="fineprint">
+            // keys stay on this device and are sent only to Deepgram and the translation provider you chose,
+            straight from this phone. there is no Honyaku server.
+          </p>
+
+          <footer class="version">HONYAKU <span id="app-version"></span></footer>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

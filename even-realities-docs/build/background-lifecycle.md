@@ -4,9 +4,9 @@
 
 Source: https://hub.evenrealities.com/docs/build/background-lifecycle
 
-> **Last updated:** 2026-06-08
+> **Last updated:** 2026-06-22
 
-Your app is a WebView hosted by the Even Realities App. When the phone backgrounds that app or the screen locks, iOS and Android behave very differently. Read this before you sit down for [Beta Testing](https://hub.evenrealities.com/docs/test/beta-testing).
+Your app is a WebView hosted by the Even Realities App. When the phone backgrounds that app or the screen locks, iOS and Android behave very differently. Read this before you sit down for [Beta Testing](/docs/test/beta-testing).
 
 ## What the OS does to a backgrounded WebView
 
@@ -24,15 +24,15 @@ The practical takeaway is Android-specific: if a piece of state matters, persist
 | **`localStorage`** | Always survives (persisted to disk) | Safe for state you must not lose. |
 | **In-memory JS state** | iOS: survives. Android: **may be lost** if the WebView is suspended. | Re-derive from `localStorage` on relaunch. |
 | **Open WebSocket** | iOS: typically holds. Android: typically dropped if suspended. | Handle the close event; reconnect on relaunch. |
-| **`audioControl(true)` capture** | Stops if the WebView is suspended | Re-enable on foreground; don't assume the stream is still live. |
+| **`audioControl(true, ...)` capture** | Stops if the WebView is suspended | Re-enable on foreground (with the same `AudioInputSource` you used before); don't assume the stream is still live. |
+| **`startAppLocationUpdates(...)` stream** | Stops if the WebView is suspended | Re-arm on foreground; cached fixes from `localStorage` are fine to render while you wait. |
 
-> **WARNING**
->
-> Treat **Android suspend** as "the app starts cold." Your code should survive both cases - persist anything important to `localStorage`, and rebuild in-memory state on relaunch.
+WARNING
+
+Treat **Android suspend** as "the app starts cold." Your code should survive both cases - persist anything important to `localStorage`, and rebuild in-memory state on relaunch.
 
 ## Why this matters for Beta Testing
 
-The [Beta Testing](https://hub.evenrealities.com/docs/test/beta-testing) lock-screen check - install as beta, **lock the phone for 5 minutes**, relaunch - exists to surface exactly these Android suspension bugs. If your app loses state, leaks a dead socket, or never re-enables capture on relaunch, it fails the check. Validate against this page first.
+The [Beta Testing](/docs/test/beta-testing) lock-screen check - install as beta, **lock the phone for 5 minutes**, relaunch - exists to surface exactly these Android suspension bugs. If your app loses state, leaks a dead socket, or never re-enables capture on relaunch, it fails the check. Validate against this page first.
 
-→ [Testing Modes](https://hub.evenrealities.com/docs/test/) · [Page Lifecycle](https://hub.evenrealities.com/docs/build/page-lifecycle) · [App Submission & QA Guidelines](https://hub.evenrealities.com/docs/ship/app-submission)
-
+→ [Testing Modes](/docs/test/) · [Page Lifecycle](/docs/build/page-lifecycle) · [App Submission & QA Guidelines](/docs/ship/app-submission)
