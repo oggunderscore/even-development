@@ -3,7 +3,7 @@
 // so text from the network or from a key field can never inject markup.
 
 import type { Direction, ListenEngine, Provider, Translation } from './protocol'
-import { type Mode, type Settings, isSecureEnough } from './settings'
+import { type Settings, normalizeSettings, setupSteps } from './settings'
 
 export type Phase = 'idle' | 'paused' | 'listening' | 'talking' | 'processing'
 export type View = 'feed' | 'settings'
@@ -36,11 +36,6 @@ const ENGINE_HINT: Record<ListenEngine, string> = {
   multi: 'one multilingual model · cheaper, but may start Japanese as English text',
 }
 
-const MODE_HINT: Record<Mode, string> = {
-  direct: 'this phone calls Deepgram and your translation provider directly · nothing to run or host',
-  server: 'route through your own proxy (see server/) · for networks that block direct calls',
-}
-
 const PROVIDER_HINT: Record<Provider, string> = {
   google: 'Google Cloud Translation · literal · 500k chars/month free, then ~$20 per 1M',
   openrouter: 'any LLM via openrouter.ai · better tone and context · pay per token',
@@ -65,7 +60,6 @@ export class PhoneUi {
   private liveEl: HTMLElement | null = null
   private view: View = 'feed'
   private base: Settings
-  private mode: Mode = 'direct'
   private provider: Provider = 'google'
   private engine: ListenEngine = 'dual'
   private clearTimer: ReturnType<typeof setTimeout> | undefined
@@ -260,10 +254,13 @@ export class PhoneUi {
       })
     }
 
-    this.wireSeg('seg-mode', (v) => this.setMode(v as Mode))
+    this.wireHelp()
     this.wireSeg('seg-provider', (v) => this.setProvider(v as Provider))
     this.wireSeg('seg-engine', (v) => this.setEngine(v as ListenEngine))
-    $<HTMLInputElement>('set-url').addEventListener('input', () => this.updateUrlHint())
+    // Live checklist: tick steps off as the user pastes keys.
+    for (const id of ['set-deepgram', 'set-google', 'set-openrouter', 'set-anthropic']) {
+      $<HTMLInputElement>(id).addEventListener('input', () => this.renderSetup())
+    }
 
     $<HTMLFormElement>('settings').addEventListener('submit', (e) => {
       e.preventDefault()
@@ -304,15 +301,6 @@ export class PhoneUi {
     }
   }
 
-  private setMode(m: Mode) {
-    this.mode = m
-    this.setSeg('seg-mode', m)
-    $('mode-hint').textContent = MODE_HINT[m]
-    for (const row of document.querySelectorAll<HTMLElement>('.reveal-row[data-mode]')) {
-      row.classList.toggle('open', row.dataset['mode'] === m)
-    }
-  }
-
   private setProvider(p: Provider) {
     this.provider = p
     this.setSeg('seg-provider', p)
@@ -320,6 +308,7 @@ export class PhoneUi {
     for (const row of document.querySelectorAll<HTMLElement>('.reveal-row[data-provider]')) {
       row.classList.toggle('open', row.dataset['provider'] === p)
     }
+    this.renderSetup()
   }
 
   private setEngine(e: ListenEngine) {
@@ -328,43 +317,51 @@ export class PhoneUi {
     $('engine-hint').textContent = ENGINE_HINT[e]
   }
 
-  private updateUrlHint() {
-    const url = $<HTMLInputElement>('set-url').value.trim()
-    const hint = $('url-hint')
-    const ok = isSecureEnough(url)
-    hint.classList.toggle('bad', !ok)
-    hint.textContent = ok
-      ? url.startsWith('wss://')
-        ? 'encrypted connection'
-        : 'private network (LAN / Tailscale) · keys stay on it'
-      : url
-        ? 'blocked: use wss:// or a private address so your keys are never sent in cleartext'
-        : 'wss://your-server'
+  /** "? HOW TO GET ONE" toggles the step-by-step panel under a key field. */
+  private wireHelp() {
+    for (const btn of document.querySelectorAll<HTMLButtonElement>('.help')) {
+      btn.addEventListener('click', () => {
+        const panel = $(btn.dataset['help']!)
+        const open = !panel.classList.contains('open')
+        panel.classList.toggle('open', open)
+        btn.setAttribute('aria-expanded', String(open))
+        btn.textContent = open ? '× HIDE' : '? HOW TO GET ONE'
+      })
+    }
+  }
+
+  /** The SETUP card: a ✓ / ○ checklist from what's currently in the form, and a done state. */
+  private renderSetup() {
+    const steps = setupSteps(normalizeSettings(this.readSettings()))
+    for (const step of steps) {
+      document.querySelector(`.steps [data-step="${step.id}"]`)?.classList.toggle('done', step.done)
+    }
+    const done = steps.every((s) => s.done)
+    const card = $('setup-card')
+    card.dataset['done'] = String(done)
+    $('setup-title').textContent = done ? 'SETUP COMPLETE' : 'SETUP'
+    $('setup-lead').textContent = done
+      ? 'All set. Tap SAVE & TEST to check the keys, then head to FEED.'
+      : 'Two keys and you are done. They are your own accounts, so usage is billed to you.'
   }
 
   /** Fill the form from stored settings. */
   setSettings(s: Settings) {
     this.base = s
-    $<HTMLInputElement>('set-url').value = s.serverUrl
-    $<HTMLInputElement>('set-token').value = s.serverToken
     $<HTMLInputElement>('set-deepgram').value = s.deepgramKey
     $<HTMLInputElement>('set-google').value = s.googleKey
     $<HTMLInputElement>('set-openrouter').value = s.openrouterKey
     $<HTMLInputElement>('set-anthropic').value = s.anthropicKey
     $<HTMLInputElement>('set-model').value = s.openrouterModel
-    this.setMode(s.mode)
     this.setProvider(s.provider)
     this.setEngine(s.listenEngine)
-    this.updateUrlHint()
+    this.renderSetup()
   }
 
   readSettings(): Settings {
     const v = (id: string) => $<HTMLInputElement>(id).value.trim()
     return {
       ...this.base,
-      mode: this.mode,
-      serverUrl: v('set-url'),
-      serverToken: v('set-token'),
       deepgramKey: v('set-deepgram'),
       provider: this.provider,
       googleKey: v('set-google'),

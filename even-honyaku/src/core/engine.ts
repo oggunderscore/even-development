@@ -1,6 +1,5 @@
-// The translation engine: everything that used to live in the server's per-connection handler, with no
-// transport attached. The server wraps it in a WebSocket (adding auth); the app runs it directly in the
-// WebView ("direct mode"), calling Deepgram and the translation provider straight from the phone.
+// The translation engine. It runs inside the app's WebView and calls Deepgram and the user's translation
+// provider straight from the phone, with the user's own keys — there is no server.
 //
 //   handle({config}) → handle({start,mode}) → audio(pcm)… (continuous) → handle({end})?
 //   emits: config_ok · partial… · final… · done (after an explicit end) · error · test_result
@@ -9,15 +8,13 @@
 // mode "talk": wearer holds the button — English only, always translated to Japanese romaji.
 
 import type { ClientMsg, Direction, ServerMsg, StreamMode, Translation, UserConfig } from '../protocol'
-import { type Fallback, type ResolvedConfig, missingKeys, resolveConfig, validateConfig } from './config'
+import { type ResolvedConfig, missingKeys, resolveConfig, validateConfig } from './config'
 import { log, warn } from './log'
 import { testConfig } from './probes'
 import { type Stt, createStt as defaultCreateStt } from './stt'
 import { detectDir, translate } from './translate'
 
 export interface EngineOptions {
-  /** Keys the host offers users who didn't bring their own (server .env). Never set in the app. */
-  fallback?: Fallback
   /** Test seam. */
   createStt?: typeof defaultCreateStt
   /** Heartbeat for the "no audio arriving" diagnostic. */
@@ -47,7 +44,7 @@ export class Engine {
     private readonly opts: EngineOptions = {},
     private readonly tag = 'engine',
   ) {
-    this.cfg = resolveConfig({}, opts.fallback)
+    this.cfg = resolveConfig({})
     // Heartbeat so a silent mic is obvious in the log while always-on listening runs.
     this.statTimer = setInterval(() => {
       if (!this.mode) return
@@ -101,15 +98,14 @@ export class Engine {
       this.emit({ type: 'error', message: problem })
       return
     }
-    this.cfg = resolveConfig(user, this.opts.fallback)
+    this.cfg = resolveConfig(user)
     const missing = missingKeys(this.cfg)
-    log(this.tag, `config ok: provider=${this.cfg.translate.provider} engine=${this.cfg.listenEngine} stt=${!missing.includes('deepgram')} translate=${!missing.includes('translate')} serverKeys=${this.cfg.usingServerKeys}`)
+    log(this.tag, `config ok: provider=${this.cfg.translate.provider} engine=${this.cfg.listenEngine} stt=${!missing.includes('deepgram')} translate=${!missing.includes('translate')}`)
     this.emit({
       type: 'config_ok',
       stt: !missing.includes('deepgram'),
       translate: !missing.includes('translate'),
       provider: this.cfg.translate.provider,
-      serverKeys: this.cfg.usingServerKeys,
     })
   }
 

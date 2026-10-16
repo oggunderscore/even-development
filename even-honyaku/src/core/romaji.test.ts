@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { romanize } from '../../src/core/romaji'
-import './romaji-node'
+import { romanize } from './romaji'
+import '../test/romaji-node'
 
 describe('romanize', () => {
   const cases: [string, string][] = [

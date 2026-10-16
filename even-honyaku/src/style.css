@@ -210,3 +210,23 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
 }
+
+/* ── setup checklist + key help ───────── */
+.setup .lead { color: var(--dim); font-size: 12px; margin-bottom: 14px; }
+.steps { list-style: none; display: grid; gap: 10px; margin-bottom: 12px; }
+.steps li { display: flex; align-items: flex-start; gap: 12px; color: var(--text); }
+.steps em { display: block; font-style: normal; font-size: 11px; color: #707070; }
+.check { flex: none; width: 16px; height: 16px; margin-top: 2px; border: 1px solid var(--dim); position: relative; transition: background 0.25s var(--ease), border-color 0.25s var(--ease), box-shadow 0.25s var(--ease); }
+.steps li.done .check { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
+.steps li.done .check::after { content: '✓'; position: absolute; inset: 0; display: grid; place-items: center; color: var(--bg); font-size: 12px; font-weight: 700; animation: fade-in 0.2s var(--ease) both; }
+.setup[data-done='true'] h2 { color: var(--accent); }
+.setup[data-done='true']::before { opacity: 1; box-shadow: 0 0 14px var(--accent-glow); }
+
+.label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.label-row label { margin-bottom: 5px; }
+.help { font-size: 10px; letter-spacing: 1px; color: var(--accent-dim); padding: 0 0 5px; transition: color 0.18s; white-space: nowrap; }
+.help:hover { color: var(--accent); }
+.help-panel > div { border-left: 1px solid var(--border); margin: 0 0 12px 2px; padding: 2px 0 2px 12px; }
+.help-panel ol { padding-left: 1.3em; color: var(--dim); font-size: 12px; display: grid; gap: 6px; }
+.help-panel li::marker { color: var(--accent-dim); }
+.help-panel b { color: var(--accent); font-weight: 500; }

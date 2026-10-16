@@ -56,43 +56,25 @@
       <section id="view-settings" class="view" role="tabpanel">
         <div class="scroll">
           <form id="settings" autocomplete="off" spellcheck="false">
-            <div class="card">
-              <h2>CONNECTION</h2>
-              <div class="field">
-                <label>MODE</label>
-                <div class="seg" id="seg-mode" role="radiogroup">
-                  <button type="button" role="radio" data-v="direct">DIRECT</button>
-                  <button type="button" role="radio" data-v="server">YOUR SERVER</button>
-                </div>
-                <small id="mode-hint" class="hint"></small>
-              </div>
-              <div class="reveal-row" data-mode="server">
-                <div>
-                  <div class="field">
-                    <label for="set-url">SERVER ADDRESS</label>
-                    <input id="set-url" type="url" inputmode="url" autocapitalize="off" placeholder="wss://honyaku.example.com" />
-                    <small id="url-hint" class="hint"></small>
-                  </div>
-                  <div class="field">
-                    <label for="set-token">ACCESS TOKEN</label>
-                    <div class="secret">
-                      <input id="set-token" type="password" autocapitalize="off" autocomplete="off" />
-                      <button class="reveal" type="button" data-for="set-token">SHOW</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            <div class="card setup" id="setup-card" data-done="false">
+              <h2 id="setup-title">SETUP</h2>
+              <p class="lead" id="setup-lead">Two keys and you are done. They are your own accounts, so usage is billed to you.</p>
+              <ol class="steps">
+                <li data-step="deepgram"><i class="check" aria-hidden="true"></i><span>Deepgram key<em>speech-to-text</em></span></li>
+                <li data-step="translate"><i class="check" aria-hidden="true"></i><span>One translation key<em>Google, OpenRouter or Claude</em></span></li>
+              </ol>
             </div>
 
             <div class="card">
               <h2>SPEECH-TO-TEXT</h2>
               <div class="field">
-                <label for="set-deepgram">DEEPGRAM API KEY</label>
+                <div class="label-row"><label for="set-deepgram">DEEPGRAM API KEY</label><button class="help" type="button" data-help="help-deepgram" aria-expanded="false">? HOW TO GET ONE</button></div>
+                <div class="reveal-row help-panel" id="help-deepgram"><div><ol><li>Go to <b>console.deepgram.com</b> and sign up (new accounts get free credit).</li><li>Open your project, then <b>API Keys → Create a New API Key</b>.</li><li>Name it "Honyaku" and leave the default (Member) access.</li><li>Copy the key right away (Deepgram shows it only once) and paste it here.</li></ol></div></div>
                 <div class="secret">
                   <input id="set-deepgram" type="password" autocapitalize="off" autocomplete="off" placeholder="paste key" />
                   <button class="reveal" type="button" data-for="set-deepgram">SHOW</button>
                 </div>
-                <small class="hint">console.deepgram.com · billed to your account</small>
+                <small class="hint">billed per minute of audio to your Deepgram account</small>
               </div>
               <div class="field">
                 <label>LISTENING MODE</label>
@@ -119,7 +101,8 @@
               <div class="reveal-row" data-provider="google">
 <div>
                 <div class="field">
-                  <label for="set-google">GOOGLE TRANSLATE API KEY</label>
+                  <div class="label-row"><label for="set-google">GOOGLE TRANSLATE API KEY</label><button class="help" type="button" data-help="help-google" aria-expanded="false">? HOW TO GET ONE</button></div>
+                  <div class="reveal-row help-panel" id="help-google"><div><ol><li>Go to <b>console.cloud.google.com</b>, create or pick a project and turn on billing (the first 500,000 characters a month are free).</li><li>Open <b>APIs &amp; Services → Library</b>, search <b>Cloud Translation API</b> and press <b>Enable</b>.</li><li>Open <b>APIs &amp; Services → Credentials → Create credentials → API key</b>.</li><li>Edit the key and set <b>API restrictions → Restrict key → Cloud Translation API</b>. Do not add website restrictions: the app has no fixed address.</li><li>Copy the key and paste it here.</li></ol></div></div>
                   <div class="secret">
                     <input id="set-google" type="password" autocapitalize="off" autocomplete="off" placeholder="paste key" />
                     <button class="reveal" type="button" data-for="set-google">SHOW</button>
@@ -129,7 +112,8 @@
               <div class="reveal-row" data-provider="openrouter">
 <div>
                 <div class="field">
-                  <label for="set-openrouter">OPENROUTER API KEY</label>
+                  <div class="label-row"><label for="set-openrouter">OPENROUTER API KEY</label><button class="help" type="button" data-help="help-openrouter" aria-expanded="false">? HOW TO GET ONE</button></div>
+                  <div class="reveal-row help-panel" id="help-openrouter"><div><ol><li>Go to <b>openrouter.ai</b> and sign in.</li><li>Open <b>Credits</b> and add a few dollars. Models are billed per token and a phrase costs a fraction of a cent.</li><li>Open <b>Keys → Create Key</b>, name it "Honyaku" and optionally set a spending limit.</li><li>Copy the key and paste it here. The model is optional; the default is fast and cheap.</li></ol></div></div>
                   <div class="secret">
                     <input id="set-openrouter" type="password" autocapitalize="off" autocomplete="off" placeholder="paste key" />
                     <button class="reveal" type="button" data-for="set-openrouter">SHOW</button>
@@ -143,7 +127,8 @@
               <div class="reveal-row" data-provider="anthropic">
 <div>
                 <div class="field">
-                  <label for="set-anthropic">ANTHROPIC API KEY</label>
+                  <div class="label-row"><label for="set-anthropic">ANTHROPIC (CLAUDE) API KEY</label><button class="help" type="button" data-help="help-anthropic" aria-expanded="false">? HOW TO GET ONE</button></div>
+                  <div class="reveal-row help-panel" id="help-anthropic"><div><ol><li>Go to <b>console.anthropic.com</b> and sign in.</li><li>Open <b>Plans &amp; Billing</b> and add credits. The API is billed per token, separately from a Claude chat subscription.</li><li>Open <b>API Keys → Create Key</b> and name it "Honyaku".</li><li>Copy the key right away (it is shown only once) and paste it here.</li></ol></div></div>
                   <div class="secret">
                     <input id="set-anthropic" type="password" autocapitalize="off" autocomplete="off" placeholder="paste key" />
                     <button class="reveal" type="button" data-for="set-anthropic">SHOW</button>
@@ -162,8 +147,8 @@
           <div id="results" class="results" aria-live="polite"></div>
 
           <p class="fineprint">
-            // keys stay on this device and are sent only to the server above, in memory for the session —
-            never stored by the server. use wss:// or a private network (LAN / Tailscale).
+            // keys stay on this device and are sent only to Deepgram and the translation provider you chose,
+            straight from this phone. there is no Honyaku server.
           </p>
 
           <button id="debug-toggle" class="linkbtn" type="button">[ SHOW DEBUG LOG ]</button>

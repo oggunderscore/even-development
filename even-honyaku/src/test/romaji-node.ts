@@ -1,9 +1,9 @@
-// Node host for the romaji dictionary: read it straight from the kuromoji package on disk.
+// Test-only: load the romaji dictionary straight from the kuromoji package on disk (the app fetches it from its bundle).
 
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import kuromoji from 'kuromoji'
-import { setTokenizerLoader } from '../../src/core/romaji'
+import { setTokenizerLoader } from '../core/romaji'
 
 setTokenizerLoader(
   () =>

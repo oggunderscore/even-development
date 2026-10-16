@@ -1,15 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { missingKeys, resolveConfig, validateConfig } from './config'
 
-const fallback = { deepgramKey: 'server-deepgram-key', translate: { provider: 'google' as const, googleKey: 'server-google-key', openrouterKey: 'server-openrouter-key' } }
-
-describe('per-user config', () => {
-  it("never falls back to the host's keys unless a fallback is supplied", () => {
+describe('config', () => {
+  it('with no keys, both are reported missing', () => {
     const cfg = resolveConfig({})
     expect(cfg.deepgramKey).toBeUndefined()
     expect(cfg.translate.googleKey).toBeUndefined()
     expect(missingKeys(cfg)).toEqual(['deepgram', 'translate'])
-    expect(cfg.usingServerKeys).toBe(false)
   })
 
   it('uses the keys the user supplied', () => {
@@ -17,7 +14,6 @@ describe('per-user config', () => {
     expect(cfg.deepgramKey).toBe('dg-user-key-123')
     expect(cfg.translate).toMatchObject({ provider: 'google', googleKey: 'g-user-key-1234' })
     expect(missingKeys(cfg)).toEqual([])
-    expect(cfg.usingServerKeys).toBe(false)
   })
 
   it('picks the provider that has a key, unless the user chose one', () => {
@@ -25,13 +21,6 @@ describe('per-user config', () => {
     const chosen = resolveConfig({ provider: 'anthropic', keys: { google: 'g-user-key-1234' } })
     expect(chosen.translate.provider).toBe('anthropic')
     expect(missingKeys(chosen)).toEqual(['deepgram', 'translate']) // chosen provider has no key
-  })
-
-  it("falls back to host keys per key, and the user's own win", () => {
-    const cfg = resolveConfig({ keys: { deepgram: 'dg-user-key-123' } }, fallback)
-    expect(cfg.deepgramKey).toBe('dg-user-key-123')
-    expect(cfg.translate.googleKey).toBe('server-google-key')
-    expect(cfg.usingServerKeys).toBe(true)
   })
 
   it('trims blanks and treats empty strings as missing', () => {

@@ -2,7 +2,7 @@
   "package_id": "com.oggunderscore.honyaku",
   "edition": "202601",
   "name": "Honyaku",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "min_app_version": "2.2.10",
   "min_sdk_version": "0.0.16",
   "entrypoint": "index.html",
@@ -13,7 +13,7 @@
     },
     {
       "name": "network",
-      "desc": "Calls speech-to-text and translation services (Deepgram, Google Translate, OpenRouter, Anthropic) with the API keys you enter, or your own Honyaku server if you choose one.",
+      "desc": "Calls speech-to-text and translation services (Deepgram, Google Translate, OpenRouter, Anthropic) directly from your phone, using the API keys you enter.",
       "whitelist": [
         "https://api.deepgram.com",
         "wss://api.deepgram.com",

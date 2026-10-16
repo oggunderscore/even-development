@@ -25,17 +25,6 @@ describe('Engine', () => {
     engine.close()
   })
 
-  it("never uses the host's keys unless a fallback is supplied", () => {
-    const { engine, out } = setup()
-    engine.handle({ type: 'config', config: {} })
-    expect(out[0]).toMatchObject({ serverKeys: false })
-    engine.close()
-    const withFallback = setup({ fallback: { deepgramKey: 'server-dg-key-1', translate: { provider: 'openrouter', openrouterKey: 'server-or-key-1' } } })
-    withFallback.engine.handle({ type: 'config', config: {} })
-    expect(withFallback.out[0]).toMatchObject({ type: 'config_ok', stt: true, translate: true, serverKeys: true })
-    withFallback.engine.close()
-  })
-
   it('rejects malformed keys', () => {
     const { engine, out } = setup()
     engine.handle({ type: 'config', config: { keys: { deepgram: 'bad key\r\n' } } })

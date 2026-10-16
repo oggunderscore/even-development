@@ -1,16 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { defaultSettings, hasKeys, isSecureEnough, maskKey, parseSettings, toUserConfig, withoutKeys } from './settings'
+import { defaultSettings, hasKeys, maskKey, normalizeSettings, parseSettings, setupSteps, toUserConfig, withoutKeys } from './settings'
 
 describe('settings', () => {
-  it('round-trips and ignores junk', () => {
+  it('round-trips and ignores junk or fields from older versions', () => {
     const s = { ...defaultSettings(), deepgramKey: 'dg', provider: 'openrouter' as const }
     expect(parseSettings(JSON.stringify(s))).toEqual(s)
     expect(parseSettings('not json')).toBeNull()
-    expect(parseSettings(JSON.stringify({ provider: 'evil', listenEngine: 5, deepgramKey: 7 }))).toMatchObject({
-      provider: 'google',
-      listenEngine: 'dual',
-      deepgramKey: '',
-    })
+    expect(parseSettings(JSON.stringify({ provider: 'evil', listenEngine: 5, deepgramKey: 7, serverUrl: 'ws://x', mode: 'server' }))).toEqual(defaultSettings())
   })
 
   it('toUserConfig omits empty keys and trims', () => {
@@ -25,32 +21,29 @@ describe('settings', () => {
     expect(hasKeys({ ...s, provider: 'openrouter', googleKey: 'g' })).toBe(false)
   })
 
+  it('switches to whichever provider has a key when the chosen one has none', () => {
+    const s = { ...defaultSettings(), deepgramKey: 'dg', openrouterKey: 'or-key' } // provider defaults to google
+    expect(normalizeSettings(s).provider).toBe('openrouter')
+    expect(hasKeys(normalizeSettings(s))).toBe(true)
+    // an explicit, satisfied choice is left alone
+    expect(normalizeSettings({ ...s, googleKey: 'g' }).provider).toBe('google')
+    // nothing to switch to
+    expect(normalizeSettings(defaultSettings()).provider).toBe('google')
+  })
+
+  it('setupSteps reports what is still missing', () => {
+    expect(setupSteps(defaultSettings())).toEqual([{ id: 'deepgram', done: false }, { id: 'translate', done: false }])
+    expect(setupSteps({ ...defaultSettings(), deepgramKey: 'dg', googleKey: 'g' }).every((x) => x.done)).toBe(true)
+  })
+
   it('masks keys', () => {
     expect(maskKey('')).toBe('not set')
     expect(maskKey('abcd')).toBe('••••')
     expect(maskKey('abcdefghijkl')).toBe('••••ijkl')
   })
 
-  it('withoutKeys keeps the connection details', () => {
-    const s = { ...defaultSettings(), serverUrl: 'wss://x.example', serverToken: 't', deepgramKey: 'dg', googleKey: 'g' }
-    expect(withoutKeys(s)).toMatchObject({ serverUrl: 'wss://x.example', serverToken: 't', deepgramKey: '', googleKey: '' })
+  it('withoutKeys clears every key but keeps choices', () => {
+    const s = { ...defaultSettings(), provider: 'anthropic' as const, deepgramKey: 'dg', googleKey: 'g', anthropicKey: 'a' }
+    expect(withoutKeys(s)).toEqual({ ...defaultSettings(), provider: 'anthropic' })
   })
-})
-
-describe('isSecureEnough (keys must not cross a public network in cleartext)', () => {
-  it.each([
-    'wss://honyaku.example.com',
-    'ws://localhost:8787',
-    'ws://127.0.0.1:8787',
-    'ws://192.168.1.50:8787',
-    'ws://10.139.60.176:8787',
-    'ws://172.20.0.5:8787',
-    'ws://100.95.240.35:8787',
-    'ws://my-mac.tail5ea12a.ts.net:8787',
-    'ws://mac.local:8787',
-  ])('allows %s', (u) => expect(isSecureEnough(u)).toBe(true))
-  it.each(['ws://8.8.8.8:8787', 'ws://example.com', 'ws://172.32.0.1', 'ws://100.128.0.1', 'http://localhost', 'garbage', ''])(
-    'blocks %s',
-    (u) => expect(isSecureEnough(u)).toBe(false),
-  )
 })

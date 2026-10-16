@@ -1,17 +1,9 @@
 // A user's configuration — their own API keys and choices — validated and resolved into what the STT and
-// translation layers need. Pure (no env, no I/O), so it runs in the app and on the server alike.
-// Keys are never logged or persisted here.
+// translation layers need. Pure (no env, no I/O). Keys are never logged or persisted here.
 
 import type { ApiKeys, ListenEngine, Provider, UserConfig } from '../protocol'
 import { DEEPGRAM_KEY_RE } from './stt'
 import type { TranslateConfig } from './translate'
-
-/** Keys the host (server .env) offers when a user didn't bring their own. Only ever set on the server. */
-export interface Fallback {
-  deepgramKey?: string
-  translate?: Partial<TranslateConfig>
-  listenEngine?: ListenEngine
-}
 
 /** Printable ASCII, no spaces: safe to put in a header or URL, and anything else isn't a real key. */
 const KEY_RE = /^[\x21-\x7e]{8,400}$/
@@ -22,8 +14,6 @@ export interface ResolvedConfig {
   deepgramKey?: string
   translate: TranslateConfig
   listenEngine: ListenEngine
-  /** Some key fell back to the host's own (server .env). */
-  usingServerKeys: boolean
 }
 
 /** Returns an error message if any supplied key is malformed. */
@@ -39,37 +29,20 @@ export function validateConfig(user: UserConfig): string | null {
 
 const clean = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined)
 
-export function resolveConfig(user: UserConfig = {}, fallback?: Fallback): ResolvedConfig {
+export function resolveConfig(user: UserConfig = {}): ResolvedConfig {
   const keys: ApiKeys = user.keys ?? {}
-  const fb = fallback?.translate
-
-  const deepgramKey = clean(keys.deepgram) ?? clean(fallback?.deepgramKey)
-  const googleKey = clean(keys.google) ?? clean(fb?.googleKey)
-  const openrouterKey = clean(keys.openrouter) ?? clean(fb?.openrouterKey)
-  const anthropicKey = clean(keys.anthropic) ?? clean(fb?.anthropicKey)
+  const deepgramKey = clean(keys.deepgram)
+  const googleKey = clean(keys.google)
+  const openrouterKey = clean(keys.openrouter)
+  const anthropicKey = clean(keys.anthropic)
 
   // Explicit choice wins; otherwise the first provider that has a key.
-  const provider: Provider =
-    user.provider ?? (googleKey ? 'google' : openrouterKey ? 'openrouter' : anthropicKey ? 'anthropic' : (fb?.provider ?? 'google'))
-
-  const usingServerKeys =
-    (!clean(keys.deepgram) && !!clean(fallback?.deepgramKey)) ||
-    (!clean(keys.google) && !!clean(fb?.googleKey)) ||
-    (!clean(keys.openrouter) && !!clean(fb?.openrouterKey)) ||
-    (!clean(keys.anthropic) && !!clean(fb?.anthropicKey))
+  const provider: Provider = user.provider ?? (googleKey ? 'google' : openrouterKey ? 'openrouter' : anthropicKey ? 'anthropic' : 'google')
 
   return {
     deepgramKey,
-    translate: {
-      provider,
-      googleKey,
-      openrouterKey,
-      openrouterModel: clean(user.openrouterModel) ?? clean(fb?.openrouterModel),
-      anthropicKey,
-      anthropicModel: clean(fb?.anthropicModel),
-    },
-    listenEngine: user.listenEngine ?? fallback?.listenEngine ?? 'dual',
-    usingServerKeys,
+    translate: { provider, googleKey, openrouterKey, openrouterModel: clean(user.openrouterModel), anthropicKey },
+    listenEngine: user.listenEngine ?? 'dual',
   }
 }
 

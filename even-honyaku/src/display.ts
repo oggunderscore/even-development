@@ -22,6 +22,9 @@ const ID_FOOTER = 3
 /** A full-screen text container holds ~400–500 chars; the body is ~3/4 of it. */
 const BODY_CHAR_BUDGET = 320
 
+const FOOTER = 'swipe: scroll/hide   hold: pause/resume'
+const FOOTER_SETUP = 'Even app > Honyaku > Settings'
+
 export type UiState = 'idle' | 'listening' | 'talking' | 'processing' | 'offline'
 
 const STATE_LABEL: Record<UiState, string> = {
@@ -39,6 +42,8 @@ export class Display {
   private offset = 0
   /** Feed hidden by the wearer so it doesn't clutter their view. */
   private hidden = false
+  /** First-run setup isn't finished: the lines naming what's missing (null = set up). Replaces the feed. */
+  private setup: string[] | null = null
   private liveDir: Direction = 'speak'
   private state: UiState = 'offline'
 
@@ -70,7 +75,7 @@ export class Display {
             containerName: 'footer',
             xPosition: 0, yPosition: 248, width: 576, height: 40,
             paddingLength: 2,
-            content: 'swipe: scroll/hide   hold: pause/resume',
+            content: FOOTER,
             isEventCapture: 0,
           }),
         ],
@@ -82,6 +87,16 @@ export class Display {
     this.state = state
     this.renderHeader()
     this.renderBody()
+  }
+
+  /** Show (or clear, with null) the "finish setup on the phone" screen. */
+  setSetup(missing: string[] | null) {
+    const changed = JSON.stringify(missing) !== JSON.stringify(this.setup)
+    this.setup = missing
+    if (!changed) return
+    this.renderHeader()
+    this.renderBody()
+    this.renderFooter()
   }
 
   /** Interim transcript while the mic is open. Not shown while the feed is hidden or scrolled back. */
@@ -106,6 +121,7 @@ export class Display {
    * the newest entry hides the feed. Any swipe while hidden shows it again.
    */
   scroll(direction: 'older' | 'newer') {
+    if (this.setup) return
     if (this.hidden) {
       this.hidden = false
     } else if (direction === 'older') {
@@ -129,11 +145,15 @@ export class Display {
   }
 
   private headerText() {
+    if (this.setup) return 'EN<>JP   x setup needed'
     const where = this.hidden ? '  [hidden]' : this.offset > 0 ? `  [-${this.offset}]` : ''
     return `EN<>JP   ${STATE_LABEL[this.state]}${where}`
   }
 
   private bodyText(): string {
+    if (this.setup) {
+      return ['Please set up Honyaku in the', 'Even Realities app.', '', 'Error: Missing API keys', ...this.setup.map((m) => `- ${m}`)].join('\n')
+    }
     if (this.hidden) return ' ' // a blank view, but the container stays valid
     const parts = this.entries.slice(0, this.entries.length - this.offset)
     if (this.live && this.offset === 0) parts.push(`${this.liveDir === 'speak' ? 'you' : 'JP'}: ${this.live}…`)
@@ -158,6 +178,12 @@ export class Display {
   private renderHeader() {
     void this.bridge.textContainerUpgrade(
       new TextContainerUpgrade({ containerID: ID_HEADER, containerName: 'header', content: this.headerText() }),
+    )
+  }
+
+  private renderFooter() {
+    void this.bridge.textContainerUpgrade(
+      new TextContainerUpgrade({ containerID: ID_FOOTER, containerName: 'footer', content: this.setup ? FOOTER_SETUP : FOOTER }),
     )
   }
 

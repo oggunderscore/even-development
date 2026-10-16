@@ -1,7 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { OPENROUTER_DEFAULT_MODEL, type TranslateConfig, detectDir, parseJson, stripMacrons, translate } from '../../src/core/translate'
-import './romaji-node'
-import { envTranslateConfig } from './env'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { OPENROUTER_DEFAULT_MODEL, type TranslateConfig, detectDir, parseJson, stripMacrons, translate } from './translate'
+import '../test/romaji-node'
 
 describe('stripMacrons', () => {
   it('doubles long vowels so the G2 font never drops a glyph', () => {
@@ -139,19 +138,5 @@ describe('translate via Anthropic (mocked fetch)', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('overloaded', { status: 529 })))
     await expect(translate('speak', 'hi', [], 0, cfg)).rejects.toThrow(/anthropic 529/)
     await expect(translate('speak', 'hi', [], 0, { provider: 'anthropic' })).rejects.toThrow(/Anthropic key is not set/)
-  })
-})
-
-describe('server env config', () => {
-  afterEach(() => vi.unstubAllEnvs())
-
-  it('picks Google when its key is set, otherwise OpenRouter, unless TRANSLATE_PROVIDER says otherwise', () => {
-    vi.stubEnv('TRANSLATE_PROVIDER', '')
-    vi.stubEnv('GOOGLE_TRANSLATE_API_KEY', 'g')
-    expect(envTranslateConfig().provider).toBe('google')
-    vi.stubEnv('GOOGLE_TRANSLATE_API_KEY', '')
-    expect(envTranslateConfig().provider).toBe('openrouter')
-    vi.stubEnv('TRANSLATE_PROVIDER', 'anthropic')
-    expect(envTranslateConfig().provider).toBe('anthropic')
   })
 })

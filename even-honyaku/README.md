@@ -2,7 +2,7 @@
 
 Live English ⇄ Japanese for Even Realities G2.
 
-The glasses mic listens for English and Japanese (Deepgram nova-3). By default (`LISTEN_ENGINE=dual`) the same audio goes to a **dedicated Japanese model and a dedicated English model** and the result is arbitrated with a bias towards Japanese — a single multilingual stream tended to start Japanese phrases as English text:
+The glasses mic listens for English and Japanese (Deepgram nova-3). By default (Settings → **Listening mode: DUAL**) the same audio goes to a **dedicated Japanese model and a dedicated English model** and the result is arbitrated with a bias towards Japanese — a single multilingual stream tended to start Japanese phrases as English text:
 
 | Heard | Glasses show |
 | --- | --- |
@@ -11,7 +11,7 @@ The glasses mic listens for English and Japanese (Deepgram nova-3). By default (
 
 **Hold to talk** forces English-only for one phrase when you want a clean, deliberate translation to read aloud; releasing drops straight back to always-on listening. Interim transcript is shown live.
 
-Note: always-on listening streams audio to Deepgram for as long as it's on (billed per audio minute). `dual` uses two streams, so twice the minutes; set `LISTEN_ENGINE=ja` (Japanese-only, translate everything to English) or `multi` (one multilingual stream) to spend less. Hold-to-talk on the phone is always English.
+Note: always-on listening streams audio to Deepgram for as long as it's on (billed per audio minute). `dual` uses two streams, so twice the minutes; pick **JA ONLY** (Japanese only, translate everything to English) or **MULTI** (one multilingual stream) in Settings to spend less. Hold-to-talk on the phone is always English.
 
 ## Controls
 Listening is **off when the app starts** — turn it on when you want it.
@@ -26,37 +26,33 @@ Listening is **off when the app starts** — turn it on when you want it.
 
 Long press needs SDK 0.0.14+ and Even App 2.2.9+ (this build targets SDK 0.0.16 → app 2.2.10+). Single taps are ignored on purpose so a stray touch can't open the mic. A tap followed by a hold is claimed by the OS contextual menu, so use a plain hold.
 
-## How it runs — no server needed
-The Even app hosts the app in a phone WebView; a Node server can't run there. So by default (**DIRECT mode**) the whole engine runs *inside* the WebView and the phone calls the services itself:
+## How it runs — no server
+The Even app hosts this app in a phone WebView, where a Node server can't run — so there is no server. The whole engine runs *inside* the WebView and the phone calls the services itself:
 
 ```
 glasses mic → app (WebView) ──wss──▶ Deepgram            (speech-to-text)
                            └──https─▶ Google / OpenRouter / Claude   (translation)
                  romaji: local dictionary (kuromoji) · keys: yours, entered in Settings
 ```
-Nothing is hosted, no operator keys are bundled, and the only places your keys go are the providers you chose. `app.json` whitelists exactly those domains. This is the usual way for G2 apps with bring-your-own-key AI: the `.ehpk` is extractable, so it must never contain *your* keys, and users supply their own.
+Nothing is hosted, no keys are bundled (a `.ehpk` can be unpacked), and your keys go only to the providers you chose. `app.json` whitelists exactly those domains.
 
-**YOUR SERVER mode** (Settings → Connection) routes the same engine through the optional proxy in `server/` instead — useful if a network blocks the providers, or you'd rather not ship the 17 MB romaji dictionary to phones. See "Server mode" below.
+## First-run setup
+Until it's set up the glasses show *"Please set up Honyaku in the Even Realities app — Error: Missing API keys"* and the phone opens straight to **SETTINGS**, where a checklist ticks off as you paste:
+1. a **Deepgram** key (speech-to-text), and
+2. **one** translation key — **Google Translate**, **OpenRouter** or **Claude**.
 
-## Setup (development)
+Each key field has a **? HOW TO GET ONE** panel with step-by-step instructions. **SAVE & TEST** checks each key with its service and runs a sample translation (✓/✗ per step). Pasted only an OpenRouter key? It's picked automatically.
+
+- Keys are stored on the device (Even bridge storage, mirrored to localStorage), shown masked, and wiped by **CLEAR KEYS**.
+- Google: restrict the key by *API* (Cloud Translation), not by website — the WebView has no fixed origin.
+
+## Development
 ```bash
-npm install && (cd server && npm install)   # server/ only needed for server mode
-npm run dev                                  # copies the romaji dictionary to public/dict, starts Vite
-npm run simulator                            # or: npm run qr  (sideload on real glasses)
+npm install
+npm run dev          # copies the romaji dictionary to public/dict, starts Vite
+npm run simulator    # or: npm run qr  (sideload on real glasses)
+npm test             # engine, config, settings, gesture tests
 ```
-In the app: **SETTINGS** → enter your **Deepgram** key and a **translation** key (Google Translate, OpenRouter or Claude) → **SAVE & TEST**. It checks each key with its service and runs a sample translation, showing ✓/✗ per step.
-
-- Keys are stored on the device (Even bridge storage, mirrored to localStorage) and shown masked. **CLEAR KEYS** wipes them.
-- Google users: restrict the key by *API* (Cloud Translation), not by HTTP referrer — the WebView has no fixed origin.
-
-### Server mode (optional)
-```bash
-cp server/.env.example server/.env     # set HONYAKU_TOKEN (any secret string)
-npm run server
-```
-In the app choose **YOUR SERVER**, enter the address (`wss://…`, or LAN/Tailscale `ws://…`) and the token. Keys travel in the first WebSocket message, live only in that connection's memory, and are never logged or stored. The app refuses plain `ws://` unless the address is loopback, LAN or Tailscale. Add the server's origin to `app.json` → `network.whitelist` before packing. Dev shortcut: `ALLOW_SERVER_KEYS=1` lets connections without keys fall back to `server/.env` (you pay).
-
-Check translation alone with the server's own env keys: `cd server && npm run translate -- listen "これはいくらですか？"`.
 
 ## Translation backends
 | Provider (Settings → Translation) | What | Cost |
@@ -71,4 +67,4 @@ Google gives literal, context-free translations; the LLM backends handle tone an
 ```bash
 npm run pack            # build (+ romaji dictionary) + evenhub pack → even-honyaku.ehpk (~17 MB)
 ```
-Upload `even-honyaku.ehpk` under **Private builds** in the dev portal (hub.evenrealities.com) and install it from the Even app: **Even Hub tab → Me → Apps → Private builds → Install**. The package contains no keys and no server address; each user enters theirs in Settings. The dictionary is only fetched when the Google provider is used.
+Upload `even-honyaku.ehpk` under **Private builds** in the dev portal (hub.evenrealities.com) and install it from the Even app: **Even Hub tab → Me → Apps → Private builds → Install**. The package contains no keys; each user enters their own in Settings. The dictionary is only fetched when the Google provider is used.
