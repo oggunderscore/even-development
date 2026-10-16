@@ -105,7 +105,7 @@ export class Display {
     this.push(text)
   }
 
-  /** Swipe up pushes rows off the top (past the last one the view is empty); swipe down brings them back. */
+  /** Swipe up pushes the top translation off the screen (past the last one the view is empty); swipe down brings one back. */
   scroll(direction: 'up' | 'down') {
     if (this.setup) return
     if (!this.feed.scroll(direction)) return
@@ -121,8 +121,7 @@ export class Display {
 
   private headerText() {
     if (this.setup) return 'EN<>JP   x setup needed'
-    const off = this.feed.offset
-    const where = this.feed.cleared ? '  [cleared]' : off ? `  [${off > 0 ? '+' : ''}${off}]` : ''
+    const where = this.feed.cleared ? '  [cleared]' : ''
     return `EN<>JP   ${STATE_LABEL[this.state]}${where}`
   }
 

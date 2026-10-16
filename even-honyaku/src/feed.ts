@@ -53,19 +53,32 @@ export function wrapLine(line: string): string[] {
 export const wrapText = (text: string): string[] => text.split('\n').flatMap(wrapLine)
 
 export class Feed {
-  private rows: string[] = []
+  /** Finished entries (a translation pair or a note), each already wrapped into rows. */
+  private entries: string[][] = []
   private live: string[] = []
   /** Floor for the first visible row. 0 normally; larger after the wearer scrolled earlier rows away. */
   private top = 0
   /** Following the newest rows (true), or reading history (false: `top` is exact). */
   private follow = true
 
-  get length(): number {
-    return this.rows.length + this.live.length
+  private get all(): string[] {
+    return [...this.entries.flat(), ...this.live]
   }
 
-  private get all(): string[] {
-    return this.live.length ? [...this.rows, ...this.live] : this.rows
+  get length(): number {
+    return this.entries.reduce((n, e) => n + e.length, 0) + this.live.length
+  }
+
+  /** Row index where each entry begins (the in-progress phrase counts as one). Scrolling snaps to these. */
+  private get boundaries(): number[] {
+    const out: number[] = []
+    let at = 0
+    for (const e of this.entries) {
+      out.push(at)
+      at += e.length
+    }
+    if (this.live.length) out.push(at)
+    return out
   }
 
   /** First row of the view where the newest rows would sit at the bottom. */
@@ -82,25 +95,21 @@ export class Feed {
     return this.all.slice(this.start, this.start + VIEW_ROWS)
   }
 
-  /** How the view differs from "newest at the bottom": negative = earlier rows shown, positive = rows scrolled off. */
-  get offset(): number {
-    return this.start - this.followStart
-  }
-
   /** Everything is scrolled away (and there is something to scroll away). */
   get cleared(): boolean {
     return this.length > 0 && this.start >= this.length
   }
 
-  /** Append finished rows (a translation or a note). */
+  /** Append a finished entry (a translation or a note). */
   add(text: string) {
     const wasFollowing = this.follow
     this.live = []
-    this.rows.push(...wrapText(text))
-    if (this.rows.length > MAX_ROWS) {
-      const drop = this.rows.length - MAX_ROWS
-      this.rows.splice(0, drop)
-      this.top = Math.max(0, this.top - drop)
+    this.entries.push(wrapText(text))
+    let total = this.length
+    while (total > MAX_ROWS && this.entries.length > 1) {
+      const dropped = this.entries.shift()!.length
+      total -= dropped
+      this.top = Math.max(0, this.top - dropped)
     }
     if (!wasFollowing) {
       // reading history: a new translation brings the view back to the newest rows
@@ -114,10 +123,17 @@ export class Feed {
     this.live = text ? wrapText(text) : []
   }
 
-  /** dir 'up' pushes rows off the top; 'down' brings earlier rows back. Returns whether anything moved. */
+  /**
+   * One swipe moves a whole entry (the "JP/you" line and its translation together). 'up' pushes the top entry
+   * off the screen; 'down' brings the previous one back. Returns whether anything moved.
+   */
   scroll(dir: 'up' | 'down'): boolean {
     const before = this.start
-    const next = dir === 'up' ? Math.min(before + 1, this.length) : Math.max(before - 1, 0)
+    const bounds = this.boundaries
+    const next =
+      dir === 'up'
+        ? (bounds.find((b) => b > before) ?? this.length)
+        : ([...bounds].reverse().find((b) => b < before) ?? 0)
     if (next === before) return false
     this.top = next
     this.follow = next >= this.followStart

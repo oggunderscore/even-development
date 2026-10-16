@@ -100,9 +100,8 @@ describe('Feed', () => {
     const f = new Feed()
     fill(f, 20)
     f.scroll('down'); f.scroll('down')
-    expect(f.offset).toBe(-2)
+    expect(f.visible().at(-1)).toBe('row 18')
     f.add('latest')
-    expect(f.offset).toBe(0)
     expect(f.visible().at(-1)).toBe('latest')
   })
 
@@ -115,13 +114,32 @@ describe('Feed', () => {
     expect(f.visible()).toEqual(['row 1', 'row 2', 'you: hello'])
   })
 
-  it('reports how far the view is from the newest', () => {
+  it('scrolls a whole entry at a time, so a pair of lines moves together', () => {
     const f = new Feed()
-    fill(f, 20)
-    expect(f.offset).toBe(0)
+    for (let i = 1; i <= 6; i++) f.add(`you: q${i}\n> a${i}`)
+    // 12 rows, 7 visible, following the newest: starts mid-entry at row 5
+    expect(f.visible()).toEqual(['> a3', 'you: q4', '> a4', 'you: q5', '> a5', 'you: q6', '> a6'])
+    f.scroll('up') // next entry boundary is row 6 (q4)
+    expect(f.visible()).toEqual(['you: q4', '> a4', 'you: q5', '> a5', 'you: q6', '> a6'])
     f.scroll('up')
-    expect(f.offset).toBe(1)
-    f.scroll('down'); f.scroll('down')
-    expect(f.offset).toBe(-1)
+    expect(f.visible()).toEqual(['you: q5', '> a5', 'you: q6', '> a6'])
+    f.scroll('up'); f.scroll('up')
+    expect(f.visible()).toEqual([])
+    f.scroll('down')
+    expect(f.visible()).toEqual(['you: q6', '> a6'])
+    f.scroll('down')
+    expect(f.visible()).toEqual(['you: q5', '> a5', 'you: q6', '> a6'])
+    while (f.scroll('down')) { /* to the top */ }
+    expect(f.visible()[0]).toBe('you: q1')
+  })
+
+  it('treats a wrapped translation as one entry', () => {
+    const f = new Feed()
+    f.add('you: ' + 'word '.repeat(40).trim() + '\n> ok') // wraps to several rows
+    f.add('you: next\n> two')
+    const before = f.visible().length
+    f.scroll('up')
+    expect(f.visible()).toEqual(['you: next', '> two'])
+    expect(before).toBeGreaterThan(f.visible().length)
   })
 })

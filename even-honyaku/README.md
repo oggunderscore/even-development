@@ -19,7 +19,7 @@ Listening is **off when the app starts** — turn it on when you want it.
 | Where | Gesture | Action |
 | --- | --- | --- |
 | Glasses | **hold** (long press) | pause / resume always-on listening (mic closes while paused, nothing is streamed or billed) |
-| Glasses | swipe | scroll the feed row by row. Swipe **up** pushes rows off the top (keep going and the view is empty, every earlier translation hidden); swipe **down** brings them back. New translations appear at the bottom of the text, which starts at the top of the screen |
+| Glasses | swipe | scroll the feed one translation (the two-line pair) at a time. Swipe **up** pushes the top pair off the screen (keep going and the view is empty, every earlier translation hidden); swipe **down** brings one back. New translations appear at the bottom of the text, which starts at the top of the screen |
 | Glasses | double tap | exit |
 | Phone | Pause / Resume listening button | same as the glasses hold |
 | Phone | **Hold** big button | talk English while held, translate on release (works while paused) |
