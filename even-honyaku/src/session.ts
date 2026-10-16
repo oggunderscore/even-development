@@ -3,7 +3,6 @@
 // Kept as a small class so the rest of the app only deals with `startStream` / `sendAudio` / `onMessage`.
 
 import { Engine } from './core/engine'
-import { dbg } from './debug'
 import type { ClientMsg, ServerMsg, StreamMode, UserConfig } from './protocol'
 
 export interface SessionHandlers {
@@ -27,14 +26,7 @@ export class Session {
   /** Starts the engine with the current settings. Never fails: there is no network involved until a stream starts. */
   connect(): Promise<void> {
     if (this.engine) return Promise.resolve()
-    const engine = new Engine(
-      (msg) => {
-        dbg(`← ${msg.type}${msg.type === 'error' ? `: ${msg.message}` : ''}`)
-        this.handlers.onMessage(msg)
-      },
-      {},
-      'engine',
-    )
+    const engine = new Engine((msg) => this.handlers.onMessage(msg))
     this.engine = engine
     engine.handle({ type: 'config', config: this.handlers.getConfig() })
     this.handlers.onConnection(true)
@@ -53,7 +45,6 @@ export class Session {
     this.backlog = []
     await this.connect()
     this.sendJson({ type: 'start', mode })
-    if (this.backlog.length) dbg(`flushing ${this.backlog.length} backlogged audio chunks`)
     for (const chunk of this.backlog) this.engine?.audio(chunk)
     this.backlog = []
   }
@@ -79,11 +70,6 @@ export class Session {
   }
 
   private sendJson(msg: ClientMsg) {
-    if (!this.engine) {
-      dbg(`→ ${msg.type} DROPPED (engine not running)`)
-      return
-    }
-    dbg(`→ ${msg.type}${'mode' in msg ? ` ${msg.mode}` : ''}`)
-    this.engine.handle(msg)
+    this.engine?.handle(msg)
   }
 }

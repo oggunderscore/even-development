@@ -1,5 +1,4 @@
-// Checks that API keys actually work — the Settings tab's "SAVE & TEST" and the server's startup self-check.
-// Works in the app and on the server (plain fetch + WebSocket). Output never contains a key.
+// Checks that API keys actually work — the Settings tab's "SAVE & TEST". Output never contains a key.
 
 import type { Provider, TestResult } from '../protocol'
 import { type ResolvedConfig, translateKey } from './config'
@@ -44,8 +43,9 @@ function probeDeepgram(key: string): Promise<TestResult> {
     const timer = setTimeout(() => finish(false, 'timed out connecting to Deepgram'), TIMEOUT_MS)
     try {
       ws = new WebSocket(deepgramUrl('en'), ['token', key])
-    } catch (err) {
-      finish(false, `invalid key format (${err instanceof Error ? err.message : 'error'})`)
+    } catch {
+      // The browser's message quotes the offending subprotocol, i.e. the key, so don't pass it on.
+      finish(false, 'invalid key format')
       return
     }
     ws.onopen = () => finish(true, 'key valid · live transcription reachable')
@@ -57,7 +57,7 @@ function probeDeepgram(key: string): Promise<TestResult> {
 function providerProbe(provider: Provider, key: string): Promise<TestResult> {
   switch (provider) {
     case 'google':
-      return probeHttp('google', `https://translation.googleapis.com/language/translate/v2/languages?key=${encodeURIComponent(key)}`, {})
+      return probeHttp('google', 'https://translation.googleapis.com/language/translate/v2/languages', { 'X-Goog-Api-Key': key })
     case 'openrouter':
       return probeHttp('openrouter', 'https://openrouter.ai/api/v1/key', { Authorization: `Bearer ${key}` })
     case 'anthropic':

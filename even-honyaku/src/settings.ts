@@ -87,13 +87,6 @@ export function setupSteps(s: Settings): SetupStep[] {
   ]
 }
 
-/** Never show a stored key in full. */
-export function maskKey(key: string): string {
-  const k = key.trim()
-  if (!k) return 'not set'
-  return k.length <= 8 ? '••••' : `••••${k.slice(-4)}`
-}
-
 // ── persistence ──────────────────────────────────────────────────────────────
 
 type BridgeStorage = { getLocalStorage(key: string): Promise<string>; setLocalStorage(key: string, value: string): Promise<boolean> }
@@ -132,9 +125,4 @@ export async function saveSettings(s: Settings, bridge?: BridgeStorage | null): 
     /* private mode etc. */
   }
   await bridge?.setLocalStorage(STORAGE_KEY, json).catch(() => {})
-}
-
-/** Wipe every key (the stored copy is overwritten by the caller). */
-export function withoutKeys(s: Settings): Settings {
-  return { ...s, deepgramKey: '', googleKey: '', openrouterKey: '', anthropicKey: '', openrouterModel: '' }
 }

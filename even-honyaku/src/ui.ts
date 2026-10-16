@@ -1,5 +1,5 @@
 // Phone-side companion UI inside the WebView: the translation feed, hold-to-talk, typed input, and Settings
-// (server + the user's own API keys, with a Test button). All DOM is built with textContent — no innerHTML —
+// (the user's own API keys, with a Test button). All DOM is built with textContent — no innerHTML —
 // so text from the network or from a key field can never inject markup.
 
 import type { Direction, ListenEngine, Provider, Translation } from './protocol'
@@ -16,7 +16,6 @@ export interface PhoneUiHandlers {
   onTyped(text: string): void
   /** Settings form submitted. `test` = also run the connection test afterwards. */
   onSave(settings: Settings, opts: { test: boolean }): void
-  onClear(): void
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
@@ -62,7 +61,6 @@ export class PhoneUi {
   private base: Settings
   private provider: Provider = 'google'
   private engine: ListenEngine = 'dual'
-  private clearTimer: ReturnType<typeof setTimeout> | undefined
   private spinnerTimer: ReturnType<typeof setInterval> | undefined
 
   constructor(private readonly handlers: PhoneUiHandlers, initial: Settings) {
@@ -83,12 +81,7 @@ export class PhoneUi {
       handlers.onTyped(text)
     })
 
-    $('debug-toggle').addEventListener('click', () => {
-      const pre = $('debug-log')
-      pre.hidden = !pre.hidden
-      $('debug-toggle').textContent = pre.hidden ? '[ SHOW DEBUG LOG ]' : '[ HIDE DEBUG LOG ]'
-      pre.scrollTop = pre.scrollHeight
-    })
+    $('app-version').textContent = `v${__APP_VERSION__}`
 
     this.setSettings(initial)
   }
@@ -267,26 +260,6 @@ export class PhoneUi {
       this.submit(true)
     })
     $('btn-save').addEventListener('click', () => this.submit(false))
-
-    // Two-step clear so a stray tap can't wipe keys.
-    const clear = $<HTMLButtonElement>('btn-clear')
-    clear.addEventListener('click', () => {
-      if (!clear.classList.contains('armed')) {
-        clear.classList.add('armed')
-        clear.textContent = 'TAP AGAIN TO CONFIRM'
-        this.clearTimer = setTimeout(() => this.disarmClear(), 3000)
-        return
-      }
-      this.disarmClear()
-      this.handlers.onClear()
-    })
-  }
-
-  private disarmClear() {
-    clearTimeout(this.clearTimer)
-    const clear = $('btn-clear')
-    clear.classList.remove('armed')
-    clear.textContent = 'CLEAR KEYS'
   }
 
   private wireSeg(id: string, onPick: (value: string) => void) {
@@ -360,13 +333,14 @@ export class PhoneUi {
 
   readSettings(): Settings {
     const v = (id: string) => $<HTMLInputElement>(id).value.trim()
+    const key = (id: string) => v(id).replace(/\s+/g, '') // pasted keys often carry a stray line break
     return {
       ...this.base,
-      deepgramKey: v('set-deepgram'),
+      deepgramKey: key('set-deepgram'),
       provider: this.provider,
-      googleKey: v('set-google'),
-      openrouterKey: v('set-openrouter'),
-      anthropicKey: v('set-anthropic'),
+      googleKey: key('set-google'),
+      openrouterKey: key('set-openrouter'),
+      anthropicKey: key('set-anthropic'),
       openrouterModel: v('set-model'),
       listenEngine: this.engine,
     }

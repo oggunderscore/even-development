@@ -12,7 +12,6 @@
 import type { Direction, ListenEngine, StreamMode } from '../protocol'
 import { Arbiter } from './arbiter'
 import { hasJapanese } from './lang'
-import { log, warn } from './log'
 
 type Lang = 'ja' | 'en' | 'multi'
 
@@ -68,7 +67,6 @@ class DeepgramStream implements Stt {
   private ws: WebSocket | null = null
   private queue: Uint8Array[] = []
   private isOpen = false
-  private results = 0
   private aborted = false
   private finishing = false
   private keepAlive: ReturnType<typeof setInterval> | undefined
@@ -77,13 +75,13 @@ class DeepgramStream implements Stt {
   private readonly opened = new Promise<void>((r) => (this.resolveOpen = r))
   private readonly closed = new Promise<void>((r) => (this.resolveClosed = r))
 
-  constructor(private readonly lang: Lang, endpointing: number, apiKey: string, private readonly handlers: RawHandlers) {
+  constructor(lang: Lang, endpointing: number, apiKey: string, private readonly handlers: RawHandlers) {
     try {
       this.ws = new WebSocket(deepgramUrl(lang, endpointing), ['token', apiKey])
     } catch (err) {
       // e.g. a key containing characters that aren't legal in a subprotocol
       queueMicrotask(() => {
-        handlers.onError(new Error(`[${lang}] cannot open Deepgram stream: ${err instanceof Error ? err.message : 'invalid key'}`))
+        handlers.onError(new Error(`[${lang}] cannot open Deepgram stream: the key is not valid`))
         this.resolveClosed()
         handlers.onClose()
       })
@@ -92,7 +90,6 @@ class DeepgramStream implements Stt {
     const ws = this.ws
     ws.binaryType = 'arraybuffer'
     ws.onopen = () => {
-      log('stt', `deepgram open (${lang}), flushing ${this.queue.length} queued chunks`)
       this.isOpen = true
       for (const chunk of this.queue) ws.send(chunk)
       this.queue = []
@@ -110,9 +107,8 @@ class DeepgramStream implements Stt {
       const hint = this.isOpen ? 'connection error' : 'could not connect — check the Deepgram API key and network'
       handlers.onError(new Error(`[${lang}] ${hint}`))
     }
-    ws.onclose = (e) => {
+    ws.onclose = () => {
       clearInterval(this.keepAlive)
-      log('stt', `deepgram[${lang}] closed (${e.code}${e.reason ? ` ${e.reason}` : ''}); ${this.results} result frames`)
       this.resolveClosed()
       if (!this.aborted && !this.finishing) handlers.onClose()
     }
@@ -154,18 +150,13 @@ class DeepgramStream implements Stt {
     } catch {
       return
     }
-    if (msg.type !== 'Results') {
-      if (msg.type !== 'Metadata' && msg.type !== 'UtteranceEnd' && msg.type !== 'SpeechStarted') warn('stt', `deepgram[${this.lang}] message: ${raw.slice(0, 200)}`)
-      return
-    }
-    this.results++
+    if (msg.type !== 'Results') return
     const alt = msg.channel?.alternatives?.[0]
     const text = alt?.transcript?.trim() ?? ''
     if (!text) return
     if (msg.is_final) {
       const start = msg.start ?? 0
       const heard: Heard = { confidence: alt?.confidence ?? 0, start, end: start + (msg.duration ?? 0) }
-      log('stt', `final[${this.lang}]: "${text}" (conf ${heard.confidence.toFixed(2)}, ${heard.start.toFixed(1)}–${heard.end.toFixed(1)}s)`)
       this.handlers.onFinal(text, heard)
     } else this.handlers.onPartial(text)
   }

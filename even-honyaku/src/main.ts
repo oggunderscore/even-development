@@ -1,21 +1,13 @@
 import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
-import { MAX_TURN_MS, describeConfig } from './config'
-import { setLogSink } from './core/log'
-import { dbg } from './debug'
+import { MAX_TURN_MS } from './config'
 import { Display, type UiState } from './display'
 import { classifyInput } from './input'
 import { toBytes } from './pcm'
 import type { ServerMsg, Translation } from './protocol'
 import { Session } from './session'
-import { type Settings, hasKeys, loadSettings, loadSettingsFromBridge, normalizeSettings, providerKey, saveSettings, setupSteps, toUserConfig, withoutKeys } from './settings'
+import { type Settings, hasKeys, loadSettings, loadSettingsFromBridge, normalizeSettings, saveSettings, setupSteps, toUserConfig } from './settings'
 import { type Phase, PhoneUi } from './ui'
 import './romaji-browser'
-
-// The shared engine logs through the debug panel (it never receives a key or token).
-setLogSink(
-  (tag, ...a) => dbg(`[${tag}] ${a.join(' ')}`),
-  (tag, ...a) => dbg(`[${tag}] ⚠ ${a.join(' ')}`),
-)
 
 // Listening starts PAUSED. Once the user resumes it, the glasses mic streams continuously until they pause again:
 //   listening  – always-on; server detects English / Japanese per utterance (JP → English, EN → romaji)
@@ -38,8 +30,6 @@ let display: GlassesDisplay = noDisplay
 // bridge's store once it's up (see initGlasses).
 let settings: Settings = loadSettings()
 
-const describe = () => describeConfig({ deepgram: !!settings.deepgramKey.trim(), translate: !!providerKey(settings) })
-dbg(describe())
 
 // Listening is OFF until the wearer turns it on (tap on the glasses / button on the phone).
 let phase: Phase = 'paused'
@@ -52,9 +42,8 @@ let turn = 0
 let maxTimer: ReturnType<typeof setTimeout> | undefined
 let doneTimer: ReturnType<typeof setTimeout> | undefined
 let micWatchdog: ReturnType<typeof setTimeout> | undefined
-/** Mic chunks received since the mic was opened (debugging aid). */
+/** Mic chunks received since the mic was opened; zero a few seconds in means the mic isn't delivering. */
 let micChunks = 0
-let micBytes = 0
 
 const ui = new PhoneUi({
   onHoldStart: () => void startTalk(),
@@ -63,19 +52,16 @@ const ui = new PhoneUi({
   onTyped: (text) => {
     if (!keysAvailable()) return needKeys()
     ui.markWorking()
-    dbg(`typed: "${text}"`)
     void session.translateText(text).catch(() => {
       ui.setLive('speak', '')
       ui.addError('Translation engine not running')
     })
   },
   onSave: (next, opts) => void applySettings(next, opts.test),
-  onClear: () => void applySettings(withoutKeys(ui.readSettings()), false, 'Keys cleared'),
 }, settings)
 
 const session = new Session({
   onConnection(ok) {
-    dbg(`connection ${ok ? 'UP' : 'DOWN'}`)
     connected = ok
     if (ok) void startAmbient()
     else void haltCapture()
@@ -104,7 +90,6 @@ function refreshSetup() {
 
 /** A key is missing: stop listening and point the user at Settings (phone) and at the phone (glasses). */
 function needKeys(message = 'Add your Deepgram and translation keys in Settings to start') {
-  dbg(`needKeys: ${message}`)
   refreshSetup()
   ui.addError(message)
   ui.showView('settings')
@@ -112,14 +97,12 @@ function needKeys(message = 'Add your Deepgram and translation keys in Settings 
 }
 
 /** Persist settings, restart the engine with them, and optionally run the key test. */
-async function applySettings(raw: Settings, test: boolean, note?: string) {
+async function applySettings(raw: Settings, test: boolean) {
   const next = normalizeSettings(raw) // pasted only an OpenRouter key? use OpenRouter
   settings = next
   await saveSettings(settings, bridge)
   ui.setSettings(settings)
   refreshSetup()
-  dbg(`settings saved. ${describe()}`)
-  if (note) ui.addNote(note)
 
   session.reset() // stops the engine; connect() below starts it again with the new keys
   await session.connect()
@@ -145,19 +128,15 @@ function syncState() {
 async function openMic() {
   if (micOpen || !bridge) return
   micChunks = 0
-  micBytes = 0
   const ok = await bridge.audioControl(true)
-  dbg(`audioControl(true) → ${ok}`)
   if (!ok) {
-    dbg('mic did not open — is the g2-microphone permission granted and the glasses connected?')
-    ui.addError('Mic did not open')
+    ui.addError('Mic did not open. Check the microphone permission and that the glasses are connected')
     return
   }
   micOpen = true
   clearTimeout(micWatchdog)
   micWatchdog = setTimeout(() => {
     if (micOpen && micChunks === 0) {
-      dbg('NO audio events 3s after opening the mic — check mic permission / glasses connection / simulator audio input')
       ui.addError('No audio from the mic yet')
     }
   }, 3000)
@@ -168,7 +147,6 @@ async function closeMic() {
   if (!micOpen) return
   micOpen = false
   await bridge?.audioControl(false).catch(() => {})
-  dbg('mic closed')
 }
 
 /** Connected → start the always-on stream and open the mic. */
@@ -181,8 +159,8 @@ async function startAmbient() {
     await session.startStream('auto')
     if (mine !== turn) return
     await openMic()
-  } catch (err) {
-    dbg(`startAmbient failed: ${err instanceof Error ? err.message : err}`)
+  } catch {
+    /* connection loss is handled by onConnection */
   }
 }
 
@@ -203,7 +181,6 @@ async function toggleListening() {
   if (paused) {
     if (!keysAvailable()) return needKeys()
     paused = false
-    dbg('listening resumed')
     if (phase === 'paused') phase = 'idle'
     if (phase === 'processing') void session.startStream('auto').then(openMic).catch(() => {}) // mid-flush: just re-arm
     else void startAmbient()
@@ -211,7 +188,6 @@ async function toggleListening() {
     return
   }
   paused = true
-  dbg('listening paused')
   turn++
   clearTimeout(doneTimer)
   phase = 'paused'
@@ -224,7 +200,6 @@ async function toggleListening() {
 async function startTalk() {
   if (phase === 'talking') return
   if (!bridge) {
-    dbg('talk ignored: no Even bridge, so no mic')
     ui.addError('No glasses mic — Even bridge not connected')
     return
   }
@@ -232,7 +207,6 @@ async function startTalk() {
   const mine = ++turn
   clearTimeout(doneTimer)
   phase = 'talking'
-  dbg('startTalk')
   syncState()
   try {
     await session.startStream('talk')
@@ -240,8 +214,8 @@ async function startTalk() {
     await openMic()
     clearTimeout(maxTimer)
     maxTimer = setTimeout(() => void stopTalk(), MAX_TURN_MS)
-  } catch (err) {
-    dbg(`startTalk failed: ${err instanceof Error ? err.message : err}`)
+  } catch {
+    /* connection loss is handled by onConnection */
   }
 }
 
@@ -251,7 +225,6 @@ async function stopTalk() {
   clearTimeout(maxTimer)
   const mine = ++turn
   phase = 'processing'
-  dbg(`stopTalk: ${micChunks} mic chunks / ${micBytes} bytes so far`)
   syncState()
   session.endStream()
   if (paused) {
@@ -263,11 +236,10 @@ async function stopTalk() {
       /* connection loss is handled by onConnection */
     }
   }
-  // If the server never answers, don't leave the UI stuck on "translating".
+  // If translation never finishes, don't leave the UI stuck on "translating".
   doneTimer = setTimeout(() => {
     if (mine === turn && phase === 'processing') {
-      dbg('no "done" from server after 20s — giving up on this turn')
-      ui.addError('Server did not answer in 20s')
+      ui.addError('Translation timed out after 20s')
       settle()
     }
   }, 20_000)
@@ -330,15 +302,11 @@ async function initGlasses() {
     new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
   ])
   if (!found) {
-    const msg = 'Even bridge not found after 4s — open this page via the Even app or simulator. Typed text still works; mic and glasses are disabled.'
-    dbg(msg)
-    ui.addError(msg)
+    ui.addError('Even bridge not found. Open Honyaku from the Even app. Typed text still works; mic and glasses are off')
     return
   }
-  dbg('bridge ready')
   const glasses = new Display(found)
   const initResult = await glasses.init()
-  dbg(`glasses page init result: ${initResult} (0 = ok)`)
   if (initResult !== 0) {
     ui.addError(`Glasses page failed to start (code ${initResult}); phone UI only`)
     return
@@ -348,7 +316,6 @@ async function initGlasses() {
   // The bridge's store outlives the WebView's localStorage; prefer it (and re-seed it from localStorage).
   const stored = await loadSettingsFromBridge(found)
   if (JSON.stringify(stored) !== JSON.stringify(settings)) {
-    dbg('settings loaded from the Even bridge store')
     settings = stored
     ui.setSettings(settings)
     session.reset() // restart the engine with the stored keys
@@ -365,20 +332,14 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
   if (event.audioEvent) {
     const raw = event.audioEvent.audioPcm
     const pcm = toBytes(raw)
-    if (micChunks === 0) {
-      const shape = Array.isArray(raw) ? 'number[]' : raw instanceof Uint8Array ? 'Uint8Array' : typeof raw
-      dbg(`first audio event: ${shape}, ${pcm ? `${pcm.length} bytes` : 'UNRECOGNISED (dropped)'}, phase=${phase}`)
-    }
     if (pcm && phase !== 'idle' && phase !== 'paused') {
       micChunks++
-      micBytes += pcm.length
       session.sendAudio(pcm)
     }
     return
   }
 
   const input = classifyInput(event)
-  dbg(`glasses event → ${input}  raw=${JSON.stringify(event).slice(0, 140)}`)
 
   switch (input) {
     case 'double_click':
@@ -423,8 +384,4 @@ async function exit() {
 syncState()
 refreshSetup()
 if (!hasKeys(settings)) ui.showView('settings') // first run: straight to setup
-void initGlasses().catch((err) => {
-  const msg = `glasses init failed: ${err instanceof Error ? err.message : err}`
-  dbg(msg)
-  ui.addError(msg)
-})
+void initGlasses().catch(() => ui.addError('Could not start the glasses display. Phone UI only'))

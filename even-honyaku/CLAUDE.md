@@ -8,7 +8,7 @@ G2 app for live English ⇄ Japanese conversation. Sibling project in the `even-
 
 ## Layout
 - `src/core/` — the isomorphic engine (Deepgram streams + arbiter, translation providers, romaji, key validation, `engine.ts`); runs in the WebView; there is **no server** (the Even app hosts a WebView, so users bring their own keys and the phone calls Deepgram + the translation provider directly). No Node-only APIs, no `process.env`. Host glue: `src/romaji-browser.ts` (tests use `src/test/romaji-node.ts`).
-- `src/` — Vite + TS WebView app. `main.ts` controller, `display.ts` glasses containers, `ui.ts` phone UI (terminal theme, sharp corners; Feed + Settings tabs), `settings.ts` user keys + choices, first-run `setupSteps` (bridge storage + localStorage), `session.ts` (runs the engine, sends `config` first), `input.ts` gesture classification, `protocol.ts` wire types (shared with server).
+- `src/` — Vite + TS WebView app. `main.ts` controller, `display.ts` glasses containers, `ui.ts` phone UI (terminal theme, sharp corners; Feed + Settings tabs), `settings.ts` user keys + choices, first-run `setupSteps` (bridge storage + localStorage), `session.ts` (runs the engine, sends `config` first), `input.ts` gesture classification, `protocol.ts` message types between the app and the engine.
 
 ## Constraints that shaped the design
 - **First run:** until both a Deepgram key and one translation key are set, the glasses show a setup screen (`Display.setSetup`) and the phone opens Settings.
@@ -19,6 +19,12 @@ G2 app for live English ⇄ Japanese conversation. Sibling project in the `even-
 - Capture stops when the WebView is suspended (Android) → re-armed on `FOREGROUND_ENTER_EVENT`.
 - `app.json` `network.whitelist` lists the provider origins (Deepgram, Google Translate, OpenRouter, Anthropic).
 - The kuromoji romaji dictionary (~17 MB) ships as `public/dict/*.dat.gz.bin` (copied by `scripts/copy-dict.mjs`; the `.bin` suffix stops hosts auto-decompressing `.gz`). It's only fetched for the Google provider.
+
+## Release hygiene
+- `app.json` `version` is the single source: `vite.config.ts` injects it as `__APP_VERSION__` (footer of Settings); `package.json` must match (`src/release.test.ts` checks it, plus store manifest rules). Bump both for every release; released versions are immutable.
+- **No logging** anywhere (no console, no on-screen debug log): audio, transcripts, translations and keys must never be written out. Errors shown to the user must not echo a key (the browser's WebSocket error quotes the subprotocol, so Deepgram errors are generic). Google's key goes in the `X-Goog-Api-Key` header, never the URL.
+- The production build adds a CSP meta tag (`script-src 'self'`, no inline script) — see `vite.config.ts`. It deliberately doesn't set `connect-src`; the Even app enforces the `app.json` network whitelist.
+- Keep permissions to what's used (`g2-microphone`, `network`); `PRIVACY.md` must cover each.
 
 ## Commands
 `npm run dev` · `npm run simulator` · `npm run qr` · `npm run pack` · `npm test`

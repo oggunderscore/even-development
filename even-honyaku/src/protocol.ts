@@ -1,8 +1,5 @@
-// Wire protocol between the G2 app (WebView) and the Honyaku proxy server.
-// Audio travels as binary WebSocket frames (16 kHz, mono, s16le PCM); everything else is JSON.
-//
-// Messages between the app and the translation engine (src/core/engine.ts), which runs inside the app.
-// `config` (the user's own API keys) comes first; keys live only in memory.
+// Messages between the app and the translation engine (src/core/engine.ts), which runs inside the WebView.
+// Audio is passed separately as 16 kHz mono s16le PCM. `config` (the user's own API keys) comes first.
 //
 // The mic streams continuously. `start auto` = always-on listening for English AND Japanese (language is
 // detected per utterance); `start talk` = the wearer is holding the button: English only → romaji.
@@ -14,7 +11,7 @@ export type Direction = 'speak' | 'listen'
 export type StreamMode = 'auto' | 'talk'
 
 export type Provider = 'google' | 'openrouter' | 'anthropic'
-/** How always-on listening tells English from Japanese (see server/src/stt.ts). */
+/** How always-on listening tells English from Japanese (see core/stt.ts). */
 export type ListenEngine = 'dual' | 'ja' | 'multi'
 
 export interface ApiKeys {

@@ -98,7 +98,9 @@ describe('translate via Google Cloud Translation (mocked fetch)', () => {
 
     expect(t).toEqual({ id: 3, dir: 'speak', english: 'How much is this?', japanese: 'これはいくらですか？', romaji: 'kore wa ikura desu ka?' })
     const [url, init] = fetchMock.mock.calls[0]!
-    expect(url).toContain('https://translation.googleapis.com/language/translate/v2?key=g-key')
+    // the key travels in a header, never in the URL
+    expect(url).toBe('https://translation.googleapis.com/language/translate/v2')
+    expect(init.headers['X-Goog-Api-Key']).toBe('g-key')
     expect(JSON.parse(init.body)).toEqual({ q: 'How much is this?', source: 'en', target: 'ja', format: 'text' })
   })
 

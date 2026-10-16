@@ -1,6 +1,6 @@
 # Testing the prototype on real G2 glasses
 
-Prototype status: **builds, typechecks and passes unit tests; not yet run against a real mic, Deepgram, OpenRouter, the simulator or glasses.** Expect rough edges.
+Release candidate 1.0.0: **builds, typechecks and passes unit tests; checked in the simulator and a headless browser, but not yet on real glasses.** Items in section 3 are still unverified on a device.
 
 ## 1. Run it on your own machine (phone + computer on the same Wi-Fi)
 
@@ -26,8 +26,8 @@ Optional first: `npm run simulator` (needs a desktop).
 2. Whether `audioEvent.audioPcm` arrives as bytes, `number[]` or base64 on a real device (handled, but untested).
 3. Whether `ws://` to a LAN IP is allowed by the app's network permission for sideloaded dev builds.
 4. Quality + latency of the default OpenRouter model (`google/gemini-2.5-flash-lite`). Japanese quality and romaji accuracy matter most; try `OPENROUTER_MODEL=qwen/qwen3.7-flash` (cheaper) or any other OpenRouter id. `TRANSLATE_PROVIDER=anthropic` switches to Claude directly.
-5. Whether the glasses mic sends audio continuously (also during silence) — the Debug panel logs `NO AUDIO arriving` every 15s if not.
+5. Whether the glasses mic sends audio continuously (also during silence) — if not, the app shows *No audio from the mic yet* after 3 seconds of listening.
 6. Phone hold button behaviour inside the Even app WebView (pointer events).
 
 ## 4. The `even-honyaku.ehpk` package
-`npm run pack` builds the app (plus the 17 MB romaji dictionary) and packs against SDK 0.0.16 (`min_app_version` 2.2.10). No keys are baked in; `app.json` whitelists Deepgram, Google Translate, OpenRouter and Anthropic. Upload it as a private build in the dev portal, install from the Even app, then enter your keys in **SETTINGS**. Unverified on-device: that the app's network whitelist accepts `wss://api.deepgram.com` for the WebSocket (both `wss://` and `https://` origins are listed), and that a ~17 MB upload is accepted. If a direct call fails, the Debug panel (bottom of Settings) shows why.
+`npm run pack` builds the app (plus the 17 MB romaji dictionary) and packs against SDK 0.0.16 (`min_app_version` 2.2.10). No keys are baked in; `app.json` whitelists Deepgram, Google Translate, OpenRouter and Anthropic. Upload it as a private build in the dev portal, install from the Even app, then enter your keys in **SETTINGS**. Unverified on-device: that the app's network whitelist accepts `wss://api.deepgram.com` for the WebSocket (both `wss://` and `https://` origins are listed), and that a ~15 MB upload is accepted. If a direct call fails, SAVE & TEST (Settings) shows which step failed and why.

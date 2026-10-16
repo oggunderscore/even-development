@@ -1,4 +1,4 @@
-// Translation + romanisation for one utterance. Plain fetch, so it runs unchanged on the server and inside the app.
+// Translation + romanisation for one utterance (plain fetch, called straight from the WebView).
 //
 //   google      – Google Cloud Translation (no LLM). Romaji is generated locally (romaji.ts).
 //   openrouter  – any model on OpenRouter, one key, pay per token.
@@ -68,9 +68,10 @@ export async function translate(
 async function googleTranslate(key: string | undefined, text: string, source: 'en' | 'ja', target: 'en' | 'ja'): Promise<string> {
   if (!key) throw new Error('Google Translate key is not set')
 
-  const res = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(key)}`, {
+  // The key goes in a header, not the URL, so it can't end up in a logged or quoted address.
+  const res = await fetch('https://translation.googleapis.com/language/translate/v2', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key },
     body: JSON.stringify({ q: text, source, target, format: 'text' }),
   })
   if (!res.ok) throw new Error(`google translate ${res.status}: ${(await res.text()).replace(/\s+/g, ' ').slice(0, 200)}`)

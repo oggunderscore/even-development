@@ -43,7 +43,8 @@ Until it's set up the glasses show *"Please set up Honyaku in the Even Realities
 
 Each key field has a **? HOW TO GET ONE** panel with step-by-step instructions. **SAVE & TEST** checks each key with its service and runs a sample translation (✓/✗ per step). Pasted only an OpenRouter key? It's picked automatically.
 
-- Keys are stored on the device (Even bridge storage, mirrored to localStorage), shown masked, and wiped by **CLEAR KEYS**.
+- Keys are stored on the device (Even bridge storage, mirrored to localStorage), hidden behind a SHOW toggle, and removed by emptying the fields and pressing **SAVE**. The version is shown at the bottom of Settings.
+- [PRIVACY.md](PRIVACY.md) is the privacy policy for the store listing.
 - Google: restrict the key by *API* (Cloud Translation), not by website — the WebView has no fixed origin.
 
 ## Development

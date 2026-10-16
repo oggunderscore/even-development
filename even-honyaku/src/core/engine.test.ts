@@ -8,7 +8,7 @@ const reply = (content: string) => new Response(JSON.stringify({ choices: [{ mes
 
 function setup(opts: ConstructorParameters<typeof Engine>[1] = {}) {
   const out: ServerMsg[] = []
-  const engine = new Engine((m) => out.push(m), { statsMs: 3_600_000, ...opts })
+  const engine = new Engine((m) => out.push(m), opts)
   return { engine, out }
 }
 

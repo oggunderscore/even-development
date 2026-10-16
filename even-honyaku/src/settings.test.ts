@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultSettings, hasKeys, maskKey, normalizeSettings, parseSettings, setupSteps, toUserConfig, withoutKeys } from './settings'
+import { defaultSettings, hasKeys, normalizeSettings, parseSettings, setupSteps, toUserConfig } from './settings'
 
 describe('settings', () => {
   it('round-trips and ignores junk or fields from older versions', () => {
@@ -36,14 +36,4 @@ describe('settings', () => {
     expect(setupSteps({ ...defaultSettings(), deepgramKey: 'dg', googleKey: 'g' }).every((x) => x.done)).toBe(true)
   })
 
-  it('masks keys', () => {
-    expect(maskKey('')).toBe('not set')
-    expect(maskKey('abcd')).toBe('••••')
-    expect(maskKey('abcdefghijkl')).toBe('••••ijkl')
-  })
-
-  it('withoutKeys clears every key but keeps choices', () => {
-    const s = { ...defaultSettings(), provider: 'anthropic' as const, deepgramKey: 'dg', googleKey: 'g', anthropicKey: 'a' }
-    expect(withoutKeys(s)).toEqual({ ...defaultSettings(), provider: 'anthropic' })
-  })
 })

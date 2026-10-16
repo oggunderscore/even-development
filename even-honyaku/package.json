@@ -1,7 +1,7 @@
 {
   "name": "even-honyaku",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "predev": "node scripts/copy-dict.mjs",
@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "simulator": "evenhub-simulator http://localhost:5173",
     "qr": "evenhub qr --http --port 5173",
-    "pack": "npm run build && evenhub pack app.json dist -o even-honyaku.ehpk",
+    "pack": "npm run build && evenhub pack app.json dist -o even-honyaku.ehpk --sdk-ver 0.0.16",
     "test": "vitest run",
     "typecheck": "tsc"
   },
