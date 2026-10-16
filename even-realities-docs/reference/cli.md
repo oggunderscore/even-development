@@ -4,9 +4,9 @@
 
 Source: https://hub.evenrealities.com/docs/reference/cli
 
-> **Last updated:** 2026-06-11
+> **Last updated:** 2026-08-20
 
-The CLI (`v0.1.12`) handles QR sideloading, manifest scaffolding, and app packaging.
+The CLI (`v0.1.14`) handles QR sideloading, manifest scaffolding, and app packaging.
 
 ## Installation
 
@@ -95,8 +95,14 @@ evenhub pack app.json dist -o myapp.ehpk
 | `-o`, `--output <file>` | Output filename (default: `out.ehpk`) |
 | `--no-ignore` | Include hidden files (dotfiles) |
 | `-c`, `--check` | Check if the `package_id` is available on Even Hub |
+| `--sdk-ver <version>` | SDK version you built against; the CLI reads its `minAppVersion` from npm and stamps it as the `.ehpk` `min_app_version` floor. Omit to use the latest published SDK. |
+| `--enforce-manual-version` | Stamp `min_app_version` from `app.json` as-is, even below the SDK floor. Local testing only; produces a non-submittable build. |
 
-See [Packaging & Deployment](https://hub.evenrealities.com/docs/ship/packaging) for the full `app.json` schema, validation rules, and troubleshooting guide.
+`min_app_version` is derived from your SDK version at pack time (CLI `0.1.14+`) - pin it with `--sdk-ver`. See [Auto-deriving `min_app_version`](/docs/ship/packaging#auto-derivation) for the resolution rules, warnings, and offline fallback.
+
+Since `0.1.14` a failed pack exits non-zero, so a packaging step in CI fails the run instead of passing silently on a missing `.ehpk`.
+
+See [Packaging & Deployment](/docs/ship/packaging) for the full `app.json` schema, validation rules, and troubleshooting guide.
 
 ## Shell completions
 
@@ -107,4 +113,3 @@ evenhub --completion-bash   # Bash
 evenhub --completion-zsh    # Zsh
 evenhub --completion-fish   # Fish
 ```
-
