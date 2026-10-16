@@ -1,6 +1,6 @@
 # Hardware
 
-*Pair your G2 and R1, enable Developer Mode in the phone app, and clear the firewall / Wi-Fi obstacles between your laptop and the glasses.*
+*Pair your Even G2 and R1, enable Developer Mode in the phone app, and clear the firewall / Wi-Fi obstacles between your laptop and the glasses.*
 
 Source: https://hub.evenrealities.com/docs/get-started/quickstart/hardware
 
@@ -8,16 +8,15 @@ Source: https://hub.evenrealities.com/docs/get-started/quickstart/hardware
 
 You can build a lot in the simulator alone, but the rest of the docs assume your glasses are paired and on current firmware. This page gets you there - hardware setup, Developer Mode, and the firewall / Wi-Fi gotchas that QR sideloading runs into.
 
-## Set up your G2 & R1
+## Set up your Even G2 & R1
 
-If you only have the simulator for now, jump to [Your First App](https://hub.evenrealities.com/docs/get-started/quickstart/first-app) and come back once the glasses arrive.
+If you only have the simulator for now, jump to [Your First App](/docs/get-started/quickstart/first-app) and come back once the glasses arrive.
 
 ### Naming convention
 
 Throughout the docs and the phone app:
 
 - **Even G2** - the glasses.
-
 - **Even R1** - the optional input ring.
 
 Your devices appear under these names in the Bluetooth pairing list.
@@ -27,20 +26,14 @@ Your devices appear under these names in the Bluetooth pairing list.
 New glasses arrive in **shipping mode** - battery isolated so they don't drain in transit. They look dead out of the box. Wake them:
 
 1. Drop both arms into the **charging case** and close it.
-
-2. Watch the **case light**: 
-  - **White** - charged and ready.
-
-  - **Orange (≈3 s)** - seating feedback when you insert the glasses.
-
-3. Open the case. The glasses are now powered and discoverable.
+2. Watch the **case light**: **White** - charged and ready.
+3. **Orange (≈3 s)** - seating feedback when you insert the glasses.
+4. Open the case. The glasses are now powered and discoverable.
 
 ### Pairing
 
 1. Open the **Even Realities App** and sign in.
-
 2. Go to **Devices → Add device** and select **Even G2**.
-
 3. Confirm the pairing prompt. The glasses display a brief confirmation.
 
 ### Firmware update
@@ -48,9 +41,7 @@ New glasses arrive in **shipping mode** - battery isolated so they don't drain i
 The app checks for firmware right after pairing. **Take the update before doing anything else** - most early connection failures trace back to stale firmware.
 
 1. The app prompts when an update is available, or check **Devices → Firmware** manually.
-
 2. Keep the glasses in the case and the phone nearby until the flash finishes.
-
 3. Don't interrupt it.
 
 ### Pair the R1 ring (optional)
@@ -58,10 +49,9 @@ The app checks for firmware right after pairing. **Take the update before doing 
 The R1 adds a touchpad you can use without raising a hand to your temple.
 
 1. In the app, go to **Devices → Add device → Even R1**.
-
 2. Follow the same confirm-prompt flow as the glasses.
 
-The R1 gesture and event model lives in [Device APIs → Inputs](https://hub.evenrealities.com/docs/build/device-apis#inputs).
+The R1 gesture and event model lives in [Device APIs → Inputs](/docs/build/device-apis#inputs).
 
 ## Enable Developer Mode
 
@@ -69,7 +59,7 @@ There is **no toggle**. Signing in to the web hub flips your account to develope
 
 ### 1. Sign in to the web hub
 
-Log in at **[hub.evenrealities.com/login](https://hub.evenrealities.com/login)** with the same account you registered in the phone app. See [Sign in](https://hub.evenrealities.com/docs/get-started/quickstart/sign-in) for the full flow.
+Log in at **[hub.evenrealities.com/login](https://hub.evenrealities.com/login)** with the same account you registered in the phone app. See [Sign in](/docs/get-started/quickstart/sign-in) for the full flow.
 
 ### 2. Restart the Even Realities App
 
@@ -77,7 +67,7 @@ Force-quit the app - swipe it away from recents, not just background - and reope
 
 ### 3. Check the Even Hub tab
 
-A **developer section** appears in the **top-right of the Even Hub tab**. That's where the **Scan QR** button lives, alongside the rest of the dev features [Your First App](https://hub.evenrealities.com/docs/get-started/quickstart/first-app) uses.
+A **developer section** appears in the **top-right of the Even Hub tab**. That's where the **Scan QR** button lives, alongside the rest of the dev features [Your First App](/docs/get-started/quickstart/first-app) uses.
 
 ### Known issue: manual Link jump in Dev Preview
 
@@ -117,23 +107,19 @@ evenhub qr --url "http://<your-lan-ip>:5173"
 macOS silently drops the first inbound phone-to-laptop connection. Allow Node explicitly:
 
 1. **System Settings → Network → Firewall → Options…**
-
 2. Add your **node** binary and set it to **Allow incoming connections**.
-
 3. To confirm the firewall is the culprit, toggle it off, retry, then re-enable with the allow rule in place.
 
-> **TIP**
->
-> With a version manager, the `node` binary lives under `~/.fnm/...` or `~/.nvm/...`. Add **that** path - not a stale `/usr/local/bin/node`.
+TIP
+
+With a version manager, the `node` binary lives under `~/.fnm/...` or `~/.nvm/...`. Add **that** path - not a stale `/usr/local/bin/node`.
 
 #### Windows Defender
 
 Defender often blocks `node.exe` inbound **without prompting**, especially the shimmed `node.exe` from fnm/nvm-windows. Add an inbound rule on the dev port:
 
 1. **Windows Security → Firewall & network protection → Advanced settings**.
-
 2. **Inbound Rules → New Rule → Port → TCP → 5173** (or your dev port) → **Allow**.
-
 3. Apply to the **Private** profile at minimum.
 
 ### 3. Wi-Fi AP isolation
@@ -162,5 +148,4 @@ If the QR scans but the app never loads, work this list top-down.
 
 ## Next
 
-[Your First App](https://hub.evenrealities.com/docs/get-started/quickstart/first-app) - scaffold, run, and sideload via QR.
-
+[Your First App](/docs/get-started/quickstart/first-app) - scaffold, run, and sideload via QR.
