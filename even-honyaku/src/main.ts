@@ -175,6 +175,20 @@ async function haltCapture() {
   await closeMic()
 }
 
+/**
+ * Re-arm always-on capture after anything that can silently kill it: the WebView being suspended (the mic stops and
+ * the Deepgram sockets drop), a BLE hiccup, or a stream that gave up reconnecting. Keeps the user's pause choice.
+ */
+async function resumeCapture() {
+  if (!bridge || paused || !connected || phase === 'talking') return
+  turn++
+  clearTimeout(doneTimer)
+  clearTimeout(micWatchdog)
+  micOpen = false // force audioControl(true) again; the old capture may be gone
+  phase = 'idle'
+  await startAmbient()
+}
+
 /** Long press on the glasses / phone button: stop or resume always-on listening. */
 async function toggleListening() {
   if (phase === 'talking') return // don't yank the mic out from under a held button
@@ -292,9 +306,13 @@ function handleServerMessage(msg: ServerMsg) {
 // Glasses: hold (long press, SDK 0.0.14+ / Even App 2.2.9+) pauses / resumes always-on listening,
 // swipe scrolls the feed, double tap exits. Hold-to-talk-in-English lives on the phone button.
 
-let unsubscribe: () => void = () => {}
+// The event subscription is created once and never removed: the app must keep reacting to the glasses for as long
+// as it is alive, including after the user answers "No" to the exit dialog or the phone has been in the background.
 let lastScrollAt = 0
 let lastHoldAt = 0
+let lastExitAt = 0
+/** The OS told us the app is closing (or its capture is gone); recover on the next sign of life. */
+let suspended = false
 
 async function initGlasses() {
   const found = await Promise.race([
@@ -323,7 +341,8 @@ async function initGlasses() {
     if (hasKeys(settings)) ui.showView('feed')
   }
   refreshSetup()
-  unsubscribe = bridge.onEvenHubEvent(onGlassesEvent)
+  bridge.onEvenHubEvent(onGlassesEvent)
+  watchLiveness()
   syncState()
   void startAmbient() // no-op until the socket is up; onConnection(true) covers that case
 }
@@ -341,16 +360,25 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
 
   const input = classifyInput(event)
 
+  // Any sign of life after the OS closed our session (e.g. the exit dialog was answered "No") brings capture back.
+  if (suspended && input !== 'exit' && input !== 'unknown' && input !== 'long_press_release') {
+    suspended = false
+    if (input !== 'long_press') void resumeCapture()
+  }
+
   switch (input) {
     case 'double_click':
       void exit()
       break
     case 'exit':
-      void haltCapture().then(unsubscribe)
+      // The app is closing. Stop streaming, but stay subscribed in case it isn't (the user can still get back in).
+      suspended = true
+      void haltCapture()
       break
+    case 'abnormal_exit':
     case 'foreground':
-      // Capture stops when the WebView is suspended; re-arm it.
-      if (micOpen) void bridge?.audioControl(true)
+      // Capture stops when the WebView is suspended and Deepgram's sockets drop; rebuild both.
+      void resumeCapture()
       break
     case 'scroll_up':
     case 'scroll_down': {
@@ -375,10 +403,37 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
   }
 }
 
+/**
+ * Double tap → the system exit dialog (mode 1; required on the root page). Nothing is torn down here: the user may
+ * answer "No", and then listening and every gesture (including another double tap) must keep working. If they
+ * answer "Yes" the OS closes us and a SYSTEM_EXIT event stops the capture.
+ */
 async function exit() {
-  await haltCapture()
-  unsubscribe()
-  await bridge?.shutDownPageContainer(1) // mode 1 = system exit dialog (required on the root page)
+  const now = Date.now()
+  if (now - lastExitAt < 1000) return // one dialog per double tap, never a stuck flag
+  lastExitAt = now
+  try {
+    await bridge?.shutDownPageContainer(1)
+  } catch {
+    /* the next double tap simply tries again */
+  }
+}
+
+/**
+ * Timers are throttled or frozen while the phone is locked / the Even app is backgrounded, and the OS tells us only
+ * sometimes. A wall-clock gap between ticks (or the page becoming visible again) means we were frozen: re-arm.
+ */
+function watchLiveness() {
+  let last = Date.now()
+  setInterval(() => {
+    const now = Date.now()
+    const frozen = now - last > 20_000
+    last = now
+    if (frozen) void resumeCapture()
+  }, 5000)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void resumeCapture()
+  })
 }
 
 syncState()

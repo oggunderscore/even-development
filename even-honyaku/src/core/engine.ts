@@ -121,6 +121,7 @@ export class Engine {
     }
     this.mode = mode
     this.audioBytes = 0
+    this.restarts = [] // an explicit (re)start earns a fresh reconnect budget
     this.openStt()
   }
 

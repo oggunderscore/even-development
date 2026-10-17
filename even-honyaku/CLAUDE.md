@@ -12,13 +12,18 @@ G2 app for live English ⇄ Japanese conversation. Sibling project in the `even-
 
 ## Constraints that shaped the design
 - **First run:** until both a Deepgram key and one translation key are set, the glasses show a setup screen (`Display.setSetup`) and the phone opens Settings.
-- **Input** (SDK 0.0.14+ / Even App 2.2.9+ has long press, arriving as `sysEvent` types 9/10; classified in `src/input.ts`): on the glasses a **long press** pauses/resumes always-on listening (starts paused; mic closed while paused), a swipe scrolls the feed one entry (the JP/you line + its translation) at a time (`src/feed.ts`: up pushes the top entry off until the view is empty, down brings one back; new rows append at the bottom, laid out from the top of the body; rows are word-wrapped by estimated glyph width so the glasses never re-wrap and overflow), double-tap exits (`shutDownPageContainer(1)`); single taps are ignored. Hold-to-talk-in-English lives on the phone button (pointer events).
+- **Input** (SDK 0.0.14+ / Even App 2.2.9+ has long press, arriving as `sysEvent` types 9/10; classified in `src/input.ts`): on the glasses a **long press** pauses/resumes always-on listening (starts paused; mic closed while paused), a swipe scrolls the feed one entry (the JP/you line + its translation) at a time (`src/feed.ts`: up pushes the top entry off until the view is empty, down brings one back; new rows append at the bottom, laid out from the top of the body; rows are word-wrapped by estimated glyph width so the glasses never re-wrap and overflow), double-tap opens the system exit dialog (`shutDownPageContainer(1)`; nothing is torn down first, so answering "No" leaves everything working); single taps are ignored. Hold-to-talk-in-English lives on the phone button (pointer events).
 - **No Japanese glyphs on the glasses font** (unknown glyphs are silently dropped) → only ASCII romaji is rendered there; macrons are stripped/doubled in `core/lang.ts` (`arigatou`, not `arigatō`). Japanese script only appears on the phone UI.
 - **No keys in the bundle** (`.ehpk` is extractable): users enter their own in Settings. Direct mode calls Deepgram (WebSocket, `['token', key]` subprotocol) and the translation providers (all allow browser CORS; Anthropic needs `anthropic-dangerous-direct-browser-access`) straight from the WebView.
 - Mic = 16 kHz mono s16le PCM via `audioControl(true)` / `event.audioEvent.audioPcm` (may arrive as `Uint8Array`, `number[]` or base64 — see `src/pcm.ts`). No audio output on G2.
 - Capture stops when the WebView is suspended (Android) → re-armed on `FOREGROUND_ENTER_EVENT`.
 - `app.json` `network.whitelist` lists the provider origins (Deepgram, Google Translate, OpenRouter, Anthropic).
 - The kuromoji romaji dictionary (~17 MB) ships as `public/dict/*.dat.gz.bin` (copied by `scripts/copy-dict.mjs`; the `.bin` suffix stops hosts auto-decompressing `.gz`). It's only fetched for the Google provider.
+
+## Staying alive
+- The `onEvenHubEvent` subscription is made once and **never removed** (removing it before the exit dialog broke "No → double-tap again", and on SYSTEM/ABNORMAL_EXIT it killed controls for good). `SYSTEM_EXIT` only halts capture; the next gesture re-arms it.
+- Capture dies silently when the phone locks / the WebView is suspended (mic stops, Deepgram sockets drop, timers freeze). `resumeCapture()` in `main.ts` rebuilds the stream + mic on `FOREGROUND_ENTER`, `ABNORMAL_EXIT`, `visibilitychange`, and when a 5 s wall-clock tick finds a >20 s gap. It keeps the user's pause choice.
+- Glasses writes are deduped and live interim text is throttled (`display.ts`) so BLE isn't flooded.
 
 ## Release hygiene
 - `app.json` `version` is the single source: `vite.config.ts` injects it as `__APP_VERSION__` (footer of Settings); `package.json` must match (`src/release.test.ts` checks it, plus store manifest rules). Bump both for every release; released versions are immutable.

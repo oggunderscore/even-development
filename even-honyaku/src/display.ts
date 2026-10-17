@@ -20,6 +20,9 @@ const ID_HEADER = 1
 const ID_BODY = 2
 const ID_FOOTER = 3
 
+/** Live interim text changes many times a second; the glasses link is a slow BLE pipe, so don't flood it. */
+const LIVE_MIN_MS = 350
+
 const FOOTER = 'swipe: scroll   hold: pause/resume'
 const FOOTER_SETUP = 'Even app > Honyaku > Settings'
 
@@ -38,6 +41,10 @@ export class Display {
   /** First-run setup isn't finished: the lines naming what's missing (null = set up). Replaces the feed. */
   private setup: string[] | null = null
   private state: UiState = 'offline'
+  /** Last content sent per container, so unchanged text never costs a BLE write. */
+  private sent = new Map<number, string>()
+  private bodyTimer: ReturnType<typeof setTimeout> | undefined
+  private lastBodyAt = 0
 
   constructor(private readonly bridge: Bridge) {}
 
@@ -94,7 +101,9 @@ export class Display {
   /** Interim transcript while the mic is open; shown below the finished rows. */
   setLive(text: string, dir: Direction = 'speak') {
     this.feed.setLive(text ? `${dir === 'speak' ? 'you' : 'JP'}: ${text}…` : '')
-    this.renderBody()
+    const wait = LIVE_MIN_MS - (Date.now() - this.lastBodyAt)
+    if (wait <= 0 || !text) return this.renderBody() // clearing the interim line isn't throttled
+    this.bodyTimer ??= setTimeout(() => this.renderBody(), wait) // trailing edge: the latest text still lands
   }
 
   addTranslation(t: Translation) {
@@ -138,21 +147,29 @@ export class Display {
   }
 
   private renderHeader() {
-    void this.bridge.textContainerUpgrade(
-      new TextContainerUpgrade({ containerID: ID_HEADER, containerName: 'header', content: this.headerText() }),
-    )
+    this.send(ID_HEADER, 'header', this.headerText())
   }
 
   private renderFooter() {
-    void this.bridge.textContainerUpgrade(
-      new TextContainerUpgrade({ containerID: ID_FOOTER, containerName: 'footer', content: this.setup ? FOOTER_SETUP : FOOTER }),
-    )
+    this.send(ID_FOOTER, 'footer', this.setup ? FOOTER_SETUP : FOOTER)
   }
 
   private renderBody() {
-    void this.bridge.textContainerUpgrade(
-      new TextContainerUpgrade({ containerID: ID_BODY, containerName: 'body', content: this.bodyText() }),
-    )
+    clearTimeout(this.bodyTimer)
+    this.bodyTimer = undefined
+    this.lastBodyAt = Date.now()
+    this.send(ID_BODY, 'body', this.bodyText())
+  }
+
+  private send(containerID: number, containerName: string, content: string) {
+    if (this.sent.get(containerID) === content) return
+    this.sent.set(containerID, content)
+    this.bridge
+      .textContainerUpgrade(new TextContainerUpgrade({ containerID, containerName, content }))
+      .then((ok) => {
+        if (!ok && this.sent.get(containerID) === content) this.sent.delete(containerID) // failed: allow a retry
+      })
+      .catch(() => this.sent.delete(containerID))
   }
 }
 

@@ -1,7 +1,7 @@
 {
   "name": "even-honyaku",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "scripts": {
     "predev": "node scripts/copy-dict.mjs",

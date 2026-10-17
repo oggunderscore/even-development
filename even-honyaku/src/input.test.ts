@@ -28,7 +28,7 @@ describe('classifyInput', () => {
   it('lifecycle and exit', () => {
     expect(classifyInput(ev({ sysEvent: { eventType: T.FOREGROUND_ENTER_EVENT } }))).toBe('foreground')
     expect(classifyInput(ev({ sysEvent: { eventType: T.SYSTEM_EXIT_EVENT } }))).toBe('exit')
-    expect(classifyInput(ev({ sysEvent: { eventType: T.ABNORMAL_EXIT_EVENT } }))).toBe('exit')
+    expect(classifyInput(ev({ sysEvent: { eventType: T.ABNORMAL_EXIT_EVENT } }))).toBe('abnormal_exit')
   })
   it('IMU and empty events are not taps', () => {
     expect(classifyInput(ev({ sysEvent: { eventType: T.IMU_DATA_REPORT } }))).toBe('unknown')

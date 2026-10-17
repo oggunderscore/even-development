@@ -18,6 +18,7 @@ export type GlassesInput =
   | 'long_press_release'
   | 'foreground'
   | 'exit'
+  | 'abnormal_exit'
   | 'unknown'
 
 function fromType(type: OsEventTypeList | undefined): GlassesInput {
@@ -37,8 +38,9 @@ function fromType(type: OsEventTypeList | undefined): GlassesInput {
     case OsEventTypeList.FOREGROUND_ENTER_EVENT:
       return 'foreground'
     case OsEventTypeList.SYSTEM_EXIT_EVENT:
-    case OsEventTypeList.ABNORMAL_EXIT_EVENT:
       return 'exit'
+    case OsEventTypeList.ABNORMAL_EXIT_EVENT:
+      return 'abnormal_exit'
     default:
       return 'unknown' // FOREGROUND_EXIT, IMU_DATA_REPORT, …
   }
