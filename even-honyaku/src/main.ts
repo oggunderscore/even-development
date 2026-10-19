@@ -4,6 +4,7 @@ import { analyze } from './core/voice'
 import { Segmenter } from './core/vad'
 import { Display, type UiState } from './display'
 import { Enrollment, REASON_TEXT } from './enroll'
+import { exitImmediately } from './exit'
 import { classifyInput, listClick } from './input'
 import { type MenuScreen, type MenuState, menuItems, menuPick, resolvePick } from './menu'
 import { toBytes } from './pcm'
@@ -498,7 +499,7 @@ async function deleteVoice() {
 // commonly bind it to their own action. Hold-to-talk-in-English lives on the phone button.
 
 // The event subscription is created once and never removed: the app must keep reacting to the glasses for as long
-// as it is alive, including after the user answers "No" to the exit dialog or the phone has been in the background.
+// as it is alive, including after the OS raised an exit dialog that was answered "No" or the phone has been in the background.
 let lastScrollAt = 0
 let lastMenuAt = 0
 /** A single tap waits this long for a possible second tap, so a double tap (the menu) never also toggles listening. */
@@ -612,7 +613,7 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
 
   const input = classifyInput(event)
 
-  // Any sign of life after the OS closed our session (e.g. the exit dialog was answered "No") brings capture back.
+  // Any sign of life after the OS closed our session (e.g. an OS exit dialog answered "No") brings capture back.
   const wasSuspended = suspended
   if (suspended && input !== 'exit' && input !== 'unknown' && input !== 'long_press_release') {
     suspended = false
@@ -639,7 +640,7 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
 
   switch (input) {
     case 'double_click': {
-      // Open the menu. (The system exit dialog is behind its Exit item; the first double tap never quits.)
+      // Open the menu. (Exit is a menu item; the double tap itself never quits.)
       clearTimeout(tapTimer) // the first tap of this double tap must not also toggle listening
       const now = Date.now()
       if (now - lastMenuAt > 600) {
@@ -669,7 +670,7 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
     }
     case 'click':
       // Pause / resume listening. Wait briefly in case this is the first half of a double tap. (A tap that merely woke
-      // the app after the exit dialog was answered "No" has already re-armed capture; it should not also pause it.)
+      // the app after an OS exit dialog was answered "No" has already re-armed capture; it should not also pause it.)
       if (wasSuspended) break
       clearTimeout(tapTimer)
       tapTimer = setTimeout(() => void toggleListening(), SINGLE_TAP_MS)
@@ -680,19 +681,15 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
 }
 
 /**
- * The menu's Exit item → the system exit dialog (mode 1; required on the root page). Nothing is torn down here: the
- * user may answer "No", and then listening and every gesture must keep working. If they answer "Yes" the OS closes us
- * and a SYSTEM_EXIT event stops the capture.
+ * The menu's Exit item: leave right away, no confirmation (see exit.ts). Capture is stopped first. If the glasses
+ * refuse the request the app simply carries on listening.
  */
 async function exit() {
   const now = Date.now()
-  if (now - lastExitAt < 1000) return // one dialog per tap, never a stuck flag
+  if (now - lastExitAt < 1000) return // one exit per tap
   lastExitAt = now
-  try {
-    await bridge?.shutDownPageContainer(1)
-  } catch {
-    /* the next tap simply tries again */
-  }
+  clearTimeout(menuTimer)
+  await exitImmediately(bridge, haltCapture, resumeCapture)
 }
 
 /**

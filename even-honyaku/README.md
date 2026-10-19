@@ -24,7 +24,7 @@ Listening is **off when the app starts** — turn it on when you want it.
 | Phone | Pause / Resume listening button | same as the menu item |
 | Phone | **Hold** big button | talk English while held, translate on release (works while paused) |
 
-**Hold (long press) is left alone** — many people bind it to a function of their own in the Even app, and the OS reserves tap-then-long-press for its own menu. Nothing in Honyaku uses it. **Exit** in the menu opens the system exit dialog (answer *No* and everything keeps working).
+**Hold (long press) is left alone** — many people bind it to a function of their own in the Even app, and the OS reserves tap-then-long-press for its own menu. Nothing in Honyaku uses it. **Exit** in the menu closes Honyaku immediately, with no confirmation step (it stops listening first).
 
 The menu's **Settings** screen changes Mode (Standard / Predictive replies), reply style (Polite / Casual), how many options are shown, *Ignore my own voice*, and *Kana on glasses*. The glasses redraw the list after each change (a list can't be edited in place), so the highlight returns to the top.
 
