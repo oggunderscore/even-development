@@ -89,8 +89,9 @@ evenhub pack app.json dist -o app.ehpk --sdk-ver <exact SDK version> -c
 - `-c` checks the `package_id` is free and **needs a logged-in CLI** (`evenhub login`; without it: "Not authenticated"), so run it from your own machine. `--enforce-manual-version` makes a **non-submittable** local build.
 - Dotfiles are excluded by default. The built `entrypoint` must exist in the folder.
 - **Size: the FAQ says the practical cap is about 10 MB**: larger packages still upload but install worse. Check
-  `ls -l app.ehpk` every release. (private project is 15.6 MB because of the 17 MB kuromoji romaji dictionary, used only by the
-  Google provider; see its audit.)
+  `ls -l app.ehpk` every release, and keep `public/` small [auto]. **Pattern for big optional assets:** don't bundle them,
+  download them on demand (whitelist the origin, pin an immutable URL such as a versioned npm file on jsDelivr, verify
+  size + SHA-256, store in IndexedDB, show progress and a retry, never start the download mid-task). private project does this for its 17.8 MB kuromoji romaji dictionary (Google provider only). Data only, never code, and the CDN domain must be in the whitelist **and** the privacy policy.
 - **Pin the SDK exactly** in `package.json` (`"0.0.16"`, not `^`, `~` or `latest`) for shipped apps [auto]. Read the changelog
   for every `0.0.x` release before upgrading: patch releases add public surface. Run the simulator, then QR, then a beta
   build after any SDK bump.
