@@ -8,14 +8,14 @@ This folder (`Desktop/Even/`) is a platform workspace for building apps on the *
 
 ## First stop: local docs mirror
 
-**[`even-realities-docs/`](even-realities-docs/README.md)** is a full local markdown mirror of the official Even Hub developer docs (hub.evenrealities.com/docs), fetched 2026-06-15. Read it for anything platform-related — SDK APIs, display/container limits, manifest schema, CLI, simulator, packaging, submission/QA rules, networking/CORS, background lifecycle, etc. Don't guess at platform constraints; check there first since the answers are specific and often counter-intuitive (e.g. no CSS/DOM, fixed container limits, network whitelist ≠ CORS bypass).
+**[`even-realities-docs/`](even-realities-docs/README.md)** is a full local markdown mirror of the official Even Hub developer docs (hub.evenrealities.com/docs), re-synced 2026-10-16 (`resync.py`). Read it for anything platform-related — SDK APIs, display/container limits, manifest schema, CLI, simulator, packaging, submission/QA rules, networking/CORS, background lifecycle, etc. Don't guess at platform constraints; check there first since the answers are specific and often counter-intuitive (e.g. no CSS/DOM, fixed container limits, network whitelist ≠ CORS bypass).
 
 Quick facts (full detail in the docs mirror):
 
 - **Display:** 576x288 px per eye, 4-bit greyscale (16 levels of green), monochrome. No camera, no speaker.
 - **UI model:** absolute-pixel **containers** (text/list/image) — no HTML/CSS/DOM on the glasses themselves. Max 4 image + 8 other containers per page; exactly **one** container has `isEventCapture: 1`.
 - **Bridge:** `@evenrealities/even_hub_sdk` exposes `EvenAppBridge` inside a WebView hosted by the Even Realities phone app. `waitForEvenAppBridge()` must be awaited before any other call.
-- **Current platform versions:** `edition: "202601"`, `min_app_version: "2.0.0"`, `min_sdk_version: "0.0.10"`. CLI `@evenrealities/evenhub-cli` v0.1.12, simulator `@evenrealities/evenhub-simulator` v0.7.2.
+- **Current platform versions (2026-10-16):** `edition: "202601"`, SDK `@evenrealities/even_hub_sdk` 0.0.16 (Even App floor 2.2.10; long press needs SDK 0.0.14+ / App 2.2.9+), CLI `@evenrealities/evenhub-cli` 0.1.14, simulator `@evenrealities/evenhub-simulator` 0.9.5. Individual projects pin their own versions.
 - **Root-page exit:** double-tap must call `bridge.shutDownPageContainer(1)` (system exit dialog). Mode `0` or a custom exit UI on the root page is auto-rejected in QA review.
 - **Testing ladder:** Simulator (no hardware) → Local Testing (QR sideload + HMR) → Private Testing (real `.ehpk` on your glasses) → Beta Testing (reviewer-parity, required before submission — 5-minute locked-phone test).
 - **Packaging:** `evenhub pack app.json dist -o myapp.ehpk`. Once a version is Released it's immutable — fix-forward only.
@@ -28,6 +28,7 @@ Quick facts (full detail in the docs mirror):
 - **`even-pilot/`** — Driving HUD: speed, speed limit, compass direction, location via GPS + Overpass + Nominatim.
 - **`even-terminal/`** — SSH/terminal/voice app.
 - **`even-notifications/`** — Phone notification bridge to G2 via APPS Bridge.
+- **`private-project/`** — Live English ⇄ Japanese translation (翻訳). Speak English → romaji on the glasses to read aloud; Japanese speech → English on the glasses. Phone hold-to-talk button; no server — the engine runs in the WebView with the user's own Deepgram + translation keys. See its own `CLAUDE.md`.
 - **`even-flipper/`** (git submodule → cola-collabs/even-flipper) — "Flipper-Zero-on-G2-Glasses": Bluetooth bridge that mirrors a Flipper Zero's screen onto G2 glasses with temple-touch gesture control. Has `flipper-bridge/` (BLE relay), `linux-bridge/`, and `g2-starter/` (the actual G2 webapp/plugin, built with Vite + the SDK). Check its README for current validation status.
 
 ### Shared Libraries
@@ -60,7 +61,7 @@ The **`everything-evenhub` Claude Code plugin** is installed in this environment
 | Display             | 576 × 288 px, 4-bit greyscale (16 green shades) |
 | Text lines          | 10 maximum                                      |
 | Containers per page | 4 image + 8 other (12 total)                    |
-| Input               | Temple touchpad + optional R1 ring              |
+| Input               | Temple touchpad + optional R1 ring (tap, double tap, swipe, long press) |
 | Connectivity        | BLE 5.2 to iPhone                               |
 | Image tile max      | 288 × 144 px                                    |
 

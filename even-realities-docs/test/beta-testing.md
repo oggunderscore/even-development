@@ -4,13 +4,13 @@
 
 Source: https://hub.evenrealities.com/docs/test/beta-testing
 
-> **Last updated:** 2026-06-04
+> **Last updated:** 2026-09-18
 
 Beta Testing is the only mode that behaves **identically to a Released app on a real user's phone**. You pack the `.ehpk` exactly as you would for submission, push it to a **Beta group** containing yourself (and optionally teammates), and install it from the phone app's **Beta tester** section. The OS, the lifecycle, the lock-screen behavior, the system exit dialog - all of it matches what an end user (and a QA reviewer) sees.
 
 If you're heading into review, this is the gate. Skip it and you'll fail.
 
-> See [Test](https://hub.evenrealities.com/docs/test/) for how Beta Testing compares to the simulator, local sideload, and private builds.
+> See [Test](/docs/test/) for how Beta Testing compares to the simulator, local sideload, and private builds.
 
 ## The flow
 
@@ -23,22 +23,57 @@ evenhub pack app.json dist -o myapp.ehpk
 Then in the dev portal:
 
 1. Open **hub.evenrealities.com/login**, go to your project.
-
-2. **Beta groups** tab - create a group (e.g., `self-test`) and add your own account email. Add teammates' emails if you want them to test the same build.
-
+2. **Beta groups** tab - create a group (e.g., `self-test`) and add your own account email. Add teammates' emails if you want them to test the same build. For more than a handful of testers, use **Import CSV** instead of typing each address - see [Moving a tester list in and out](#moving-a-tester-list-in-and-out).
 3. **Builds** tab - upload `myapp.ehpk`.
-
 4. Push the build to your `self-test` group.
 
 On your phone (and any teammate's phone):
 
 1. Open the Even Realities App.
-
 2. **Me → Beta tester** lists the build.
-
 3. Tap **Install**.
 
 From here on, the build behaves exactly as if it were Released. Launch from glasses home, full OS lifecycle, real backgrounding.
+
+## Moving a tester list in and out
+
+The **Beta groups** tab has **Import CSV** and **Export CSV** next to **Add user**. Use them to reuse the same cohort (internal QA, an event list, a partner team) across apps instead of retyping addresses.
+
+### File format
+
+One column, UTF-8, row 1 is the literal header `email`, then one address per row:
+
+```csv
+email
+qa.lead@example.com
+tester.one@example.com
+tester.two@example.com
+```
+
+- A file whose first row is anything other than `email` is refused before anything is sent.
+- At most **500** addresses per file. Split larger lists.
+- Export writes exactly this shape, so an exported file imports straight into another app.
+
+### Import
+
+Pick a file and the portal shows a breakdown before anything is committed:
+
+| Line | Meaning |
+| --- | --- |
+| To invite | New addresses, plus testers whose invitation was rejected or expired |
+| Skipped | Duplicated inside the file, or already **Invited** / **Active** in this group |
+| Rejected rows | Rows that are not valid email addresses, listed (up to 50) so you can fix the file |
+
+Confirm and every remaining address is invited in one request. **Already invited and already active testers are never re-sent**, so re-importing an exported file is safe: it invites nobody and disturbs nobody.
+
+Two things can stop an import:
+
+- **Rejected rows** - you may still commit the valid rows, or cancel and fix the file first.
+- **A tester who has hit the ten-invitation limit** - the server refuses the whole batch and names the address. Nothing is imported. Remove that address from the file and import again.
+
+### Export
+
+**Export CSV** downloads every tester in the group - not just the rows currently on screen - sorted alphabetically, with no status column. The file is named `{date}_{app}_beta.csv`, e.g. `2026-09-18_com.example.myapp_beta.csv`.
 
 ## What only Beta Testing validates
 
@@ -59,9 +94,7 @@ What does your app do when the user denies a permission? Beta Testing is where y
 ## What still requires care
 
 - **Console logs are visible** in the phone app's Developer Mode console. Handy for debugging, but **don't log secrets** - that install path is reviewer-visible too.
-
 - **Crashes don't auto-report** in beta yet. If your app vanishes, the console buffer is your only signal - check it immediately.
-
 - **Beta install is a real install.** `localStorage`, IndexedDB, everything persists exactly as it would for an end user. Reset between test rounds when you need a clean state.
 
 ## The pre-submission checklist
@@ -76,14 +109,14 @@ Walk through each of these on the beta build before promoting to Submitted:
 | 4 | **Re-launch a first-party app (Conversate, Navigate) after exit** | Launches cleanly without restarting glasses. |
 | 5 | **No console errors at boot** | Console buffer is clean immediately after launch. |
 
-The full reviewer rubric: [App Submission & QA Guidelines](https://hub.evenrealities.com/docs/ship/app-submission).
+The full reviewer rubric: [App Submission & QA Guidelines](/docs/ship/app-submission).
 
 ## Common failure modes
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | Beta tester section doesn't list the build | Account not in the group, or build not pushed to group | Re-check the portal: group membership + build assignment |
-| Install succeeds, app vanishes on lock | Backgrounding kills the WebView, no resume handler | [Background & Lifecycle](https://hub.evenrealities.com/docs/build/background-lifecycle) - persist eagerly to `localStorage` and rebuild on relaunch |
+| Install succeeds, app vanishes on lock | Backgrounding kills the WebView, no resume handler | [Background & Lifecycle](/docs/build/background-lifecycle) - persist eagerly to `localStorage` and rebuild on relaunch |
 | Double-tap exits silently | `shutDownPageContainer(0)` or no exit handler | Use `shutDownPageContainer(1)` on the root page |
 | Permission prompt copy is wrong | Edit `app.json` permission `desc`, repack, re-upload | Old beta still has old copy until reinstalled |
 | Build updates don't propagate | Higher `min_sdk_version` than tester's firmware | Tester needs firmware update first, or you need to lower `min_sdk_version` |
@@ -92,13 +125,10 @@ The full reviewer rubric: [App Submission & QA Guidelines](https://hub.evenreali
 
 The `.ehpk` that passed every box above is the one you submit. Move the build from **Test** to **Submitted** in the portal. The reviewer installs from your beta build's lineage - if your beta passes the 5-minute test, the reviewer almost certainly will too.
 
-→ Next: [App Submission & QA Guidelines](https://hub.evenrealities.com/docs/ship/app-submission)
+→ Next: [App Submission & QA Guidelines](/docs/ship/app-submission)
 
 ## Related
 
-- [Packaging & Deployment](https://hub.evenrealities.com/docs/ship/packaging) - the build path
-
-- [App Submission & QA Guidelines](https://hub.evenrealities.com/docs/ship/app-submission) - the reviewer rubric
-
-- [Background & Lifecycle](https://hub.evenrealities.com/docs/build/background-lifecycle) - what survives the 5-minute lock
-
+- [Packaging & Deployment](/docs/ship/packaging) - the build path
+- [App Submission & QA Guidelines](/docs/ship/app-submission) - the reviewer rubric
+- [Background & Lifecycle](/docs/build/background-lifecycle) - what survives the 5-minute lock
