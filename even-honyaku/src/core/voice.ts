@@ -68,7 +68,6 @@ export const emptyProfile = (): VoiceProfile => ({ v: 1, updated: 0, en: { seed:
 const MAX_ADAPT = 16
 /** A voiceprint is trusted only with at least this many recorded samples in EACH language: the Japanese is what must be caught. */
 export const MIN_PER_LANG = 2
-export const MIN_SEEDS = 2 * MIN_PER_LANG
 
 export const seedCount = (p: VoiceProfile) => p.en.seed.length + p.ja.seed.length
 export const profileReady = (p: VoiceProfile | null | undefined): p is VoiceProfile =>

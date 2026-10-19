@@ -236,6 +236,28 @@ describe('Engine: robustness', () => {
     t.engine.close()
   })
 
+  it('two replies actually read aloud are two history entries; a tap followed by a different pick is one', async () => {
+    const fetchMock = llm()
+    vi.stubGlobal('fetch', fetchMock)
+    const t = setup()
+    t.h().onFinal(QUESTION, 'listen', { start: 0, end: 2 })
+    await vi.waitFor(() => expect(t.types()).toContain('predictions'))
+    // a tap, then a different tap: one intended reply (the last)
+    t.engine.handle({ type: 'chose', option: OPTIONS.options[0]! })
+    t.engine.handle({ type: 'chose', option: OPTIONS.options[1]! })
+    // then the wearer really reads it, and afterwards really reads another thing
+    t.h().onFinal('アイスでお願いします', 'listen', { start: 5, end: 7 })
+    await vi.waitFor(() => expect(t.of('self')).toHaveLength(1))
+    t.h().onFinal('ホットでお願いします', 'listen', { start: 8, end: 10 })
+    await vi.waitFor(() => expect(t.of('self')).toHaveLength(2))
+    t.h().onFinal('ミルクは入れますか。', 'listen', { start: 12, end: 14 })
+    await vi.waitFor(() => expect(t.of('predictions')).toHaveLength(2))
+    const last = fetchMock.mock.calls.map((c) => JSON.parse(String(c[1].body))).filter((b) => b.messages[0].content.includes('reply assistant')).at(-1)
+    const said = [...last.messages[1].content.matchAll(/wearer said: ([^\n]+)/g)].map((m) => m[1])
+    expect(said).toEqual(['Iced, please', 'Hot, please'])
+    t.engine.close()
+  })
+
   it('a continuation phrase makes the in-flight prediction obsolete: only the answer to the whole turn arrives', async () => {
     let n = 0
     const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {

@@ -471,11 +471,15 @@ async function finishEnroll() {
   await stopLab()
 }
 
+let labStopping = false
+
 async function stopLab() {
   const current = lab
-  if (!current) return
-  lab = null // first, so a segment closed by the flush below can't re-enter enrollment or stop twice
-  current.seg.flush()
+  if (!current || labStopping) return
+  labStopping = true // a segment closed by the flush below may finish enrollment, which calls stopLab again
+  current.seg.flush() // an utterance still in progress is analysed, not thrown away
+  lab = null
+  labStopping = false
   ui.setLabState('idle')
   await closeMic()
   if (current.resume) await toggleListening()

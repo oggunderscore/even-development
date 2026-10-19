@@ -31,6 +31,10 @@ describe('similarity', () => {
     expect(similarity('ありがとうございます', thanks.ja)).toBe(1)
     expect(similarity('ありがとうございますね', thanks.ja)).toBeGreaterThan(0.85) // a small extra word still matches
   })
+  it('reading only part of a suggestion still matches, and a merged longer transcript does not', () => {
+    expect(similarity('お願いします', yes.ja)).toBeGreaterThanOrEqual(0.72)
+    expect(similarity('hai onegaishimasu to omoimasu kedo mou sukoshi kangaetemo ii desu ka', yes.romaji)).toBeLessThan(0.72)
+  })
   it('very short text only matches exactly', () => {
     expect(similarity('はい', 'hai')).toBe(1)
     expect(similarity('はい', 'iie')).toBe(0)

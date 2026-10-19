@@ -187,12 +187,39 @@ describe('PredictiveView conversation flow', () => {
     expect(v.rows().join(' ')).toMatch(/Hot, please/)
   })
 
-  it('an unsure phrase joins the turn without stealing the prediction target', () => {
+  it('an unsure phrase joins the turn without stealing the prediction target or the spinner', () => {
     const v = view()
     v.heard(q(1, 'Hot or iced?'), true)
     v.heard(q(2, 'uh huh', { unsure: true }), false)
+    expect(v.rows()).toEqual(['JP: Hot or iced? uh huh', '', 'thinking...']) // still waiting for the suggestions
     v.predictions(1, choice)
     expect(v.rows().join(' ')).toMatch(/Hot, please/)
+    expect(v.rows()[0]).not.toMatch(/\(\?\)/) // the turn isn't marked unsure because of the later phrase
+  })
+
+  it('suggestions that arrive before their translation are held, or attached if the translation never comes', () => {
+    const a = view()
+    a.predictions(5, choice) // nothing on screen yet
+    a.heard(q(5, 'Hot or iced?'), true)
+    expect(a.rows().join(' ')).toMatch(/Hot, please/)
+
+    const b = view()
+    b.heard(q(4, 'Hello.'), true)
+    b.predictions(5, choice) // the translation of phrase 5 failed or is slow: still the open turn's answer
+    expect(b.rows().join(' ')).toMatch(/Hot, please/)
+
+    const c = view()
+    c.heard(q(7, 'Hot or iced?'), true)
+    c.predictions(5, choice) // older than anything shown: stale
+    expect(c.rows().join(' ')).not.toMatch(/Hot, please/)
+  })
+
+  it('reading an option that belongs to another turn still closes this one (no stuck spinner)', () => {
+    const v = view()
+    v.heard(q(1, 'Hot or iced?'), true)
+    expect(v.said(0, 99)).toBe(false)
+    v.selfSpoke()
+    expect(v.rows().join(' ')).not.toMatch(/thinking/)
   })
 
   it('a prediction for a turn that has been answered or replaced is ignored', () => {

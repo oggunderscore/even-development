@@ -26,6 +26,8 @@ interface Turn {
   lastId: number
   /** When the last phrase arrived (ms), to tell a continuation from a fresh turn. */
   at: number
+  /** At least one phrase of this turn was attributed to the other person with confidence. */
+  confident: boolean
   unsure: boolean
   live: string
   thinking: boolean
@@ -37,7 +39,7 @@ interface Turn {
   error: string | null
 }
 
-const newTurn = (): Turn => ({ lines: [], lastId: -1, at: 0, unsure: false, live: '', thinking: false, prediction: null, said: null, free: null, error: null })
+const newTurn = (): Turn => ({ lines: [], lastId: -1, at: 0, confident: false, unsure: false, live: '', thinking: false, prediction: null, said: null, free: null, error: null })
 
 export interface PredictiveOptions {
   /** Draw kana/kanji too (the user turned it on; the font support is unverified, so off by default). */
@@ -59,6 +61,8 @@ export class PredictiveView {
   private viewing: number | null = null
   private cursor = 0
   private focused = false
+  /** Suggestions that arrived before the translation they answer (a slow or failed translation). */
+  private early: { turnId: number; prediction: Prediction } | null = null
 
   constructor(private opts: PredictiveOptions = { kana: false }) {}
 
@@ -131,19 +135,44 @@ export class PredictiveView {
     t.at = now
     t.lines.push({ english: tr.heardEnglish ? tr.english : tr.english || tr.romaji, japanese: tr.japanese, romaji: tr.romaji })
     t.lines = t.lines.slice(-3)
-    // A phrase we're unsure about is shown but never asked about, so predictions keep matching the phrase that was.
-    if (!tr.unsure || t.lastId < 0) t.lastId = tr.id
-    t.unsure = tr.unsure === true
-    t.thinking = predictionExpected && !tr.unsure
+    // A phrase we're unsure about is shown but never asked about, so it must not disturb a turn that is already
+    // waiting for (or showing) suggestions to a confident phrase.
+    if (!tr.unsure) {
+      t.confident = true
+      t.unsure = false
+      t.lastId = tr.id
+      t.thinking = predictionExpected
+    } else if (!t.confident) {
+      t.unsure = true
+      t.lastId = tr.id
+      t.thinking = false
+    }
     t.error = null
     this.viewing = null
     this.focused = false
+    if (this.early && this.early.turnId <= tr.id) {
+      const e = this.early
+      this.early = null
+      if (e.turnId === tr.id) this.predictions(e.turnId, e.prediction)
+    }
   }
 
   /** Suggested replies arrived. Ignored if the other person has already moved on to another turn. */
   predictions(turnId: number, prediction: Prediction) {
-    const t = this.turns.find((x) => x.lastId === turnId)
-    if (!t || t.said !== null || t.free !== null) return
+    const live = this.live
+    let t = this.turns.find((x) => x.lastId === turnId)
+    if (!t) {
+      // Newer than anything shown: the translation it answers hasn't arrived (or failed). Attach to the open turn, or
+      // hold it for the translation. Older than the live turn means it's stale and is dropped.
+      if (live && live.said === null && live.free === null && !live.prediction && turnId > live.lastId && live.lines.length) {
+        live.lastId = turnId
+        t = live
+      } else {
+        if (!live || live.said !== null || live.free !== null) this.early = { turnId, prediction }
+        return
+      }
+    }
+    if (t.said !== null || t.free !== null) return
     t.prediction = prediction
     t.thinking = false
     if (t === this.live) {
@@ -161,13 +190,14 @@ export class PredictiveView {
   }
 
   /** The wearer read one of the options aloud (or picked it): mark it and let the turn rest. `turnId` says whose options. */
-  said(index: number, turnId?: number) {
+  said(index: number, turnId?: number): boolean {
     const t = this.live
-    if (!t?.prediction || index < 0 || index >= t.prediction.options.length) return
-    if (turnId !== undefined && t.lastId !== turnId) return // that was an answer to an earlier question
+    if (!t?.prediction || index < 0 || index >= t.prediction.options.length) return false
+    if (turnId !== undefined && t.lastId !== turnId) return false // that was an answer to an earlier question
     t.said = index
     t.thinking = false
     this.cursor = index
+    return true
   }
 
   /** The wearer said something else in Japanese that the voice filter dropped: the turn is theirs now. */

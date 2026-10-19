@@ -27,16 +27,18 @@ const bigrams = (s: string) => {
   return m
 }
 
-/** 0..1 — Dice coefficient over letter pairs, plus a floor when one text contains the other. */
+/** 0..1 — Dice coefficient over letter pairs, plus a floor when one text contains the other. `a` is what was heard, `b` the suggestion. */
 export function similarity(a: string, b: string): number {
   const x = loose(a)
   const y = loose(b)
   if (x.length < 3 || y.length < 3) return x.length >= 2 && x === y ? 1 : 0
   if (x === y) return 1
   const [short, long] = x.length <= y.length ? [x, y] : [y, x]
-  // One text inside the other counts only when they are about the same size: a long sentence that merely contains the
-  // suggested phrase is somebody saying more than the suggestion, not the wearer reading it.
-  const contained = short.length >= 5 && long.includes(short) && short.length >= long.length * 0.65 ? 0.85 : 0
+  // One text inside the other, but sized sensibly: reading part of a suggestion is fine (the transcript may be the
+  // shorter one, down to 40%), while a long sentence that merely contains the suggested phrase is somebody saying more
+  // than the suggestion, not the wearer reading it (the suggestion must be at least 65% of the transcript).
+  const minRatio = x.length <= y.length ? 0.4 : 0.65
+  const contained = short.length >= 5 && long.includes(short) && short.length >= long.length * minRatio ? 0.85 : 0
   const bx = bigrams(x)
   const by = bigrams(y)
   let shared = 0

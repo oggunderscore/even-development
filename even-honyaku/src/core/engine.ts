@@ -44,6 +44,9 @@ const DEFAULT_TURN_GAP_MS = 900
 
 /** A voice vector needs this much clearly-voiced speech before it may teach the voiceprint. */
 const MIN_LEARN_SEC = 1.0
+/** An echo-confirmed phrase teaches the voiceprint only if the audio doesn't clearly say "someone else". */
+const LEARN_MIN_VOICE = 0.45
+const LEARN_MIN_LEVEL = 0.3
 
 export class Engine {
   private stt: Stt | null = null
@@ -68,8 +71,8 @@ export class Engine {
   private turnTimer: ReturnType<typeof setTimeout> | undefined
   private predicting: AbortController | null = null
   private warnedNoLlm = false
-  /** The wearer's latest reply as recorded in the history, so tap-then-read doesn't record it twice. */
-  private lastSaid: Translation | null = null
+  /** The wearer's latest reply as recorded in the history (and whether it was actually heard, not just tapped). */
+  private lastSaid: { entry: Translation | null; confirmed: boolean } = { entry: null, confirmed: false }
 
   constructor(
     private readonly emit: (msg: ServerMsg) => void,
@@ -97,7 +100,7 @@ export class Engine {
         if (this.requireKeys(['translate'])) this.enqueue(detectDir(msg.text), msg.text)
         break
       case 'chose':
-        this.wearerSaid(msg.option)
+        this.wearerSaid(msg.option, false)
         break
     }
   }
@@ -292,11 +295,11 @@ export class Engine {
       if (dir === 'listen' || reading) {
         // The wearer's own Japanese (usually a suggested reply being read aloud): not part of the conversation.
         this.emit({ type: 'self', text, ...(reading ? { option: reading.option, optionIndex: reading.index, turnId: reading.turnId } : {}) })
-        if (reading) this.wearerSaid(reading.option)
+        if (reading) this.wearerSaid(reading.option, true)
         else this.cancelTurn()
         // Learn only when the audio agrees it was the wearer: an echo match alone can be the other person saying the
         // same phrase, and a wrong sample would pull the voiceprint towards them.
-        if (echo && echo.score >= ECHO_CERTAIN && voice !== null && voice >= 0.6 && (level === null || level >= 0.4)) this.learn('ja', audio)
+        if (echo && echo.score >= ECHO_CERTAIN && voice !== null && voice >= LEARN_MIN_VOICE && (level === null || level >= LEARN_MIN_LEVEL)) this.learn('ja', audio)
         return
       }
       this.cancelTurn()
@@ -334,15 +337,19 @@ export class Engine {
   }
 
   /** The wearer said (or picked) one of the suggestions: it joins the conversation history and ends the other's turn. */
-  private wearerSaid(option: ReplyOption) {
-    const t: Translation = { id: this.nextId++, dir: 'speak', english: option.gloss, japanese: option.ja, romaji: option.romaji }
+  private wearerSaid(option: ReplyOption, confirmed: boolean) {
     const last = this.history.at(-1)
-    if (last && last === this.lastSaid) this.history[this.history.length - 1] = t // same reply picked then read aloud, or changed their mind
+    const prior = this.lastSaid
+    // A tap on the glasses only says what they intend to say. If it is followed by the same reply being read, or by a
+    // different pick, that is one reply, not two. Two replies actually spoken stay as two.
+    const replaceable = last !== undefined && prior.entry === last && (!prior.confirmed || last.romaji === option.romaji)
+    const t: Translation = { id: replaceable ? last.id : this.nextId++, dir: 'speak', english: option.gloss, japanese: option.ja, romaji: option.romaji }
+    if (replaceable) this.history[this.history.length - 1] = t
     else {
       this.history.push(t)
       if (this.history.length > 6) this.history.shift()
     }
-    this.lastSaid = t
+    this.lastSaid = { entry: t, confirmed: confirmed || (replaceable && prior.confirmed) }
     this.cancelTurn()
   }
 

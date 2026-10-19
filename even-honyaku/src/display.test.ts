@@ -157,6 +157,13 @@ describe('Display: predictive screen', () => {
     expect(f.lastText(2)).toContain('● 2 Iced, please')
   })
 
+  it('the wearer speaking Japanese that matches nothing still ends the wait for suggestions', async () => {
+    d.addTranslation(hear(1, 'Hot or iced?'), true)
+    d.self(0, 42) // an answer to some other turn's options
+    await flush()
+    expect(f.lastText(2)).not.toMatch(/thinking/)
+  })
+
   it('swipe moves the highlight, tap zooms and reports the option once', async () => {
     d.addTranslation(hear(1, 'Hot or iced?'), true)
     d.predictions(1, choice)
