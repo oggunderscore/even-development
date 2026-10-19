@@ -368,6 +368,19 @@ export class PhoneUi {
     $<HTMLInputElement>('set-model').value = s.openrouterModel
     this.setProvider(s.provider)
     this.renderSetup()
+    this.syncPrefs(s)
+  }
+
+  /**
+   * Show changed preferences (mode, style, …) without touching the key fields: the user may have pasted a key they
+   * haven't saved yet, and changing a preference must not wipe it.
+   */
+  setPrefs(s: Settings) {
+    this.base = { ...this.base, mode: s.mode, replyStyle: s.replyStyle, jpLevel: s.jpLevel, maxOptions: s.maxOptions, voiceFilter: s.voiceFilter, voiceStrictness: s.voiceStrictness, glassesKana: s.glassesKana }
+    this.syncPrefs(s)
+  }
+
+  private syncPrefs(s: Settings) {
     this.setSeg('seg-mode', s.mode)
     this.setSeg('seg-style', s.replyStyle)
     this.setSeg('seg-level', s.jpLevel)

@@ -131,7 +131,8 @@ export class PredictiveView {
     t.at = now
     t.lines.push({ english: tr.heardEnglish ? tr.english : tr.english || tr.romaji, japanese: tr.japanese, romaji: tr.romaji })
     t.lines = t.lines.slice(-3)
-    t.lastId = tr.id
+    // A phrase we're unsure about is shown but never asked about, so predictions keep matching the phrase that was.
+    if (!tr.unsure || t.lastId < 0) t.lastId = tr.id
     t.unsure = tr.unsure === true
     t.thinking = predictionExpected && !tr.unsure
     t.error = null
@@ -141,7 +142,7 @@ export class PredictiveView {
 
   /** Suggested replies arrived. Ignored if the other person has already moved on to another turn. */
   predictions(turnId: number, prediction: Prediction) {
-    const t = this.turns.find((x) => x.lastId === turnId) ?? (this.live && !this.live.prediction ? this.live : undefined)
+    const t = this.turns.find((x) => x.lastId === turnId)
     if (!t || t.said !== null || t.free !== null) return
     t.prediction = prediction
     t.thinking = false
@@ -159,10 +160,11 @@ export class PredictiveView {
     }
   }
 
-  /** The wearer read one of the options aloud (or picked it): mark it and let the turn rest. */
-  said(index: number) {
+  /** The wearer read one of the options aloud (or picked it): mark it and let the turn rest. `turnId` says whose options. */
+  said(index: number, turnId?: number) {
     const t = this.live
     if (!t?.prediction || index < 0 || index >= t.prediction.options.length) return
+    if (turnId !== undefined && t.lastId !== turnId) return // that was an answer to an earlier question
     t.said = index
     t.thinking = false
     this.cursor = index

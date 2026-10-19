@@ -33,12 +33,24 @@ export class VoiceTimeline {
     return this.total / SAMPLE_RATE
   }
 
-  /** Audio between two stream times (a little padding either side), or null if it has already scrolled out. */
+  /**
+   * Let time pass without keeping the audio (nothing needs it right now). The clock must keep running so that when
+   * audio is kept again, stream times still line up with Deepgram's.
+   */
+  advance(bytes: number) {
+    this.total += bytes >> 1
+    this.chunks = []
+  }
+
+  /** Audio between two stream times (a little padding either side), or null if it was never kept or has scrolled out. */
   slice(startSec: number, endSec: number, padSec = 0.08): Float32Array | null {
-    const from = Math.max(0, Math.floor((startSec - padSec) * SAMPLE_RATE))
+    const oldest = this.chunks[0]?.at
+    if (oldest === undefined) return null
+    // The speech itself must have been kept (a little slack for timestamp rounding); only the padding may be missing.
+    if (startSec * SAMPLE_RATE < oldest - SAMPLE_RATE * 0.05) return null
+    const from = Math.max(oldest, Math.floor((startSec - padSec) * SAMPLE_RATE))
     const to = Math.min(this.total, Math.ceil((endSec + padSec) * SAMPLE_RATE))
-    const oldest = this.chunks[0]?.at ?? 0
-    if (to - from < SAMPLE_RATE * 0.1 || from < oldest) return null
+    if (to - from < SAMPLE_RATE * 0.1) return null
     const out = new Float32Array(to - from)
     for (const c of this.chunks) {
       const lo = Math.max(from, c.at)
@@ -54,11 +66,13 @@ export class VoiceTimeline {
 export const emptyProfile = (): VoiceProfile => ({ v: 1, updated: 0, en: { seed: [], adapt: [] }, ja: { seed: [], adapt: [] } })
 
 const MAX_ADAPT = 16
-/** A profile needs this many recorded samples (any language mix) before the voiceprint is trusted at all. */
-export const MIN_SEEDS = 4
+/** A voiceprint is trusted only with at least this many recorded samples in EACH language: the Japanese is what must be caught. */
+export const MIN_PER_LANG = 2
+export const MIN_SEEDS = 2 * MIN_PER_LANG
 
 export const seedCount = (p: VoiceProfile) => p.en.seed.length + p.ja.seed.length
-export const profileReady = (p: VoiceProfile | null | undefined): p is VoiceProfile => !!p && seedCount(p) >= MIN_SEEDS
+export const profileReady = (p: VoiceProfile | null | undefined): p is VoiceProfile =>
+  !!p && p.en.seed.length >= MIN_PER_LANG && p.ja.seed.length >= MIN_PER_LANG
 
 const sampleOf = (f: VoiceFeatures): VoiceSample => ({ vec: f.vec.map((v) => Math.round(v * 10000) / 10000), levelDb: Math.round(f.levelDb * 100) / 100 })
 
@@ -223,7 +237,7 @@ export function analyze(profile: VoiceProfile | null, audio: Float32Array | null
 export function profileQuality(p: VoiceProfile): { label: 'good' | 'ok' | 'weak'; samples: number } {
   const samples = seedCount(p)
   const m = modelOf(p)
-  if (!m || samples < MIN_SEEDS) return { label: 'weak', samples }
+  if (!m || !profileReady(p)) return { label: 'weak', samples }
   const accepted = [p.en, p.ja].flatMap((s) => s.seed).filter((s) => voiceScore(p, { vec: s.vec, levelDb: s.levelDb, voicedSec: 1 }, 0.5) > 0.5).length
   return { label: samples >= 8 && accepted / samples >= 0.85 ? 'good' : 'ok', samples }
 }

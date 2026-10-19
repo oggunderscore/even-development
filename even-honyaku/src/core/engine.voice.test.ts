@@ -60,6 +60,8 @@ function enrolledProfile(): VoiceProfile {
   return p
 }
 
+const pred0Id = (t: { of: (type: 'predictions') => { turnId: number }[] }) => t.of('predictions')[0]!.turnId
+
 describe('Engine: predictive mode', () => {
   afterEach(() => vi.unstubAllGlobals())
 
@@ -133,6 +135,7 @@ describe('Engine: predictive mode', () => {
 
     const self = t.of('self')[0]!
     expect(self.optionIndex).toBe(1)
+    expect(self.turnId).toBe(pred0Id(t))
     expect(self.option?.gloss).toBe('Iced, please')
     expect(t.of('final')).toHaveLength(finalsBefore) // not translated
     expect(t.of('predictions')).toHaveLength(1) // and not answered
@@ -169,6 +172,90 @@ describe('Engine: predictive mode', () => {
     t.engine.handle({ type: 'config', config: { keys, provider: 'openrouter' } })
     await new Promise((r) => setTimeout(r, 100))
     expect(t.types()).not.toContain('predictions')
+    t.engine.close()
+  })
+})
+
+describe('Engine: robustness', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('a profile enrolled mid-stream still lines up with stream time (audio before it was skipped, not shifted)', async () => {
+    vi.stubGlobal('fetch', llm())
+    const t = setup() // no profile yet
+    t.speak(new Float32Array(16000 * 1.2)) // 1.2 s of silence nobody needed
+    t.engine.handle({ type: 'config', config: { keys, provider: 'openrouter', voice: { filter: true, strictness: 0.5, profile: enrolledProfile() } } })
+    const range = t.speak(synthVoice(WEARER, { seed: 97, seconds: 2.5, levelDb: -22 }))
+    expect(range.start).toBeCloseTo(1.2, 1)
+    t.h().onFinal('こんにちは、元気ですか', 'listen', range)
+    await vi.waitFor(() => expect(t.types()).toContain('self'))
+    t.engine.close()
+  })
+
+  it('a preference change right after learning keeps the newer voiceprint, and closing flushes it', async () => {
+    vi.stubGlobal('fetch', llm())
+    const out: ServerMsg[] = []
+    let handlers!: SttHandlers
+    const engine = new Engine((m) => out.push(m), { createStt: (_m, h) => ((handlers = h), { audio: vi.fn(), finish: vi.fn().mockResolvedValue(undefined), abort: vi.fn() }) })
+    const old = enrolledProfile()
+    const config = { keys, provider: 'openrouter' as const, voice: { filter: true, strictness: 0.5, profile: old } }
+    engine.handle({ type: 'config', config })
+    engine.handle({ type: 'start', mode: 'talk' })
+    const pcm = toPcm(synthVoice(WEARER, { seed: 98, seconds: 2.5 }))
+    for (let at = 0; at < pcm.length; at += 3200) engine.audio(pcm.subarray(at, at + 3200))
+    handlers.onFinal('Where is the station', 'speak', { start: 0, end: 2.5 })
+    engine.handle({ type: 'config', config }) // the app re-sends its older saved copy
+    engine.close() // before the 3 s debounce
+    const saved = out.find((m) => m.type === 'voice_profile') as { profile: VoiceProfile } | undefined
+    expect(saved?.profile.en.adapt).toHaveLength(1)
+  })
+
+  it('warns about Google + Predictive once, not on every reconfigure', () => {
+    const out: ServerMsg[] = []
+    const engine = new Engine((m) => out.push(m))
+    const config = { keys: { deepgram: 'dg-user-key-123', google: 'g-user-key-123' }, provider: 'google' as const, predict: { enabled: true, style: 'polite' as const, level: 'beginner' as const, maxOptions: 3 as const } }
+    engine.handle({ type: 'config', config })
+    engine.handle({ type: 'config', config })
+    engine.handle({ type: 'config', config })
+    expect(out.filter((m) => m.type === 'error')).toHaveLength(1)
+    engine.close()
+  })
+
+  it('zooming a reply and then reading it aloud records one wearer turn, not two', async () => {
+    const fetchMock = llm()
+    vi.stubGlobal('fetch', fetchMock)
+    const t = setup()
+    t.h().onFinal(QUESTION, 'listen', { start: 0, end: 2 })
+    await vi.waitFor(() => expect(t.types()).toContain('predictions'))
+    t.engine.handle({ type: 'chose', option: OPTIONS.options[0]! }) // tap to zoom
+    t.h().onFinal('ホットでお願いします', 'listen', { start: 5, end: 7 }) // …then reads it
+    await vi.waitFor(() => expect(t.types()).toContain('self'))
+    t.h().onFinal('ミルクは入れますか。', 'listen', { start: 9, end: 11 })
+    await vi.waitFor(() => expect(t.of('predictions')).toHaveLength(2))
+    const second = fetchMock.mock.calls.map((c) => JSON.parse(String(c[1].body))).filter((b) => b.messages[0].content.includes('reply assistant'))[1]
+    expect(second.messages[1].content.match(/wearer said: Hot, please/g)).toHaveLength(1)
+    t.engine.close()
+  })
+
+  it('a continuation phrase makes the in-flight prediction obsolete: only the answer to the whole turn arrives', async () => {
+    let n = 0
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body))
+      if (!body.messages[0].content.includes('reply assistant')) return Promise.resolve(json({ en: 'x', romaji: 'x' }))
+      const mine = ++n
+      return new Promise((resolve, reject) => {
+        init.signal!.addEventListener('abort', () => reject(new Error('aborted')))
+        setTimeout(() => resolve(json({ kind: 'single', options: [{ gloss: `Answer ${mine}`, ja: 'はい', romaji: `hai ${mine}` }] })), 150)
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const t = setup()
+    t.h().onFinal('いらっしゃいませ。', 'listen', { start: 0, end: 1 })
+    await vi.waitFor(() => expect(fetchMock.mock.calls.some((c) => JSON.parse(String(c[1].body)).messages[0].content.includes('reply assistant'))).toBe(true))
+    t.h().onFinal(QUESTION, 'listen', { start: 1.5, end: 3 }) // arrives while the first prediction is in flight
+    await vi.waitFor(() => expect(t.of('predictions')).toHaveLength(1), { timeout: 3000 })
+    await new Promise((r) => setTimeout(r, 250))
+    expect(t.of('predictions')).toHaveLength(1)
+    expect(t.of('predictions')[0]!.turnId).toBe(t.of('final').at(-1)!.id)
     t.engine.close()
   })
 })

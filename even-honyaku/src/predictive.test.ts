@@ -165,6 +165,36 @@ describe('PredictiveView conversation flow', () => {
     expect(v.rows()[0]).toBe('JP: Welcome. Hot or iced?')
   })
 
+  it('an answer to an earlier question does not mark the current turn\'s options', () => {
+    const v = view()
+    v.heard(q(1, 'Hot or iced?'), true)
+    v.predictions(1, choice)
+    v.heard(q(2, 'Milk?'), true, Date.now() + 60_000) // far later: a new turn, while turn 1 stays unanswered
+    v.predictions(2, choice)
+    v.said(1, 1) // the wearer read option 2 of the FIRST question's set
+    expect(v.rows().some((r) => r.startsWith('●'))).toBe(false)
+    v.said(1, 2)
+    expect(v.rows().find((r) => r.startsWith('●'))).toBe('● 2 Iced, please')
+  })
+
+  it('a late prediction for a turn that has since grown is dropped, not attached to the new one', () => {
+    const v = view()
+    v.heard(q(1, 'Welcome.'), true)
+    v.heard(q(2, 'Hot or iced?'), true)
+    v.predictions(1, single) // answers only the first phrase; the turn already moved on
+    expect(v.rows().join(' ')).not.toMatch(/Thank you/)
+    v.predictions(2, choice)
+    expect(v.rows().join(' ')).toMatch(/Hot, please/)
+  })
+
+  it('an unsure phrase joins the turn without stealing the prediction target', () => {
+    const v = view()
+    v.heard(q(1, 'Hot or iced?'), true)
+    v.heard(q(2, 'uh huh', { unsure: true }), false)
+    v.predictions(1, choice)
+    expect(v.rows().join(' ')).toMatch(/Hot, please/)
+  })
+
   it('a prediction for a turn that has been answered or replaced is ignored', () => {
     const v = view()
     v.heard(q(1, 'Hot or iced?'), true)

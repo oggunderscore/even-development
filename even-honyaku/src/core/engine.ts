@@ -67,6 +67,9 @@ export class Engine {
   private turn: { texts: string[]; firstId: number; lastId: number; at: number } | null = null
   private turnTimer: ReturnType<typeof setTimeout> | undefined
   private predicting: AbortController | null = null
+  private warnedNoLlm = false
+  /** The wearer's latest reply as recorded in the history, so tap-then-read doesn't record it twice. */
+  private lastSaid: Translation | null = null
 
   constructor(
     private readonly emit: (msg: ServerMsg) => void,
@@ -103,18 +106,28 @@ export class Engine {
     if (this.closed) return
     this.audioBytes += chunk.length
     if (this.stt) {
-      this.timeline?.push(chunk)
+      // Keep the audio only if something can use it (the voiceprint needs a ready profile); the clock runs either way.
+      if (this.needsAudio()) this.timeline?.push(chunk)
+      else this.timeline?.advance(chunk.length)
       this.stt.audio(chunk)
     }
   }
 
+  /** The voice filter (or learning from hold-to-talk) can use recorded audio only with an enrolled voiceprint. */
+  private needsAudio(): boolean {
+    return profileReady(this.profile) && (this.voice.filter || this.mode === 'talk')
+  }
+
   close() {
+    // A sample learned a moment ago must not be lost just because the engine is being restarted.
+    if (this.profileTimer && this.profile) this.emit({ type: 'voice_profile', profile: this.profile })
     this.closed = true
     this.mode = null
     this.stt?.abort()
     this.stt = null
     this.cancelTurn()
     clearTimeout(this.profileTimer)
+    this.profileTimer = undefined
   }
 
   // ── config / keys ──────────────────────────────────────────────────────────
@@ -133,7 +146,12 @@ export class Engine {
     this.predict = user.predict && wantsPredict && llm ? user.predict : null
     if (!this.predict) this.cancelTurn()
     this.voice = { filter: user.voice?.filter ?? true, strictness: Math.min(1, Math.max(0, user.voice?.strictness ?? 0.5)) }
-    if (user.voice && 'profile' in user.voice) this.profile = parseProfile(user.voice.profile)
+    if (user.voice && 'profile' in user.voice) {
+      // Keep whichever copy is newer: the app's saved one can lag the samples learned in the last few seconds.
+      const incoming = parseProfile(user.voice.profile)
+      if (!incoming) this.profile = null
+      else if (!this.profile || incoming.updated >= this.profile.updated) this.profile = incoming
+    }
 
     this.emit({
       type: 'config_ok',
@@ -143,8 +161,11 @@ export class Engine {
       predict: this.predict !== null,
     })
     if (wantsPredict && !llm) {
-      this.emit({ type: 'error', code: 'no_llm', message: 'Predictive mode needs an OpenRouter or Claude key; Google Translate cannot suggest replies' })
-    }
+      if (!this.warnedNoLlm) {
+        this.warnedNoLlm = true
+        this.emit({ type: 'error', code: 'no_llm', message: 'Predictive mode needs an OpenRouter or Claude key; Google Translate cannot suggest replies' })
+      }
+    } else this.warnedNoLlm = false
   }
 
   /** Tell the app which key is missing (it opens Settings) instead of failing deep inside a stream. */
@@ -270,10 +291,12 @@ export class Engine {
       const reading = echo && echo.score >= ECHO_LIKELY ? echo : null
       if (dir === 'listen' || reading) {
         // The wearer's own Japanese (usually a suggested reply being read aloud): not part of the conversation.
-        this.emit({ type: 'self', text, ...(reading ? { option: reading.option, optionIndex: reading.index } : {}) })
+        this.emit({ type: 'self', text, ...(reading ? { option: reading.option, optionIndex: reading.index, turnId: reading.turnId } : {}) })
         if (reading) this.wearerSaid(reading.option)
         else this.cancelTurn()
-        if (echo && echo.score >= ECHO_CERTAIN) this.learn('ja', audio)
+        // Learn only when the audio agrees it was the wearer: an echo match alone can be the other person saying the
+        // same phrase, and a wrong sample would pull the voiceprint towards them.
+        if (echo && echo.score >= ECHO_CERTAIN && voice !== null && voice >= 0.6 && (level === null || level >= 0.4)) this.learn('ja', audio)
         return
       }
       this.cancelTurn()
@@ -305,6 +328,7 @@ export class Engine {
     this.profile = withLearned(this.profile, lang, f)
     clearTimeout(this.profileTimer)
     this.profileTimer = setTimeout(() => {
+      this.profileTimer = undefined
       if (!this.closed && this.profile) this.emit({ type: 'voice_profile', profile: this.profile })
     }, 3000)
   }
@@ -312,8 +336,13 @@ export class Engine {
   /** The wearer said (or picked) one of the suggestions: it joins the conversation history and ends the other's turn. */
   private wearerSaid(option: ReplyOption) {
     const t: Translation = { id: this.nextId++, dir: 'speak', english: option.gloss, japanese: option.ja, romaji: option.romaji }
-    this.history.push(t)
-    if (this.history.length > 6) this.history.shift()
+    const last = this.history.at(-1)
+    if (last && last === this.lastSaid) this.history[this.history.length - 1] = t // same reply picked then read aloud, or changed their mind
+    else {
+      this.history.push(t)
+      if (this.history.length > 6) this.history.shift()
+    }
+    this.lastSaid = t
     this.cancelTurn()
   }
 
@@ -345,6 +374,8 @@ export class Engine {
     // Long after the last phrase with no answer from the wearer, this is a new question rather than a continuation.
     const prev = this.turn && now - this.turn.at <= NEW_TURN_AFTER_MS ? this.turn : null
     this.turn = { texts: [...(prev?.texts ?? []), text].slice(-3), firstId: prev?.firstId ?? id, lastId: id, at: now }
+    this.predicting?.abort() // an answer to the turn as it was a moment ago is already out of date
+    this.predicting = null
     this.scheduleTurn()
   }
 

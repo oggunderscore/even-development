@@ -57,7 +57,7 @@ When you read a suggested reply aloud, the glasses mic hears Japanese. Without a
 | L1 | **Level**: your voice is much louder at the glasses mic than someone across the table | your voice profile |
 | L2 | **Voiceprint**: pitch and spectral envelope compared with how you sound in English and in Japanese | your voice profile |
 
-They are combined into *you* / *them* / *not sure*. *Not sure* is still translated (so you never miss what they said) but no reply is predicted for it. A phrase you read from a suggestion is marked *said* and remembered as part of the conversation, so the next suggestions know what you answered.
+They are combined into *you* / *them* / *not sure*. **Without a voice profile only the echo check is available**, so if the other person happens to say exactly a phrase that was just suggested, it can be mistaken for you; recording a profile closes that gap (clearly different voice evidence outvotes the echo match). *Not sure* is still translated (so you never miss what they said) but no reply is predicted for it. A phrase you read from a suggestion is marked *said* and remembered as part of the conversation, so the next suggestions know what you answered.
 
 **Record your voice profile** (VOICE tab → RECORD MY VOICE): with the glasses on, read 8 preset sentences, 4 English and 4 Japanese (shown in kana, romaji and English). Read the Japanese the way you really say it, accent and all. It takes about a minute. Once you have a profile, holding the phone's talk button and speaking English also refines it quietly over time (nothing is learned if you never recorded one). The profile is stored **on your phone only**; delete it any time.
 

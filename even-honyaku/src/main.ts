@@ -167,7 +167,7 @@ async function updateSettings(patch: Partial<Settings>) {
     patch = { ...patch, mode: 'standard' }
   }
   settings = { ...settings, ...patch }
-  ui.setSettings(settings)
+  ui.setPrefs(settings) // not setSettings: that would overwrite key fields the user is still typing
   await saveSettings(settings, bridge)
   session.reconfigure()
   await syncGlassesPrefs()
@@ -345,7 +345,7 @@ function handleServerMessage(msg: ServerMsg) {
       ui.addPredictions(msg.prediction)
       break
     case 'self':
-      display.self(msg.optionIndex)
+      display.self(msg.optionIndex, msg.turnId)
       display.setLive('')
       ui.addSelf(msg.text, msg.option)
       break
@@ -398,15 +398,22 @@ function handleServerMessage(msg: ServerMsg) {
 // Deepgram or anywhere else). Enrollment turns a few read-aloud sentences into the wearer's voiceprint; the test shows,
 // for each thing said, exactly what the voice filter would decide — the tool for tuning it.
 
+let labStarting = false
+
 async function startLab(kind: 'enroll' | 'test') {
-  if (lab) return
+  if (lab || labStarting) return
   if (!bridge) {
     ui.addError('The glasses mic is needed for voice setup. Open Honyaku from the Even app with the glasses connected')
     return
   }
   if (phase === 'talking') return
+  labStarting = true // a second tap while we pause listening must not start a second session
   const resume = !paused
-  if (resume) await toggleListening() // pauses and closes the mic
+  try {
+    if (resume) await toggleListening() // pauses and closes the mic
+  } finally {
+    labStarting = false
+  }
   const enrollment = kind === 'enroll' ? new Enrollment() : undefined
   const seg = new Segmenter(
     (audio) => onLabSegment(audio),
@@ -451,7 +458,7 @@ async function finishEnroll() {
   if (!e) return
   const { profile, ready, quality } = e.result()
   if (!ready) {
-    ui.setLabMessage('Not enough good samples to build a voice profile. Try again in a quieter place.', 'warn')
+    ui.setLabMessage('Not enough good samples: at least 2 English and 2 Japanese sentences are needed. Try again, in a quieter place if you can.', 'warn')
     await stopLab()
     return
   }
@@ -467,8 +474,8 @@ async function finishEnroll() {
 async function stopLab() {
   const current = lab
   if (!current) return
+  lab = null // first, so a segment closed by the flush below can't re-enter enrollment or stop twice
   current.seg.flush()
-  lab = null
   ui.setLabState('idle')
   await closeMic()
   if (current.resume) await toggleListening()

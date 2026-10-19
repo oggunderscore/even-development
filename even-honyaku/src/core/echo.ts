@@ -34,7 +34,9 @@ export function similarity(a: string, b: string): number {
   if (x.length < 3 || y.length < 3) return x.length >= 2 && x === y ? 1 : 0
   if (x === y) return 1
   const [short, long] = x.length <= y.length ? [x, y] : [y, x]
-  const contained = short.length >= 5 && long.includes(short) ? 0.85 : 0
+  // One text inside the other counts only when they are about the same size: a long sentence that merely contains the
+  // suggested phrase is somebody saying more than the suggestion, not the wearer reading it.
+  const contained = short.length >= 5 && long.includes(short) && short.length >= long.length * 0.65 ? 0.85 : 0
   const bx = bigrams(x)
   const by = bigrams(y)
   let shared = 0

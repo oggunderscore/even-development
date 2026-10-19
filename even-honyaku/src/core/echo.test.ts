@@ -26,6 +26,11 @@ describe('similarity', () => {
     expect(similarity('はい おねがいします ね', yes.romaji)).toBeGreaterThan(0.75)
     expect(similarity('これはいくらですか', yes.ja)).toBeLessThan(0.3)
   })
+  it('a longer sentence that merely contains the suggestion is not the wearer reading it', () => {
+    expect(similarity('ありがとうございますまたいらしてくださいね', thanks.ja)).toBeLessThan(ECHO_CERTAIN)
+    expect(similarity('ありがとうございます', thanks.ja)).toBe(1)
+    expect(similarity('ありがとうございますね', thanks.ja)).toBeGreaterThan(0.85) // a small extra word still matches
+  })
   it('very short text only matches exactly', () => {
     expect(similarity('はい', 'hai')).toBe(1)
     expect(similarity('はい', 'iie')).toBe(0)

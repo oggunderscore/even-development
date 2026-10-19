@@ -244,8 +244,8 @@ export class Display {
   }
 
   /** The wearer's own speech was filtered out; if they were reading a suggestion, mark which. */
-  self(optionIndex?: number) {
-    if (optionIndex !== undefined) this.view.said(optionIndex)
+  self(optionIndex?: number, turnId?: number) {
+    if (optionIndex !== undefined) this.view.said(optionIndex, turnId)
     else this.view.selfSpoke()
     this.renderHeader()
     this.renderBody()

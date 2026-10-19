@@ -64,6 +64,19 @@ describe('VoiceTimeline', () => {
     expect(s[15999]).toBeCloseTo(x[31999]!, 3)
   })
 
+  it('advance() keeps the clock running without keeping audio, so later audio still lines up with stream time', () => {
+    const t = new VoiceTimeline()
+    t.advance(16000 * 2 * 2) // 2 s that nothing needed
+    expect(t.seconds).toBeCloseTo(2, 5)
+    expect(t.slice(0.5, 1.5)).toBeNull() // never kept
+    const x = Float32Array.from({ length: 16000 }, (_, i) => (i % 500) / 1000)
+    t.push(toPcm(x)) // second 2..3
+    expect(t.slice(1, 2)).toBeNull()
+    const s = t.slice(2, 3, 0)!
+    expect(s.length).toBe(16000)
+    expect(s[250]).toBeCloseTo(x[250]!, 3)
+  })
+
   it('forgets old audio and refuses ranges that scrolled out', () => {
     const t = new VoiceTimeline(2)
     const chunk = toPcm(new Float32Array(16000))
@@ -80,6 +93,17 @@ describe('voiceprint', () => {
     expect(profileReady(emptyProfile())).toBe(false)
     expect(profileReady(p)).toBe(true)
     expect(profileQuality(p).label).toBe('good')
+  })
+
+  it('needs both languages: an English-only enrollment cannot vouch for the wearer\'s Japanese', () => {
+    let en = emptyProfile()
+    for (let i = 1; i <= 6; i++) en = withSeed(en, 'en', feat(WEARER, i))
+    expect(profileReady(en)).toBe(false)
+    expect(profileQuality(en).label).toBe('weak')
+    let one = en
+    one = withSeed(one, 'ja', feat(WEARER, 9))
+    expect(profileReady(one)).toBe(false) // a single Japanese sample isn't enough either
+    expect(profileReady(withSeed(one, 'ja', feat(WEARER, 10)))).toBe(true)
   })
 
   it('the wearer scores high on new utterances, a different voice scores low', () => {

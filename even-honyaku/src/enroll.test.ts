@@ -82,6 +82,12 @@ describe('Enrollment', () => {
     expect(r.profile.ja.seed).toHaveLength(2)
   })
 
+  it('a one-language enrollment is not ready, however many sentences', () => {
+    const e = new Enrollment([{ lang: 'en', text: 'a' }, { lang: 'en', text: 'b' }, { lang: 'en', text: 'c' }, { lang: 'en', text: 'd' }])
+    for (let i = 1; !e.done; i++) e.submit(synthVoice(WEARER, { seed: i, seconds: 3 }))
+    expect(e.result().ready).toBe(false)
+  })
+
   it('skipping leaves a gap but the profile is not ready until enough samples exist', () => {
     const e = new Enrollment(prompts)
     e.submit(synthVoice(WEARER, { seed: 1, seconds: 3 }))
