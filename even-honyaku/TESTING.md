@@ -1,6 +1,6 @@
 # Testing the prototype on real G2 glasses
 
-Release candidate 1.1.2 (Predictive Conversation Mode + voice filter): **builds, typechecks and passes unit tests; the menu, the Predictive screen and the Settings list were driven in the Even simulator (0.9.5) with a faked network, and the phone UI was checked in a headless browser. None of it has run on real glasses or with a real voice yet.** Items in sections 3 and 4 are still unverified on a device.
+Release candidate 1.1.3 (Predictive Conversation Mode + voice filter): **builds, typechecks and passes unit tests; the menu, the Predictive screen and the Settings list were driven in the Even simulator (0.9.5) with a faked network, and the phone UI was checked in a headless browser. None of it has run on real glasses or with a real voice yet.** Items in sections 3 and 4 are still unverified on a device.
 
 ## 1. Run it on your own machine (phone + computer on the same Wi-Fi)
 
@@ -15,7 +15,8 @@ There is no server. On first launch the glasses show the setup screen and the ph
 Optional first: `npm run simulator` (needs a desktop).
 
 ## 2. What to try
-- First run: the glasses say *Please set up Honyaku in the Even Realities app / Error: Missing API keys*; the phone shows **SETTINGS** with a SETUP checklist and **? HOW TO GET ONE** help under each key. Enter keys → **SAVE & TEST** → ✓ DEEPGRAM, ✓ provider, ✓ TRANSLATE (plus ✓ ROMAJI for Google). Wrong keys show ✗ with the reason; the feed won't start listening until keys are present.
+- First run: the glasses say *Please set up Honyaku in the Even Realities app / Error: Missing API keys*; the phone shows **SETTINGS** with **? HOW TO GET ONE** help under each key. There is no Save button: paste a key and, a moment after you stop typing, it is saved and checked (✓ under the field, or ✗ with the reason). Try a wrong Deepgram key, a wrong provider key, and a valid key with a model you pick; each should say what is wrong. When both keys are good on a first run the app moves to the feed.
+- **? CONTROLS** (top of the app) opens the controls guide; Esc or CLOSE dismisses it.
 - The app starts **paused**. **Tap** the glasses (or press the phone's *Resume listening* button) → header says **listening**; tap again to pause. Have someone speak Japanese → English appears; speak English → romaji appears.
 - Phone: **hold** the big button and speak English → release → romaji (forced English, ignores language detection).
 - Glasses: **tap** = pause/resume listening; **double tap** = the system exit confirmation (*No* must leave everything working); **tap then long press** = the glasses' own menu with our items (Pause / Resume · Mode · Replies · Options · Voice filter · Kana); swipe up/down = scroll the feed one translation pair at a time (up pushes the top pair off until the view is empty and the header says `[cleared]`, down brings one back). Long press is unused. Swipe up = `SCROLL_TOP_EVENT` per the docs; if it feels backwards on the glasses, swap the two in `src/input.ts`.
@@ -33,7 +34,7 @@ Optional first: `npm run simulator` (needs a desktop).
 1. Real-mic behaviour of the dual listen engine (`src/core/stt.ts`, `arbiter.ts`): is Japanese ever shown as English, or English dropped? Tune `graceMs` / confidence thresholds in `arbiter.ts`. Does background noise produce phantom phrases? (Verified only with macOS `say` audio.)
 2. Whether `audioEvent.audioPcm` arrives as bytes, `number[]` or base64 on a real device (handled, but untested).
 3. Whether `ws://` to a LAN IP is allowed by the app's network permission for sideloaded dev builds.
-4. Quality + latency of the default OpenRouter model (`google/gemini-2.5-flash-lite`). Japanese quality and romaji accuracy matter most; try `OPENROUTER_MODEL=qwen/qwen3.7-flash` (cheaper) or any other OpenRouter id. `TRANSLATE_PROVIDER=anthropic` switches to Claude directly.
+4. Quality + latency of the models in the dropdown (`src/core/models.ts`, ranked by judgement and list price, not benchmarked). The default is Claude Haiku 5.5 through OpenRouter, which has not been run live: check it returns clean JSON with `response_format`, and compare it with Gemini 2.5 Flash Lite on real Japanese. Japanese quality and romaji accuracy matter most.
 5. Whether the glasses mic sends audio continuously (also during silence) — if not, the app shows *No audio from the mic yet* after 3 seconds of listening.
 6. Phone hold button behaviour inside the Even app WebView (pointer events).
 
@@ -45,4 +46,4 @@ Optional first: `npm run simulator` (needs a desktop).
 5. Latency of reply suggestions with your chosen model, and the Predictive screen's 9-row budget with real romaji lengths.
 
 ## 5. The `even-honyaku.ehpk` package
-`npm run pack` builds the app (plus the 17 MB romaji dictionary) and packs against SDK 0.0.16 (`min_app_version` 2.2.10). No keys are baked in; `app.json` whitelists Deepgram, Google Translate, OpenRouter and Anthropic. Upload it as a private build in the dev portal, install from the Even app, then enter your keys in **SETTINGS**. Unverified on-device: that the app's network whitelist accepts `wss://api.deepgram.com` for the WebSocket (both `wss://` and `https://` origins are listed), and that a ~15 MB upload is accepted. If a direct call fails, SAVE & TEST (Settings) shows which step failed and why.
+`npm run pack` builds the app (plus the 17 MB romaji dictionary) and packs against SDK 0.0.16 (`min_app_version` 2.2.10). No keys are baked in; `app.json` whitelists Deepgram, Google Translate, OpenRouter and Anthropic. Upload it as a private build in the dev portal, install from the Even app, then enter your keys in **SETTINGS**. Unverified on-device: that the app's network whitelist accepts `wss://api.deepgram.com` for the WebSocket (both `wss://` and `https://` origins are listed), and that a ~15 MB upload is accepted. If a direct call fails, the check under the key field in Settings says which step failed and why.

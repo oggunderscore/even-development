@@ -11,7 +11,7 @@
 // with it — see voice.ts / echo.ts. The wearer's own Japanese is never translated or answered.
 // Predictive mode: when the other person stops talking, suggest replies (predict.ts).
 
-import type { ClientMsg, Direction, PredictConfig, ReplyOption, ServerMsg, StreamMode, Translation, UserConfig, VoiceProfile } from '../protocol'
+import type { ClientMsg, Direction, PredictConfig, ReplyOption, ServerMsg, StreamMode, TestScope, Translation, UserConfig, VoiceProfile } from '../protocol'
 import { type ResolvedConfig, missingKeys, resolveConfig, validateConfig } from './config'
 import { voiceFeatures } from './dsp'
 import { EchoMatcher } from './echo'
@@ -86,7 +86,7 @@ export class Engine {
         this.onConfig(msg.config)
         break
       case 'test':
-        void this.runTest()
+        void this.runTest(msg.scope, msg.id)
         break
       case 'start':
         this.start(msg.mode)
@@ -175,9 +175,9 @@ export class Engine {
     return false
   }
 
-  private async runTest() {
+  private async runTest(scope: TestScope, id: number) {
     try {
-      this.emit({ type: 'test_result', results: await testConfig(this.cfg) })
+      this.emit({ type: 'test_result', scope, id, results: await testConfig(this.cfg, scope) })
     } catch (err) {
       this.emit({ type: 'error', message: `test failed: ${err instanceof Error ? err.message : 'unknown error'}` })
     }

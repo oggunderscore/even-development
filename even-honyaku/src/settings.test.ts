@@ -56,4 +56,23 @@ describe('settings', () => {
     expect(cfg.voice).toEqual({ filter: true, strictness: 0.7, profile })
     expect(toUserConfig(defaultSettings()).predict?.enabled).toBe(false)
   })
+
+  it('someone already set up before the model dropdown keeps the model they were using; new installs get the new default', () => {
+    const legacy = (o: object) => parseSettings(JSON.stringify(o))!
+    // saved by an older version: an OpenRouter key and no model chosen meant Gemini 2.5 Flash Lite
+    expect(legacy({ provider: 'openrouter', openrouterKey: 'or-key-12345' }).openrouterModel).toBe('google/gemini-2.5-flash-lite')
+    // an older save with a model they typed keeps that model
+    expect(legacy({ provider: 'openrouter', openrouterKey: 'or-key-12345', openrouterModel: 'qwen/qwen3.7-flash' }).openrouterModel).toBe('qwen/qwen3.7-flash')
+    // an older save that never set up OpenRouter has nothing to preserve
+    expect(legacy({ provider: 'google', googleKey: 'g' }).openrouterModel).toBe('')
+    // saved by this version (schema 2): empty really means "the default"
+    expect(legacy({ schema: 2, provider: 'openrouter', openrouterKey: 'or-key-12345' }).openrouterModel).toBe('')
+    // and it is saved as schema 2 from then on, so the migration only ever happens once
+    expect(parseSettings(JSON.stringify(legacy({ provider: 'openrouter', openrouterKey: 'or-key-12345' })))!.schema).toBe(2)
+  })
+
+  it('toUserConfig passes the Claude model too', () => {
+    expect(toUserConfig({ ...defaultSettings(), anthropicModel: 'claude-sonnet-5-5' }).anthropicModel).toBe('claude-sonnet-5-5')
+    expect(toUserConfig(defaultSettings()).anthropicModel).toBeUndefined()
+  })
 })

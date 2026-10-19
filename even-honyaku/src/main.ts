@@ -8,9 +8,11 @@ import { requestExit } from './exit'
 import { classifyInput, menuClick } from './input'
 import { type MenuState, itemForId, menuItems, menuPick } from './menu'
 import { toBytes } from './pcm'
-import type { ServerMsg, Translation, VoiceProfile } from './protocol'
+import { summarize } from './core/probes'
+import type { ServerMsg, TestScope, Translation, VoiceProfile } from './protocol'
 import { Session } from './session'
-import { type Settings, hasKeys, loadSettings, loadSettingsFromBridge, normalizeSettings, providerKey, saveSettings, setupSteps, toUserConfig } from './settings'
+import { type Settings, hasKeys, loadSettings, loadSettingsFromBridge, providerKey, saveSettings, setupSteps, toUserConfig } from './settings'
+import { planChange } from './settings-change'
 import { type Phase, PhoneUi } from './ui'
 import { loadVoice, loadVoiceFromBridge, saveVoice } from './voice-store'
 import './romaji-browser'
@@ -85,7 +87,13 @@ const ui = new PhoneUi(
         ui.addError('Translation engine not running')
       })
     },
-    onSave: (next, opts) => void applySettings(next, opts.test),
+    onChange: (next) => void queueSettingsChange(next),
+    onEditing: (scope) => {
+      checkId[scope]++ // an answer about the old text must not land under the new
+      checkOk[scope] = false
+      editing[scope] = true
+      ui.setKeyStatus(scope, 'idle')
+    },
     onPrefs: (patch) => void updateSettings(patch),
     onEnroll: () => void startLab('enroll'),
     onEnrollSkip: () => skipEnroll(),
@@ -136,26 +144,81 @@ function needKeys(message = 'Add your Deepgram and translation keys in Settings 
   if (!paused) void toggleListening()
 }
 
-/** Persist settings, restart the engine with them, and optionally run the key test. */
-async function applySettings(raw: Settings, test: boolean) {
-  const next = normalizeSettings(raw) // pasted only an OpenRouter key? use OpenRouter
-  settings = next
+/** The id of the newest key check per field; an answer to an older one (typed over since) is ignored. */
+const checkId: Record<TestScope, number> = { stt: 0, translate: 0 }
+const checkOk: Record<TestScope, boolean> = { stt: false, translate: false }
+/** A key field was edited since its last commit, so its check should run again even if the value ended up the same. */
+const editing: Record<TestScope, boolean> = { stt: false, translate: false }
+/** First launch without keys: once both check out, take the user to the feed (once). Recomputed after the bridge settings load. */
+let onboarding = !hasKeys(settings)
+
+function runCheck(scope: TestScope) {
+  const id = ++checkId[scope]
+  checkOk[scope] = false
+  ui.setKeyStatus(scope, 'checking', scope === 'stt' ? 'Checking the key…' : 'Checking the key and the model…')
+  void session.test(scope, id).catch(() => ui.setKeyStatus(scope, 'bad', 'Could not run the check.'))
+}
+
+/**
+ * The settings form saves itself: a key a moment after typing stops, a provider or model at once. Save it, give the
+ * engine the new values, and check whatever changed so a wrong key is called out right where it was entered.
+ */
+let settingsQueue: Promise<void> = Promise.resolve()
+
+/** Commits run one at a time: two quick edits must not interleave their engine restarts and checks. */
+function queueSettingsChange(raw: Settings): Promise<void> {
+  settingsQueue = settingsQueue.then(() => onSettingsChange(raw)).catch(() => {})
+  return settingsQueue
+}
+
+async function onSettingsChange(raw: Settings) {
+  const plan = planChange(settings, raw)
+  // An edited field that ended up unchanged (typed then reverted) still lost its status: check it again.
+  const recheck = (['stt', 'translate'] as const).filter((s) => editing[s] && !plan.test.includes(s) && !plan.clear.includes(s) && hasKeyFor(s, plan.changed ? plan.next : settings))
+  editing.stt = editing.translate = false
+  if (!plan.changed) {
+    for (const scope of recheck) runCheck(scope)
+    return
+  }
+  settings = plan.next
   await saveSettings(settings, bridge)
-  ui.setSettings(settings)
+  if (plan.switchedProvider) ui.showProvider(settings.provider)
   refreshSetup()
   void syncGlassesPrefs()
 
-  session.reset() // stops the engine; connect() below starts it again with the new keys
-  await session.connect()
-  if (!test) {
-    if (hasKeys(settings)) {
-      ui.addNote('Setup complete. Tap the glasses (or RESUME LISTENING here) to start listening.')
-      ui.showView('feed')
-    }
-    return
+  if (plan.restartStream) {
+    session.reset() // the open stream holds the old key; connect() below reopens it (if listening) with the new one
+    await session.connect()
+  } else {
+    session.reconfigure()
   }
-  ui.showTesting()
-  await session.test()
+  for (const scope of plan.clear) {
+    checkId[scope]++
+    checkOk[scope] = false
+    ui.setKeyStatus(scope, 'idle')
+  }
+  for (const scope of [...plan.test, ...recheck]) runCheck(scope)
+}
+
+const hasKeyFor = (scope: TestScope, s: Settings): boolean => (scope === 'stt' ? s.deepgramKey !== '' : providerKey(s) !== '')
+
+/** A key check came back. */
+function onCheckResult(msg: Extract<ServerMsg, { type: 'test_result' }>) {
+  if (msg.id !== checkId[msg.scope]) return
+  const s = summarize(msg.results)
+  checkOk[msg.scope] = s.ok
+  ui.setKeyStatus(msg.scope, s.ok ? 'ok' : 'bad', s.text)
+  if (!onboarding || !s.ok) return
+  // The other key may have been stored before (so it was never checked this session): check it so the first run can finish.
+  const other: TestScope = msg.scope === 'stt' ? 'translate' : 'stt'
+  if (!checkOk[other] && checkId[other] === 0 && hasKeyFor(other, settings)) runCheck(other)
+  if (checkOk.stt && checkOk.translate) {
+    onboarding = false
+    // Only move the user along if they are still in Settings (not reading the feed or editing something else).
+    setTimeout(() => {
+      if (ui.currentView === 'settings') ui.showView('feed')
+    }, 1500) // long enough to see both ticks
+  }
 }
 
 /** A preference changed (phone control or glasses menu): save it, tell the engine and the glasses, keep streams running. */
@@ -382,7 +445,7 @@ function handleServerMessage(msg: ServerMsg) {
       if (phase === 'processing') settle()
       break
     case 'test_result':
-      ui.showResults(msg.results)
+      onCheckResult(msg)
       break
     case 'config_ok':
       predictReady = msg.predict
@@ -557,6 +620,7 @@ async function initGlasses() {
     settings = stored
     ui.setSettings(settings)
   }
+  onboarding = !hasKeys(settings) // the bridge store may hold keys the WebView's localStorage doesn't
   session.reset() // restart the engine with the stored keys, preferences and voiceprint
   await session.connect()
   if (hasKeys(settings)) ui.showView('feed')

@@ -65,9 +65,12 @@ export interface UserConfig {
   keys?: ApiKeys
   provider?: Provider
   openrouterModel?: string
+  anthropicModel?: string
   predict?: PredictConfig
   voice?: VoiceConfig
 }
+
+export type TestScope = 'stt' | 'translate'
 
 export interface TestResult {
   service: 'deepgram' | Provider | 'translate' | 'romaji'
@@ -77,8 +80,9 @@ export interface TestResult {
 
 export type ClientMsg =
   | { type: 'config'; config: UserConfig }
-  /** Check the keys in the current config against their services and run a sample translation. */
-  | { type: 'test' }
+  /** Check one part of the current config: `stt` = the Deepgram key; `translate` = the provider's key, then a sample
+   *  translation with the chosen model. `id` comes back with the result so a late answer to an old check can be ignored. */
+  | { type: 'test'; scope: TestScope; id: number }
   | { type: 'start'; mode: StreamMode }
   /** Flush the current stream (finals are translated, then `done` is sent). */
   | { type: 'end' }
@@ -120,7 +124,7 @@ export type ServerMsg =
   | { type: 'ready' }
   /** Reply to `config`: what the engine can do with the keys it was given. */
   | { type: 'config_ok'; stt: boolean; translate: boolean; provider: Provider; predict: boolean }
-  | { type: 'test_result'; results: TestResult[] }
+  | { type: 'test_result'; scope: TestScope; id: number; results: TestResult[] }
   | { type: 'partial'; dir: Direction; text: string }
   | ({ type: 'final' } & Translation)
   /** Suggested replies for the other person's last turn (`turnId` = the id of the `final` they answer). */

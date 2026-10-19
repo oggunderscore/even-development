@@ -6,9 +6,10 @@
 
 import type { Direction, Provider, Translation } from '../../src/protocol'
 import { hasJapanese, stripMacrons } from './lang'
+import { ANTHROPIC_DEFAULT_MODEL, OPENROUTER_DEFAULT_MODEL } from './models'
 import { romanize } from './romaji'
 
-export { stripMacrons }
+export { OPENROUTER_DEFAULT_MODEL, stripMacrons }
 
 /** Japanese script (kana / kanji) present → the other person spoke Japanese; otherwise English. */
 export function detectDir(text: string): Direction {
@@ -91,7 +92,6 @@ async function translateWithGoogle(dir: Direction, text: string, id: number, cfg
 
 // ── OpenRouter (OpenAI-compatible chat completions) ──────────────────────────
 
-export const OPENROUTER_DEFAULT_MODEL = 'google/gemini-2.5-flash-lite'
 
 /** One JSON-answering LLM call on whichever LLM provider the user chose (OpenRouter or Claude). */
 export async function completeJson(system: string, userContent: string, cfg: TranslateConfig, opts: { signal?: AbortSignal; maxTokens?: number } = {}): Promise<string> {
@@ -152,7 +152,7 @@ async function completeAnthropic(system: string, userContent: string, cfg: Trans
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: cfg.anthropicModel || 'claude-haiku-5-5',
+      model: cfg.anthropicModel || ANTHROPIC_DEFAULT_MODEL,
       max_tokens: opts.maxTokens ?? 1024,
       system,
       messages: [{ role: 'user', content: userContent }],

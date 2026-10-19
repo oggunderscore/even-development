@@ -2,6 +2,7 @@
 // mirrored to the browser's localStorage) and is only ever sent to Deepgram and the translation provider the user
 // picked — straight from the phone.
 
+import { LEGACY_OPENROUTER_DEFAULT_MODEL } from './core/models'
 import type { ApiKeys, AppMode, JpLevel, Provider, ReplyStyle, UserConfig, VoiceProfile } from './protocol'
 
 export interface Settings {
@@ -11,6 +12,9 @@ export interface Settings {
   openrouterKey: string
   anthropicKey: string
   openrouterModel: string
+  anthropicModel: string
+  /** 2 = saved by a version with the model dropdown. Older saves with no model chosen keep what they were using. */
+  schema: number
   /** Standard translation feed, or Predictive Conversation Mode (suggested replies). */
   mode: AppMode
   replyStyle: ReplyStyle
@@ -33,6 +37,8 @@ export const defaultSettings = (): Settings => ({
   openrouterKey: '',
   anthropicKey: '',
   openrouterModel: '',
+  anthropicModel: '',
+  schema: 2,
   mode: 'standard',
   replyStyle: 'polite',
   jpLevel: 'beginner',
@@ -54,6 +60,8 @@ export function parseSettings(raw: string | null | undefined): Settings | null {
   try {
     const o = JSON.parse(raw) as Record<string, unknown>
     const d = defaultSettings()
+    // Before the dropdown, no model chosen meant a fixed default; someone already set up must not be switched without notice.
+    const migrate = o['schema'] !== 2
     const str = (k: keyof Settings) => (typeof o[k] === 'string' ? (o[k] as string) : '')
     return {
       deepgramKey: str('deepgramKey'),
@@ -61,7 +69,9 @@ export function parseSettings(raw: string | null | undefined): Settings | null {
       googleKey: str('googleKey'),
       openrouterKey: str('openrouterKey'),
       anthropicKey: str('anthropicKey'),
-      openrouterModel: str('openrouterModel'),
+      openrouterModel: str('openrouterModel') || (migrate && str('openrouterKey') ? LEGACY_OPENROUTER_DEFAULT_MODEL : ''),
+      anthropicModel: str('anthropicModel'),
+      schema: 2,
       mode: pick(o['mode'], ['standard', 'predictive'], d.mode),
       replyStyle: pick(o['replyStyle'], ['polite', 'casual'], d.replyStyle),
       jpLevel: pick(o['jpLevel'], ['beginner', 'intermediate', 'advanced'], d.jpLevel),
@@ -86,6 +96,7 @@ export function toUserConfig(s: Settings, profile: VoiceProfile | null = null): 
     keys,
     provider: s.provider,
     openrouterModel: s.openrouterModel.trim() || undefined,
+    anthropicModel: s.anthropicModel.trim() || undefined,
     predict: { enabled: s.mode === 'predictive', style: s.replyStyle, level: s.jpLevel, maxOptions: s.maxOptions },
     voice: { filter: s.voiceFilter, strictness: s.voiceStrictness, profile },
   }

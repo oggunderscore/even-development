@@ -15,13 +15,20 @@ export interface ResolvedConfig {
   translate: TranslateConfig
 }
 
+/** Why a key can't be real (wrong characters or length), or null if it is plausible. Empty is fine: it means "no key". */
+export function keyProblem(name: keyof ApiKeys, value: string | undefined): string | null {
+  if (!value) return null
+  return (name === 'deepgram' ? DEEPGRAM_KEY_RE.test(value) : KEY_RE.test(value)) ? null : `The ${name} key has invalid characters or length`
+}
+
 /** Returns an error message if any supplied key is malformed. */
 export function validateConfig(user: UserConfig): string | null {
   for (const [name, value] of Object.entries(user.keys ?? {})) {
-    if (!value) continue
-    if (name === 'deepgram' ? !DEEPGRAM_KEY_RE.test(value) : !KEY_RE.test(value)) return `The ${name} key has invalid characters or length`
+    const problem = keyProblem(name as keyof ApiKeys, value)
+    if (problem) return problem
   }
   if (user.openrouterModel && !MODEL_RE.test(user.openrouterModel)) return 'Invalid OpenRouter model id'
+  if (user.anthropicModel && !MODEL_RE.test(user.anthropicModel)) return 'Invalid Claude model id'
   if (user.provider && !PROVIDERS.includes(user.provider)) return 'Unknown translation provider'
   return null
 }
@@ -40,7 +47,7 @@ export function resolveConfig(user: UserConfig = {}): ResolvedConfig {
 
   return {
     deepgramKey,
-    translate: { provider, googleKey, openrouterKey, openrouterModel: clean(user.openrouterModel), anthropicKey },
+    translate: { provider, googleKey, openrouterKey, openrouterModel: clean(user.openrouterModel), anthropicKey, anthropicModel: clean(user.anthropicModel) },
   }
 }
 

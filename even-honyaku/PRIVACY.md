@@ -30,7 +30,7 @@ under its own terms and privacy policy, and usage is billed to your own account 
 - The on-screen feed of recent translations and suggested replies lives in memory only and is gone when the app closes.
 - The app keeps no recordings, transcripts, history, analytics, advertising identifiers or crash reports. The microphone audio recorded while you set up your voice profile is analysed in memory and discarded.
 
-To remove your keys, empty the key fields in **Settings** and press **SAVE**, or uninstall the app. Revoke or
+To remove your keys, empty the key fields in **Settings** (changes save automatically), or uninstall the app. When you enter a key, the app checks it right away by contacting that service (and, for the translation key, asking the chosen model to translate one short sample phrase). Revoke or
 delete a key in the provider's own dashboard to cut off access completely.
 
 ## Children, safety and changes

@@ -77,13 +77,18 @@ glasses mic → app (WebView) ──wss──▶ Deepgram            (speech-to-
 Nothing is hosted, no keys are bundled (a `.ehpk` can be unpacked), and your keys go only to the providers you chose. `app.json` whitelists exactly those domains.
 
 ## First-run setup
-Until it's set up the glasses show *"Please set up Honyaku in the Even Realities app — Error: Missing API keys"* and the phone opens straight to **SETTINGS**, where a checklist ticks off as you paste:
+Until it's set up the glasses show *"Please set up Honyaku in the Even Realities app — Error: Missing API keys"* and the phone opens straight to **SETTINGS**. You need:
 1. a **Deepgram** key (speech-to-text), and
-2. **one** translation key — **Google Translate**, **OpenRouter** or **Claude**.
+2. **one** translation key: **Google Translate**, **OpenRouter** or **Claude**.
 
-Each key field has a **? HOW TO GET ONE** panel with step-by-step instructions. **SAVE & TEST** checks each key with its service and runs a sample translation (✓/✗ per step). Pasted only an OpenRouter key? It's picked automatically.
+Each key field has a **? HOW TO GET ONE** panel with step-by-step instructions. There is no Save button: **everything saves itself**, and **a key is checked as soon as you enter it** (a moment after you stop typing). The answer appears right under the field:
+- ✓ *key accepted* (for the translation key this includes a test translation with the model you picked), or
+- ✗ with the reason in plain words: the service rejected the key, it can't be reached, the key has the wrong characters, or the key works but the chosen model didn't answer.
 
-- Keys are stored on the device (Even bridge storage, mirrored to localStorage), hidden behind a SHOW toggle, and removed by emptying the fields and pressing **SAVE**. The version is shown at the bottom of Settings.
+Pasted only an OpenRouter key while Google is selected? Honyaku switches to OpenRouter for you. When both keys check out on a first run, the app takes you to the feed.
+
+- Keys are stored on the device (Even bridge storage, mirrored to localStorage), hidden behind a SHOW toggle, and removed by emptying the field. A key that can't be real (wrong characters or length) isn't saved. The version is shown at the bottom of Settings.
+- The **? CONTROLS** button at the top of the app opens a guide to every gesture on the glasses and the phone.
 - [PRIVACY.md](PRIVACY.md) is the privacy policy for the store listing.
 - Google: restrict the key by *API* (Cloud Translation), not by website — the WebView has no fixed origin.
 
@@ -103,6 +108,22 @@ npm test             # engine, config, settings, gesture tests
 | Claude | Anthropic directly | per token |
 
 Google gives literal, context-free translations; the LLM backends handle tone and conversation context better. **Predictive replies need OpenRouter or Claude** (one extra short LLM call per question the other person asks; the default OpenRouter model is cheap and fast).
+
+### Choosing a model
+With OpenRouter or Claude you pick the model from a dropdown (Settings → Translation), not a text box. **? COMPARE MODELS** lists them with prices. They are ranked for this app: fast (no reasoning pass), reliable JSON, natural Japanese, with price as the tiebreaker. A phrase costs a fraction of a cent on every one (about $0.07 to $0.30 per 1,000 phrases; roughly double with Predictive replies).
+
+| OpenRouter model | $ per 1M tokens (in / out) | Why it is there |
+| --- | --- | --- |
+| 1. Claude Haiku 5.5 ★ (default) | 0.10 / 0.50 | Best-sounding Japanese and the most reliable replies, at nearly the lowest price |
+| 2. Gemini 2.5 Flash Lite | 0.10 / 0.40 | Fastest and cheapest all-rounder, very good Japanese |
+| 3. Qwen3 235B | 0.09 / 0.55 | Strong multilingual, very low price, a little slower |
+| 4. GPT-4o mini | 0.15 / 0.60 | Dependable and consistent, slightly plainer Japanese |
+| 5. Gemini 3.1 Flash Lite | 0.25 / 1.50 | A step up in quality for a few times the cost |
+| 6. DeepSeek V3.2 | 0.28 / 0.42 | Good quality, cheap output, response time varies |
+| 7. GPT-4.1 mini | 0.40 / 1.60 | Higher quality, costs more for a small gain |
+| 8. Llama 3.3 70B | 0.10 / 0.32 | Cheapest decent fallback; weakest Japanese |
+
+The direct **Claude** provider offers Haiku 5.5 (default) and Sonnet 5.5 (about 20 times the cost). The ranking is an editorial judgement, **not a benchmark we ran**; prices are OpenRouter's list prices on 2026-10-19 and will drift. The model check after you choose one proves it answers, so a retired model shows an error instead of failing mid-conversation. A model typed in by an older version stays selectable as "Custom". The list lives in `src/core/models.ts`.
 
 ## Packaging for the Even app (private build)
 ```bash

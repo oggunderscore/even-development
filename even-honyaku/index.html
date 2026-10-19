@@ -14,8 +14,11 @@
           <h1>HONYAKU</h1>
           <span class="jp" lang="ja">翻訳</span>
         </div>
-        <div id="status" class="status" data-state="offline" role="status" aria-live="polite">
-          <i class="dot"></i><span id="status-text">OFFLINE</span>
+        <div class="top-right">
+          <button id="open-guide" class="guide-btn" type="button" aria-haspopup="dialog" aria-controls="guide">? CONTROLS</button>
+          <div id="status" class="status" data-state="offline" role="status" aria-live="polite">
+            <i class="dot"></i><span id="status-text">OFFLINE</span>
+          </div>
         </div>
       </header>
 
@@ -38,7 +41,7 @@
             <p class="empty-title">// READY</p>
             <p>Hold the button to speak English and get romaji to read aloud.</p>
             <p>Resume listening to hear Japanese and get English.</p>
-            <p>Double-tap the glasses for the menu: Pause / Resume, Settings, Exit.</p>
+            <p>Tap the glasses to pause or resume. Tap <b>? CONTROLS</b> above for every gesture.</p>
           </div>
         </main>
 
@@ -109,15 +112,6 @@
       <section id="view-settings" class="view" role="tabpanel">
         <div class="scroll">
           <form id="settings" autocomplete="off" spellcheck="false">
-            <div class="card setup" id="setup-card" data-done="false">
-              <h2 id="setup-title">SETUP</h2>
-              <p class="lead" id="setup-lead">Two keys and you are done. They are your own accounts, so usage is billed to you.</p>
-              <ol class="steps">
-                <li data-step="deepgram"><i class="check" aria-hidden="true"></i><span>Deepgram key<em>speech-to-text</em></span></li>
-                <li data-step="translate"><i class="check" aria-hidden="true"></i><span>One translation key<em>Google, OpenRouter or Claude</em></span></li>
-              </ol>
-            </div>
-
             <div class="card">
               <h2>SPEECH-TO-TEXT</h2>
               <div class="field">
@@ -127,6 +121,7 @@
                   <input id="set-deepgram" type="password" autocapitalize="off" autocomplete="off" placeholder="paste key" />
                   <button class="reveal" type="button" data-for="set-deepgram">SHOW</button>
                 </div>
+                <small class="key-status" id="status-stt" data-state="idle" role="status" aria-live="polite"></small>
                 <small class="hint">billed per minute of audio to your Deepgram account</small>
               </div>
             </div>
@@ -157,15 +152,17 @@
 <div>
                 <div class="field">
                   <div class="label-row"><label for="set-openrouter">OPENROUTER API KEY</label><button class="help" type="button" data-help="help-openrouter" aria-expanded="false">? HOW TO GET ONE</button></div>
-                  <div class="reveal-row help-panel" id="help-openrouter"><div><ol><li>Go to <b>openrouter.ai</b> and sign in.</li><li>Open <b>Credits</b> and add a few dollars. Models are billed per token and a phrase costs a fraction of a cent.</li><li>Open <b>Keys → Create Key</b>, name it "Honyaku" and optionally set a spending limit.</li><li>Copy the key and paste it here. The model is optional; the default is fast and cheap.</li></ol></div></div>
+                  <div class="reveal-row help-panel" id="help-openrouter"><div><ol><li>Go to <b>openrouter.ai</b> and sign in.</li><li>Open <b>Credits</b> and add a few dollars. Models are billed per token and a phrase costs a fraction of a cent.</li><li>Open <b>Keys → Create Key</b>, name it "Honyaku" and optionally set a spending limit.</li><li>Copy the key and paste it here. Then pick a model below: the top choice is recommended and costs a fraction of a cent per phrase.</li></ol></div></div>
                   <div class="secret">
                     <input id="set-openrouter" type="password" autocapitalize="off" autocomplete="off" placeholder="paste key" />
                     <button class="reveal" type="button" data-for="set-openrouter">SHOW</button>
                   </div>
                 </div>
                 <div class="field">
-                  <label for="set-model">MODEL <span class="opt">OPTIONAL</span></label>
-                  <input id="set-model" type="text" autocapitalize="off" placeholder="google/gemini-2.5-flash-lite" />
+                  <div class="label-row"><label for="set-model">MODEL</label><button class="help" type="button" data-help="compare-openrouter" data-closed-text="? COMPARE MODELS" aria-expanded="false">? COMPARE MODELS</button></div>
+                  <div class="reveal-row help-panel" id="compare-openrouter"><div><ol class="compare" id="compare-openrouter-list"></ol></div></div>
+                  <select id="set-model" class="select"></select>
+                  <small id="model-note" class="hint"></small>
                 </div></div>
               </div>
               <div class="reveal-row" data-provider="anthropic">
@@ -177,10 +174,16 @@
                     <input id="set-anthropic" type="password" autocapitalize="off" autocomplete="off" placeholder="paste key" />
                     <button class="reveal" type="button" data-for="set-anthropic">SHOW</button>
                   </div>
+                </div>
+                <div class="field">
+                  <div class="label-row"><label for="set-anthropic-model">MODEL</label><button class="help" type="button" data-help="compare-anthropic" data-closed-text="? COMPARE MODELS" aria-expanded="false">? COMPARE MODELS</button></div>
+                  <div class="reveal-row help-panel" id="compare-anthropic"><div><ol class="compare" id="compare-anthropic-list"></ol></div></div>
+                  <select id="set-anthropic-model" class="select"></select>
+                  <small id="anthropic-model-note" class="hint"></small>
                 </div></div>
               </div>
+              <small class="key-status" id="status-translate" data-state="idle" role="status" aria-live="polite"></small>
             </div>
-
 
             <div class="card">
               <h2>CONVERSATION</h2>
@@ -225,22 +228,48 @@
               </div>
             </div>
 
-            <div class="actions">
-              <button id="btn-test" class="btn primary" type="submit">SAVE &amp; TEST</button>
-              <button id="btn-save" class="btn" type="button">SAVE</button>
-            </div>
           </form>
 
-          <div id="results" class="results" aria-live="polite"></div>
-
           <p class="fineprint">
-            // keys stay on this device and are sent only to Deepgram and the translation provider you chose,
-            straight from this phone. there is no Honyaku server.
+            // changes save automatically. keys are checked as soon as you enter them. keys stay on this device and are
+            sent only to Deepgram and the translation provider you chose, straight from this phone. there is no Honyaku server.
           </p>
 
           <footer class="version">HONYAKU <span id="app-version"></span></footer>
         </div>
       </section>
+    </div>
+
+    <div id="guide" class="modal" role="dialog" aria-modal="true" aria-labelledby="guide-title" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <h2 id="guide-title">CONTROLS</h2>
+          <button id="close-guide" class="guide-btn" type="button" aria-label="Close controls guide">CLOSE</button>
+        </div>
+        <div class="modal-body">
+          <h3>ON THE GLASSES</h3>
+          <dl class="keys">
+            <dt>Tap</dt><dd>Pause or resume listening. The mic is closed while paused, so nothing is streamed or billed.</dd>
+            <dt>Double tap</dt><dd>Exit. The glasses ask you to confirm; answer <b>No</b> and everything keeps working.</dd>
+            <dt>Tap, then long press</dt><dd>Opens the glasses' own menu, with Honyaku's items added: <b>Pause / Resume</b>, <b>Mode</b>, <b>Replies</b>, <b>Options</b>, <b>Voice filter</b> and <b>Kana</b>. Move with a swipe, pick with a tap. The page redraws after a change, and the menu shows the new value next time you open it.</dd>
+            <dt>Swipe up / down</dt><dd>Standard mode: scroll the feed one translation at a time. Predictive mode: move the <b>▶</b> highlight along the suggested replies; swipe up past the first one to read earlier turns, down to come back.</dd>
+            <dt>Plain long press</dt><dd>Not used, so it stays free for your own shortcut.</dd>
+          </dl>
+          <h3>ON THE PHONE</h3>
+          <dl class="keys">
+            <dt>Hold the big button</dt><dd>Talk English while you hold it. Let go and the romaji to read aloud appears.</dd>
+            <dt>Resume / Pause listening</dt><dd>Same as a tap on the glasses.</dd>
+            <dt>Type to translate</dt><dd>Type a phrase in English or Japanese instead of speaking it.</dd>
+          </dl>
+          <h3>READING THE GLASSES</h3>
+          <dl class="keys">
+            <dt>JP: …</dt><dd>What the other person said, in English. <b>JP?</b> means the voice filter wasn't sure it was them.</dd>
+            <dt>you: …</dt><dd>What you said in English, with the romaji to read aloud under it.</dd>
+            <dt>▶ and ●</dt><dd>Predictive replies: <b>▶</b> marks the highlighted reply, <b>●</b> marks the one you read aloud.</dd>
+            <dt>○ paused / ● listening</dt><dd>The header shows whether the mic is on.</dd>
+          </dl>
+        </div>
+      </div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>
