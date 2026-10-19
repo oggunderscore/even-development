@@ -21,6 +21,7 @@
 
       <nav class="tabs" role="tablist" aria-label="Views">
         <button id="tab-feed" class="tab" role="tab" aria-selected="true" aria-controls="view-feed" type="button">FEED</button>
+        <button id="tab-voice" class="tab" role="tab" aria-selected="false" aria-controls="view-voice" type="button">VOICE</button>
         <button id="tab-settings" class="tab" role="tab" aria-selected="false" aria-controls="view-settings" type="button">SETTINGS</button>
         <span class="tab-ind" aria-hidden="true"></span>
       </nav>
@@ -37,7 +38,7 @@
             <p class="empty-title">// READY</p>
             <p>Hold the button to speak English and get romaji to read aloud.</p>
             <p>Resume listening to hear Japanese and get English.</p>
-            <p>Double-tap the glasses to exit.</p>
+            <p>Double-tap the glasses for the menu: Pause / Resume, Settings, Exit.</p>
           </div>
         </main>
 
@@ -49,6 +50,58 @@
             <button class="btn" type="submit">SEND</button>
           </form>
           <button id="hold" class="hold" type="button"><span class="hold-label">HOLD TO TALK</span><span class="hold-sub">ENGLISH → ROMAJI</span></button>
+        </div>
+      </section>
+
+      <!-- ───────────── VOICE ───────────── -->
+      <section id="view-voice" class="view" role="tabpanel">
+        <div class="scroll">
+          <div class="card">
+            <h2>IGNORE MY OWN VOICE</h2>
+            <p class="lead">When you speak Japanese (for example reading a suggested reply aloud), Honyaku should not translate it or answer it. It tells you apart from the other person by the words (a reply it just suggested), how loud you are at the glasses mic, and your voice profile.</p>
+            <div class="field">
+              <div class="seg" id="seg-filter" role="radiogroup" aria-label="Ignore my own voice">
+                <button type="button" role="radio" data-v="on">ON</button>
+                <button type="button" role="radio" data-v="off">OFF</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="set-strict">STRICTNESS <span id="strict-val" class="opt"></span></label>
+              <input id="set-strict" type="range" min="0" max="100" step="5" />
+              <small class="hint">higher treats a voice as yours more readily. Still translating your own Japanese? raise it. Missing what they say? lower it.</small>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>MY VOICE PROFILE</h2>
+            <p id="voice-status" class="lead"></p>
+            <div id="enroll" class="enroll" hidden>
+              <div class="enroll-head"><span id="enroll-count"></span><span id="enroll-lang" class="tag"></span></div>
+              <div id="enroll-text" class="enroll-text" lang="ja"></div>
+              <div id="enroll-romaji" class="enroll-romaji"></div>
+              <div id="enroll-meaning" class="enroll-meaning"></div>
+              <div id="enroll-bar" class="meter"><i></i></div>
+              <p id="lab-msg" class="lab-msg" aria-live="polite"></p>
+            </div>
+            <div class="actions">
+              <button id="btn-enroll" class="btn primary" type="button">RECORD MY VOICE</button>
+              <button id="btn-enroll-skip" class="btn ghost" type="button" hidden>SKIP</button>
+              <button id="btn-lab-stop" class="btn ghost" type="button" hidden>STOP</button>
+              <button id="btn-voice-delete" class="btn ghost" type="button" hidden>DELETE PROFILE</button>
+            </div>
+            <small class="hint">Put the glasses on and read each sentence at your normal volume, the way you would really say it (accent and all). It takes about a minute. The voice profile stays on this phone and is never sent anywhere.</small>
+          </div>
+
+          <div class="card">
+            <h2>LIVE TEST</h2>
+            <p class="lead">Say something, then see whether Honyaku thinks it was you or someone else. Have the other person say something too. Use the strictness slider to tune it.</p>
+            <div id="test-out" class="test-out" aria-live="polite"><span class="test-idle">no test running</span></div>
+            <div class="actions">
+              <button id="btn-voice-test" class="btn" type="button">START TEST</button>
+            </div>
+            <div id="voice-log" class="voice-log" aria-live="polite"></div>
+            <small class="hint">while listening normally, each phrase also shows up here with the same verdict, so you can tune it in a real conversation</small>
+          </div>
         </div>
       </section>
 
@@ -125,6 +178,50 @@
                     <button class="reveal" type="button" data-for="set-anthropic">SHOW</button>
                   </div>
                 </div></div>
+              </div>
+            </div>
+
+
+            <div class="card">
+              <h2>CONVERSATION</h2>
+              <div class="field">
+                <label>MODE</label>
+                <div class="seg" id="seg-mode" role="radiogroup">
+                  <button type="button" role="radio" data-v="standard">STANDARD</button>
+                  <button type="button" role="radio" data-v="predictive">PREDICTIVE REPLIES</button>
+                </div>
+                <small id="mode-hint" class="hint">Predictive mode listens to what they say, then offers short romaji replies you can read aloud. It needs an OpenRouter or Claude key.</small>
+              </div>
+              <div class="field">
+                <label>REPLY STYLE</label>
+                <div class="seg" id="seg-style" role="radiogroup">
+                  <button type="button" role="radio" data-v="polite">POLITE</button>
+                  <button type="button" role="radio" data-v="casual">CASUAL</button>
+                </div>
+              </div>
+              <div class="field">
+                <label>MY JAPANESE</label>
+                <div class="seg" id="seg-level" role="radiogroup">
+                  <button type="button" role="radio" data-v="beginner">BEGINNER</button>
+                  <button type="button" role="radio" data-v="intermediate">OKAY</button>
+                  <button type="button" role="radio" data-v="advanced">ADVANCED</button>
+                </div>
+                <small class="hint">beginner keeps replies to the simplest, easiest-to-say words</small>
+              </div>
+              <div class="field">
+                <label>CHOICES SHOWN FOR A DECISION</label>
+                <div class="seg" id="seg-options" role="radiogroup">
+                  <button type="button" role="radio" data-v="2">2</button>
+                  <button type="button" role="radio" data-v="3">3</button>
+                </div>
+              </div>
+              <div class="field">
+                <label>ON THE GLASSES</label>
+                <div class="seg" id="seg-kana" role="radiogroup">
+                  <button type="button" role="radio" data-v="romaji">ROMAJI</button>
+                  <button type="button" role="radio" data-v="kana">ROMAJI + KANA</button>
+                </div>
+                <small class="hint">kana/kanji uses more rows; turn it on only if your glasses show it</small>
               </div>
             </div>
 

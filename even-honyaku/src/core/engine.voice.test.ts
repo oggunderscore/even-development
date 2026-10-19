@@ -90,6 +90,24 @@ describe('Engine: predictive mode', () => {
     t.engine.close()
   })
 
+  it('a question long after the previous unanswered one starts a fresh turn (not merged into it)', async () => {
+    const fetchMock = llm()
+    vi.stubGlobal('fetch', fetchMock)
+    const t = setup()
+    t.h().onFinal(QUESTION, 'listen', { start: 0, end: 2 })
+    await vi.waitFor(() => expect(t.of('predictions')).toHaveLength(1))
+    const realNow = Date.now
+    vi.spyOn(Date, 'now').mockImplementation(() => realNow() + 30_000)
+    t.h().onFinal('ミルクは入れますか。', 'listen', { start: 40, end: 42 })
+    await vi.waitFor(() => expect(t.of('predictions')).toHaveLength(2))
+    const calls = fetchMock.mock.calls.map((c) => JSON.parse(String(c[1].body))).filter((b) => b.messages[0].content.includes('reply assistant'))
+    const justSaid: string = calls[1].messages[1].content.split('The other person just said:')[1]
+    expect(justSaid).not.toContain('ホットですか') // the old question is context now, not part of this turn
+    expect(justSaid).toContain('ミルク')
+    vi.restoreAllMocks()
+    t.engine.close()
+  })
+
   it('does not answer a bare acknowledgement', async () => {
     const fetchMock = llm()
     vi.stubGlobal('fetch', fetchMock)
@@ -215,6 +233,26 @@ describe('Engine: voice filter with an enrolled voiceprint', () => {
     expect(t.of('voice_score')).toHaveLength(0)
     expect(t.of('self')).toHaveLength(0)
     t.engine.close()
+  })
+
+  it('without an enrolled profile nothing is ever learned: no voiceprint appears unasked', async () => {
+    vi.stubGlobal('fetch', llm())
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const out: ServerMsg[] = []
+      let handlers!: SttHandlers
+      const engine = new Engine((m) => out.push(m), { createStt: (_m, h) => ((handlers = h), { audio: vi.fn(), finish: vi.fn().mockResolvedValue(undefined), abort: vi.fn() }) })
+      engine.handle({ type: 'config', config: { keys, provider: 'openrouter' } })
+      engine.handle({ type: 'start', mode: 'talk' })
+      const pcm = toPcm(synthVoice(WEARER, { seed: 96, seconds: 2.5 }))
+      for (let at = 0; at < pcm.length; at += 3200) engine.audio(pcm.subarray(at, at + 3200))
+      handlers.onFinal('Where is the station', 'speak', { start: 0, end: 2.5 })
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(out.some((m) => m.type === 'voice_profile')).toBe(false)
+      engine.close()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('hold-to-talk teaches the voiceprint (debounced), and is always translated as the wearer', async () => {

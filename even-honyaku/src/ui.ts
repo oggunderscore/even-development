@@ -2,11 +2,14 @@
 // (the user's own API keys, with a Test button). All DOM is built with textContent — no innerHTML —
 // so text from the network or from a key field can never inject markup.
 
-import type { Direction, Provider, Translation } from './protocol'
+import { profileQuality, seedCount } from './core/voice'
+import type { Prompt } from './enroll'
+import type { AppMode, Direction, JpLevel, Prediction, Provider, ReplyOption, ReplyStyle, ServerMsg, Speaker, Translation, VoiceProfile } from './protocol'
 import { type Settings, normalizeSettings, setupSteps } from './settings'
 
 export type Phase = 'idle' | 'paused' | 'listening' | 'talking' | 'processing'
-export type View = 'feed' | 'settings'
+export type View = 'feed' | 'voice' | 'settings'
+export type LabState = 'idle' | 'enroll' | 'test'
 
 export interface PhoneUiHandlers {
   onHoldStart(): void
@@ -16,6 +19,14 @@ export interface PhoneUiHandlers {
   onTyped(text: string): void
   /** Settings form submitted. `test` = also run the connection test afterwards. */
   onSave(settings: Settings, opts: { test: boolean }): void
+  /** A conversation / voice-filter preference changed; applies immediately (no SAVE). */
+  onPrefs(patch: Partial<Settings>): void
+  onEnroll(): void
+  onEnrollSkip(): void
+  /** Stop a running enrollment or live test. */
+  onLabStop(): void
+  onVoiceTest(): void
+  onVoiceDelete(): void
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
@@ -61,6 +72,8 @@ export class PhoneUi {
     this.wireHold()
     this.wireTabs()
     this.wireSettings()
+    this.wirePrefs()
+    this.wireVoice()
     this.listenBtn.addEventListener('click', () => handlers.onToggleListen())
     $('open-settings').addEventListener('click', () => this.showView('settings'))
 
@@ -101,7 +114,7 @@ export class PhoneUi {
   showView(view: View) {
     if (view === this.view) return
     this.view = view
-    for (const v of ['feed', 'settings'] as const) {
+    for (const v of ['feed', 'voice', 'settings'] as const) {
       const on = v === view
       $(`view-${v}`).classList.toggle('active', on)
       $(`tab-${v}`).setAttribute('aria-selected', String(on))
@@ -134,6 +147,7 @@ export class PhoneUi {
 
   private wireTabs() {
     $('tab-feed').addEventListener('click', () => this.showView('feed'))
+    $('tab-voice').addEventListener('click', () => this.showView('voice'))
     $('tab-settings').addEventListener('click', () => this.showView('settings'))
   }
 
@@ -160,17 +174,57 @@ export class PhoneUi {
 
   addTranslation(t: Translation) {
     this.setLive(t.dir, '')
-    const el = this.entry(t.dir, t.dir === 'speak' ? 'EN → JP' : 'JP → EN')
+    const el = this.entry(t.dir, t.dir === 'speak' ? 'EN → JP' : t.heardEnglish ? 'THEM · ENGLISH' : 'JP → EN')
+    if (t.unsure) el.classList.add('unsure')
     const big = el.querySelector('.big')!
     const sub = el.querySelector('.sub') as HTMLElement
     if (t.dir === 'speak') {
       // The wearer reads the romaji aloud; the rest is for reference.
       big.textContent = t.romaji
       sub.append(this.span(t.english), ' · ', this.span(t.japanese))
+    } else if (t.heardEnglish) {
+      big.textContent = t.english
+      sub.remove()
     } else {
       big.textContent = t.english
       sub.append(this.span(t.japanese), ' · ', this.bold(t.romaji))
     }
+    this.append(el)
+    this.scroll()
+  }
+
+  /** The suggested replies, under the translation they answer. */
+  addPredictions(p: Prediction) {
+    const el = this.entry('reply', p.kind === 'choice' ? 'REPLY · PICK ONE' : 'REPLY')
+    el.querySelector('.big')!.remove()
+    el.querySelector('.sub')!.remove()
+    p.options.forEach((o, i) => {
+      const row = document.createElement('div')
+      row.className = 'opt'
+      row.dataset['romaji'] = o.romaji
+      const n = this.span(p.options.length > 1 ? String(i + 1) : '›')
+      n.className = 'n'
+      const gloss = this.span(o.gloss)
+      gloss.className = 'gloss'
+      const rom = this.span(o.romaji)
+      rom.className = 'rom'
+      row.append(n, gloss, rom)
+      el.append(row)
+    })
+    this.append(el)
+    this.scroll()
+  }
+
+  /** The wearer's own Japanese was recognised and left out of the conversation. */
+  addSelf(text: string, option?: ReplyOption) {
+    this.setLive('listen', '')
+    if (option) {
+      const rows = [...this.log.querySelectorAll<HTMLElement>('.entry.reply .opt')].reverse()
+      rows.find((r) => r.dataset['romaji'] === option.romaji)?.classList.add('said')
+    }
+    const el = this.entry('self', option ? 'YOU · READ A REPLY' : 'YOU · JAPANESE (IGNORED)')
+    el.querySelector('.big')!.textContent = text
+    el.querySelector('.sub')!.remove()
     this.append(el)
     this.scroll()
   }
@@ -314,6 +368,14 @@ export class PhoneUi {
     $<HTMLInputElement>('set-model').value = s.openrouterModel
     this.setProvider(s.provider)
     this.renderSetup()
+    this.setSeg('seg-mode', s.mode)
+    this.setSeg('seg-style', s.replyStyle)
+    this.setSeg('seg-level', s.jpLevel)
+    this.setSeg('seg-options', String(s.maxOptions))
+    this.setSeg('seg-kana', s.glassesKana ? 'kana' : 'romaji')
+    this.setSeg('seg-filter', s.voiceFilter ? 'on' : 'off')
+    $<HTMLInputElement>('set-strict').value = String(Math.round(s.voiceStrictness * 100))
+    $('strict-val').textContent = `${Math.round(s.voiceStrictness * 100)}%`
   }
 
   readSettings(): Settings {
@@ -332,6 +394,149 @@ export class PhoneUi {
 
   private submit(test: boolean) {
     this.handlers.onSave(this.readSettings(), { test })
+  }
+
+  // ── conversation preferences ───────────────────────────────────────────────
+
+  private wirePrefs() {
+    const pick = (id: string, apply: (v: string) => Partial<Settings>) =>
+      this.wireSeg(id, (v) => {
+        this.setSeg(id, v)
+        this.handlers.onPrefs(apply(v))
+      })
+    pick('seg-mode', (v) => ({ mode: v as AppMode }))
+    pick('seg-style', (v) => ({ replyStyle: v as ReplyStyle }))
+    pick('seg-level', (v) => ({ jpLevel: v as JpLevel }))
+    pick('seg-options', (v) => ({ maxOptions: v === '2' ? 2 : 3 }))
+    pick('seg-kana', (v) => ({ glassesKana: v === 'kana' }))
+    pick('seg-filter', (v) => ({ voiceFilter: v === 'on' }))
+
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const slider = $<HTMLInputElement>('set-strict')
+    slider.addEventListener('input', () => {
+      $('strict-val').textContent = `${slider.value}%`
+      clearTimeout(timer)
+      timer = setTimeout(() => this.handlers.onPrefs({ voiceStrictness: Number(slider.value) / 100 }), 250)
+    })
+  }
+
+  // ── voice profile / live test ──────────────────────────────────────────────
+
+  private labState: LabState = 'idle'
+  private hasProfile = false
+  private readonly verdictLog: HTMLElement[] = []
+
+  private wireVoice() {
+    $('btn-enroll').addEventListener('click', () => this.handlers.onEnroll())
+    $('btn-enroll-skip').addEventListener('click', () => this.handlers.onEnrollSkip())
+    $('btn-lab-stop').addEventListener('click', () => this.handlers.onLabStop())
+    $('btn-voice-delete').addEventListener('click', () => this.handlers.onVoiceDelete())
+    $('btn-voice-test').addEventListener('click', () => (this.labState === 'test' ? this.handlers.onLabStop() : this.handlers.onVoiceTest()))
+    this.setLabState('idle')
+  }
+
+  /** The voice profile summary and the buttons that depend on whether one exists. */
+  setVoiceProfile(p: VoiceProfile | null) {
+    this.hasProfile = p !== null && seedCount(p) > 0
+    const status = $('voice-status')
+    if (!p || !this.hasProfile) {
+      status.textContent =
+        'No voice profile yet. Honyaku can still skip a reply it suggested when you read it aloud, but it cannot recognise your voice otherwise. Recording takes about a minute.'
+    } else {
+      const q = profileQuality(p)
+      const learned = p.en.adapt.length + p.ja.adapt.length
+      status.textContent = `Profile: ${q.label.toUpperCase()} · ${p.en.seed.length} English + ${p.ja.seed.length} Japanese samples${learned ? ` · ${learned} learned while you use it` : ''}.`
+    }
+    this.setLabState(this.labState)
+  }
+
+  setLabState(state: LabState) {
+    this.labState = state
+    const idle = state === 'idle'
+    $('enroll').hidden = state !== 'enroll'
+    $('btn-enroll').hidden = state === 'enroll'
+    ;($('btn-enroll') as HTMLButtonElement).disabled = state === 'test'
+    $('btn-enroll').textContent = this.hasProfile ? 'RE-RECORD MY VOICE' : 'RECORD MY VOICE'
+    $('btn-enroll-skip').hidden = state !== 'enroll'
+    $('btn-lab-stop').hidden = state !== 'enroll'
+    $('btn-voice-delete').hidden = !idle || !this.hasProfile
+    ;($('btn-voice-test') as HTMLButtonElement).disabled = state === 'enroll'
+    $('btn-voice-test').textContent = state === 'test' ? 'STOP TEST' : 'START TEST'
+    if (state === 'test') $('test-out').replaceChildren(this.testIdle('speak now — each phrase gets a verdict here'))
+    if (state === 'idle' && !$('test-out').querySelector('.test-verdict')) $('test-out').replaceChildren(this.testIdle('no test running'))
+    if (state === 'idle') this.setLabLevel(-90, false)
+    if (state !== 'idle') this.setLabMessage('', '')
+  }
+
+  private testIdle(text: string) {
+    const s = this.span(text)
+    s.className = 'test-idle'
+    return s
+  }
+
+  /** The prompt to read next (null = finished). */
+  setEnrollStep(prompt: Prompt | null, index: number, total: number) {
+    $('enroll-count').textContent = prompt ? `SENTENCE ${index + 1} OF ${total}` : 'DONE'
+    $('enroll-lang').textContent = !prompt ? '' : prompt.lang === 'en' ? 'ENGLISH' : 'JAPANESE · READ IT AS YOU WOULD SAY IT'
+    $('enroll-text').textContent = prompt?.text ?? ''
+    $('enroll-text').lang = prompt?.lang ?? 'en'
+    $('enroll-romaji').textContent = prompt?.romaji ?? ''
+    $('enroll-meaning').textContent = prompt?.meaning ?? ''
+    this.setLabMessage(prompt ? 'Read the sentence, then pause.' : '', '')
+  }
+
+  setLabLevel(db: number, speaking: boolean) {
+    const bar = $('enroll-bar')
+    bar.classList.toggle('speaking', speaking)
+    ;(bar.firstElementChild as HTMLElement).style.width = `${Math.round(Math.min(1, Math.max(0, (db + 70) / 50)) * 100)}%`
+  }
+
+  setLabMessage(text: string, kind: 'ok' | 'warn' | '') {
+    const el = $('lab-msg')
+    el.textContent = text
+    el.className = `lab-msg ${kind}`.trim()
+  }
+
+  /** The live test's verdict for one phrase. */
+  setTestResult(who: Speaker, voice: number | null, level: number | null, hasProfile: boolean) {
+    const out = $('test-out')
+    out.replaceChildren()
+    const v = this.span(who === 'wearer' ? 'YOU' : who === 'other' ? 'SOMEONE ELSE' : 'NOT SURE')
+    v.className = `test-verdict ${who}`
+    out.append(v)
+    if (!hasProfile) {
+      out.append(this.testIdle('Record your voice profile first to get voice and level scores.'))
+      return
+    }
+    out.append(this.scoreBar('VOICE', voice), this.scoreBar('LEVEL', level))
+  }
+
+  private scoreBar(label: string, value: number | null): HTMLElement {
+    const row = document.createElement('div')
+    row.className = 'score-bar'
+    const bar = document.createElement('div')
+    bar.className = 'meter'
+    const fill = document.createElement('i')
+    fill.style.width = `${Math.round((value ?? 0) * 100)}%`
+    bar.append(fill)
+    row.append(this.span(label), bar, this.span(value === null ? '—' : `${Math.round(value * 100)}`))
+    return row
+  }
+
+  /** One line of the rolling verdict log (what the filter decided for each recognised phrase). */
+  showVoiceScore(m: Extract<ServerMsg, { type: 'voice_score' }>) {
+    const pct = (x: number | null) => (x === null ? '–' : String(Math.round(x * 100)))
+    const row = document.createElement('div')
+    row.className = 'row'
+    const who = this.span(m.who === 'wearer' ? 'YOU' : m.who === 'other' ? 'THEM' : '?')
+    who.className = `who ${m.who}`
+    const txt = this.span(`${m.text}  [v${pct(m.voice)} l${pct(m.level)} e${Math.round(m.echo * 100)}]`)
+    txt.className = 'txt'
+    row.append(who, txt)
+    const log = $('voice-log')
+    log.prepend(row)
+    this.verdictLog.unshift(row)
+    while (this.verdictLog.length > 8) this.verdictLog.pop()?.remove()
   }
 
   // ── test results ───────────────────────────────────────────────────────────

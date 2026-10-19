@@ -57,3 +57,13 @@ export function classifyInput(event: EvenHubEvent): GlassesInput {
   if (sys && sys.imuData === undefined && sys.systemExitReasonCode === undefined) return 'click'
   return 'unknown'
 }
+
+/**
+ * A tap on an item of the menu list. The list reports which item is highlighted; index 0 is omitted by the protocol
+ * (like a tap's eventType), so a missing index means the first item. Null for anything that isn't a tap on the list.
+ */
+export function listClick(event: EvenHubEvent): { name?: string; index?: number } | null {
+  const list = event.listEvent
+  if (!list || classifyInput(event) !== 'click') return null
+  return { name: list.currentSelectItemName || undefined, index: list.currentSelectItemIndex }
+}

@@ -3,7 +3,7 @@
 //
 //   standard    header y=0 h=32 · body y=32 h=216 (translation feed, captures input) · footer y=248 h=40
 //   predictive  header y=0 h=32 · body y=32 h=256 (the other person's turn + suggested replies, captures input)
-//   menu        header · body y=32 h=96 (what was on screen, dimmed by being small) · list y=132 h=156 (captures input)
+//   menu        header · body y=32 h=64 (the last two rows that were on screen) · list y=100 h=188 (captures input)
 //
 // Romaji is plain ASCII so it always renders. Kana/kanji are only drawn when the user turns that on.
 
@@ -126,13 +126,13 @@ export class Display {
       containerTotalNum: 3,
       textObject: [
         this.text(ID_HEADER, 'header', 0, 32, this.headerText(layout), false, 2),
-        this.text(ID_BODY, 'body', 32, 96, this.bodyText(layout), false, 4),
+        this.text(ID_BODY, 'body', 32, 64, this.bodyText(layout), false, 4),
       ],
       listObject: [
         new ListContainerProperty({
           containerID: ID_MENU,
           containerName: 'menu',
-          xPosition: 0, yPosition: 132, width: 576, height: 156,
+          xPosition: 0, yPosition: 100, width: 576, height: 188,
           borderWidth: 1, borderColor: 13, borderRadius: 4, paddingLength: 4,
           isEventCapture: 1,
           itemContainer: new ListItemContainerProperty({ itemCount: items.length, itemWidth: 556, isItemSelectBorderEn: 1, itemName: items.map((i) => i.label) }),
@@ -315,8 +315,8 @@ export class Display {
       return ['Please set up Honyaku in the', 'Even Realities app.', '', 'Error: Missing API keys', ...this.setup.map((m) => `- ${m}`)].join('\n')
     }
     if (layout === 'menu') {
-      // What was on screen, trimmed to the few rows that fit above the menu.
-      const rows = (this.mode === 'predictive' ? this.view.rows() : this.feed.visible()).slice(0, 3)
+      // What was on screen, trimmed to the couple of rows that fit above the menu.
+      const rows = (this.mode === 'predictive' ? this.view.rows() : this.feed.visible()).slice(0, 2)
       return rows.length ? rows.join('\n') : ' '
     }
     if (layout === 'predictive') {

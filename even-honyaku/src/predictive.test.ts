@@ -146,6 +146,25 @@ describe('PredictiveView conversation flow', () => {
     expect(v.rows().filter((r) => r.startsWith('▶'))).toHaveLength(1)
   })
 
+  it('a new question long after the last one, with no answer in between, is a new turn', () => {
+    const v = view()
+    v.heard(q(1, 'Hot or iced?'), true, 1_000)
+    v.predictions(1, choice)
+    v.heard(q(2, 'Would you like milk?'), true, 1_000 + 30_000)
+    expect(v.rows()).toEqual(['JP: Would you like milk?', '', 'thinking...'])
+    // …but the previous turn is still there to read
+    v.predictions(2, single)
+    expect(v.move('up')).toBe(true)
+    expect(v.rows()[0]).toBe('JP: Hot or iced?')
+  })
+
+  it('a quick follow-up within the window still joins the same turn', () => {
+    const v = view()
+    v.heard(q(1, 'Welcome.'), true, 1_000)
+    v.heard(q(2, 'Hot or iced?'), true, 1_000 + 4_000)
+    expect(v.rows()[0]).toBe('JP: Welcome. Hot or iced?')
+  })
+
   it('a prediction for a turn that has been answered or replaced is ignored', () => {
     const v = view()
     v.heard(q(1, 'Hot or iced?'), true)

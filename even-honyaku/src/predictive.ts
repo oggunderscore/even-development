@@ -5,6 +5,7 @@
 // turns scroll away on their own (they stay reachable by swiping up past the first option). Rows are laid out against
 // the real row budget so nothing is ever clipped or re-wrapped by the glasses.
 
+import { NEW_TURN_AFTER_MS } from './core/turns'
 import { wrapLine } from './feed'
 import type { Prediction, ReplyOption, Translation } from './protocol'
 
@@ -23,6 +24,8 @@ interface Turn {
   lines: Line[]
   /** Id of the last phrase; predictions are matched to it. */
   lastId: number
+  /** When the last phrase arrived (ms), to tell a continuation from a fresh turn. */
+  at: number
   unsure: boolean
   live: string
   thinking: boolean
@@ -34,7 +37,7 @@ interface Turn {
   error: string | null
 }
 
-const newTurn = (): Turn => ({ lines: [], lastId: -1, unsure: false, live: '', thinking: false, prediction: null, said: null, free: null, error: null })
+const newTurn = (): Turn => ({ lines: [], lastId: -1, at: 0, unsure: false, live: '', thinking: false, prediction: null, said: null, free: null, error: null })
 
 export interface PredictiveOptions {
   /** Draw kana/kanji too (the user turned it on; the font support is unverified, so off by default). */
@@ -111,7 +114,7 @@ export class PredictiveView {
   }
 
   /** A finished translation. */
-  heard(tr: Translation, predictionExpected: boolean) {
+  heard(tr: Translation, predictionExpected: boolean, now = Date.now()) {
     if (tr.dir === 'speak') {
       // The wearer answered in their own words: show their romaji until the other person speaks again.
       const t = this.live ?? this.startTurn()
@@ -122,8 +125,10 @@ export class PredictiveView {
       this.focused = false
       return
     }
-    const t = this.closed ? this.startTurn() : this.live!
+    const stale = this.live !== undefined && this.live.lines.length > 0 && now - this.live.at > NEW_TURN_AFTER_MS
+    const t = this.closed || stale ? this.startTurn() : this.live!
     t.live = ''
+    t.at = now
     t.lines.push({ english: tr.heardEnglish ? tr.english : tr.english || tr.romaji, japanese: tr.japanese, romaji: tr.romaji })
     t.lines = t.lines.slice(-3)
     t.lastId = tr.id

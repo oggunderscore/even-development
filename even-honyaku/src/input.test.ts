@@ -1,7 +1,7 @@
 import type { EvenHubEvent } from '@evenrealities/even_hub_sdk'
 import { OsEventTypeList as T } from '@evenrealities/even_hub_sdk'
 import { describe, expect, it } from 'vitest'
-import { classifyInput } from './input'
+import { classifyInput, listClick } from './input'
 
 const ev = (e: Record<string, unknown>) => e as unknown as EvenHubEvent
 
@@ -34,5 +34,17 @@ describe('classifyInput', () => {
     expect(classifyInput(ev({ sysEvent: { eventType: T.IMU_DATA_REPORT } }))).toBe('unknown')
     expect(classifyInput(ev({ sysEvent: { imuData: { x: 1 } } }))).toBe('unknown')
     expect(classifyInput(ev({}))).toBe('unknown')
+  })
+})
+
+describe('listClick', () => {
+  it('reads the picked item from a tap on the menu list; a missing index is the first item', () => {
+    expect(listClick(ev({ listEvent: { currentSelectItemName: 'Exit', currentSelectItemIndex: 2 } }))).toEqual({ name: 'Exit', index: 2 })
+    expect(listClick(ev({ listEvent: {} }))).toEqual({ name: undefined, index: undefined })
+  })
+  it('swipes and double taps on the list are not picks, and text events never are', () => {
+    expect(listClick(ev({ listEvent: { eventType: T.SCROLL_BOTTOM_EVENT, currentSelectItemIndex: 1 } }))).toBeNull()
+    expect(listClick(ev({ listEvent: { eventType: T.DOUBLE_CLICK_EVENT } }))).toBeNull()
+    expect(listClick(ev({ textEvent: {} }))).toBeNull()
   })
 })

@@ -1,37 +1,64 @@
 import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
 import { MAX_TURN_MS } from './config'
+import { analyze } from './core/voice'
+import { Segmenter } from './core/vad'
 import { Display, type UiState } from './display'
-import { classifyInput } from './input'
+import { Enrollment, REASON_TEXT } from './enroll'
+import { classifyInput, listClick } from './input'
+import { type MenuScreen, type MenuState, menuItems, menuPick, resolvePick } from './menu'
 import { toBytes } from './pcm'
-import type { ServerMsg, Translation } from './protocol'
+import type { ServerMsg, Translation, VoiceProfile } from './protocol'
 import { Session } from './session'
-import { type Settings, hasKeys, loadSettings, loadSettingsFromBridge, normalizeSettings, saveSettings, setupSteps, toUserConfig } from './settings'
+import { type Settings, hasKeys, loadSettings, loadSettingsFromBridge, normalizeSettings, providerKey, saveSettings, setupSteps, toUserConfig } from './settings'
 import { type Phase, PhoneUi } from './ui'
+import { loadVoice, loadVoiceFromBridge, saveVoice } from './voice-store'
 import './romaji-browser'
 
 // Listening starts PAUSED. Once the user resumes it, the glasses mic streams continuously until they pause again:
-//   listening  – always-on; server detects English / Japanese per utterance (JP → English, EN → romaji)
-//   talking    – the wearer is holding the button (or tapped the glasses): English only → romaji
+//   listening  – always-on; the engine detects English / Japanese per utterance (JP → English, EN → romaji), keeps the
+//                wearer's own voice out of the conversation, and (Predictive mode) suggests replies
+//   talking    – the wearer is holding the phone button: English only → romaji
 //   processing – just released; ambient listening is already running again, UI waits for `done`
-//   paused     – user toggled listening off (swipe / phone button): mic closed, nothing streamed or billed;
+//   paused     – user toggled listening off (glasses menu / phone button): mic closed, nothing streamed or billed;
 //                hold-to-talk still works and returns here afterwards
 //   idle       – not capturing (offline, no Even bridge, or startup)
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>
-type GlassesDisplay = Pick<Display, 'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll' | 'setSetup'>
+type GlassesDisplay = Pick<
+  Display,
+  'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll' | 'setSetup' | 'predictions' | 'predictionFailed' | 'self' | 'tap' | 'setMode' | 'setKana' | 'openMenu' | 'closeMenu' | 'menuOpen'
+>
 
 // The phone UI + engine are set up BEFORE we wait for the Even bridge, so they work (and the
 // typed-text form doesn't fall back to a native page-reloading submit) even when the bridge is
 // missing, e.g. when the page is opened in a plain browser instead of the Even app / simulator.
-const noDisplay: GlassesDisplay = { setState() {}, setLive() {}, addTranslation() {}, note() {}, scroll() {}, setSetup() {} }
+const noDisplay: GlassesDisplay = {
+  setState() {},
+  setLive() {},
+  addTranslation() {},
+  note() {},
+  scroll() {},
+  setSetup() {},
+  predictions() {},
+  predictionFailed() {},
+  self() {},
+  tap: () => undefined,
+  setMode: () => Promise.resolve(),
+  setKana() {},
+  openMenu: () => Promise.resolve(false),
+  closeMenu: () => Promise.resolve(),
+  menuOpen: false,
+}
 let bridge: Bridge | null = null
 let display: GlassesDisplay = noDisplay
 
-// The user's own API keys. Loaded synchronously from localStorage for first paint, then reconciled with the
-// bridge's store once it's up (see initGlasses).
+// The user's own API keys and choices, and the wearer's voiceprint. Loaded synchronously from localStorage for first
+// paint, then reconciled with the bridge's store once it's up (see initGlasses).
 let settings: Settings = loadSettings()
+let voiceProfile: VoiceProfile | null = loadVoice()
+/** The engine confirmed it can suggest replies (Predictive mode is on and an LLM key is set). */
+let predictReady = false
 
-
-// Listening is OFF until the wearer turns it on (tap on the glasses / button on the phone).
+// Listening is OFF until the wearer turns it on (glasses menu / button on the phone).
 let phase: Phase = 'paused'
 /** User intent: always-on listening is switched off. Survives reconnects. */
 let paused = true
@@ -44,21 +71,33 @@ let doneTimer: ReturnType<typeof setTimeout> | undefined
 let micWatchdog: ReturnType<typeof setTimeout> | undefined
 /** Mic chunks received since the mic was opened; zero a few seconds in means the mic isn't delivering. */
 let micChunks = 0
+/** The voice setup (enrollment or live test) currently borrowing the glasses mic; declared up here because the capture helpers read it. */
+let lab: { kind: 'enroll' | 'test'; seg: Segmenter; enrollment?: Enrollment; resume: boolean } | null = null
 
-const ui = new PhoneUi({
-  onHoldStart: () => void startTalk(),
-  onHoldEnd: () => void stopTalk(),
-  onToggleListen: () => void toggleListening(),
-  onTyped: (text) => {
-    if (!keysAvailable()) return needKeys()
-    ui.markWorking()
-    void session.translateText(text).catch(() => {
-      ui.setLive('speak', '')
-      ui.addError('Translation engine not running')
-    })
+const ui = new PhoneUi(
+  {
+    onHoldStart: () => void startTalk(),
+    onHoldEnd: () => void stopTalk(),
+    onToggleListen: () => void toggleListening(),
+    onTyped: (text) => {
+      if (!keysAvailable()) return needKeys()
+      ui.markWorking()
+      void session.translateText(text).catch(() => {
+        ui.setLive('speak', '')
+        ui.addError('Translation engine not running')
+      })
+    },
+    onSave: (next, opts) => void applySettings(next, opts.test),
+    onPrefs: (patch) => void updateSettings(patch),
+    onEnroll: () => void startLab('enroll'),
+    onEnrollSkip: () => skipEnroll(),
+    onLabStop: () => void stopLab(),
+    onVoiceTest: () => void startLab('test'),
+    onVoiceDelete: () => void deleteVoice(),
   },
-  onSave: (next, opts) => void applySettings(next, opts.test),
-}, settings)
+  settings,
+)
+ui.setVoiceProfile(voiceProfile)
 
 const session = new Session({
   onConnection(ok) {
@@ -68,11 +107,14 @@ const session = new Session({
     syncState()
   },
   onMessage: handleServerMessage,
-  getConfig: () => toUserConfig(settings),
+  getConfig: () => toUserConfig(settings, voiceProfile),
 })
 void session.connect()
 
 const keysAvailable = (): boolean => hasKeys(settings)
+/** Predictive mode needs a provider that can write text; Google Translate cannot. */
+const hasLlm = (): boolean => settings.provider !== 'google' && providerKey(settings) !== ''
+const predictive = (): boolean => settings.mode === 'predictive' && predictReady
 
 /** What first-run setup is still missing, in words for the glasses. Null once both keys are in. */
 function missingSetup(): string[] | null {
@@ -103,18 +145,37 @@ async function applySettings(raw: Settings, test: boolean) {
   await saveSettings(settings, bridge)
   ui.setSettings(settings)
   refreshSetup()
+  void syncGlassesPrefs()
 
   session.reset() // stops the engine; connect() below starts it again with the new keys
   await session.connect()
   if (!test) {
     if (hasKeys(settings)) {
-      ui.addNote('Setup complete. Hold the glasses or tap RESUME LISTENING to start.')
+      ui.addNote('Setup complete. Double-tap the glasses > Resume listening, or tap RESUME LISTENING.')
       ui.showView('feed')
     }
     return
   }
   ui.showTesting()
   await session.test()
+}
+
+/** A preference changed (phone control or glasses menu): save it, tell the engine and the glasses, keep streams running. */
+async function updateSettings(patch: Partial<Settings>) {
+  if (patch.mode === 'predictive' && !hasLlm()) {
+    ui.addNote('Predictive mode needs an OpenRouter or Claude key (Google Translate cannot suggest replies).')
+    patch = { ...patch, mode: 'standard' }
+  }
+  settings = { ...settings, ...patch }
+  ui.setSettings(settings)
+  await saveSettings(settings, bridge)
+  session.reconfigure()
+  await syncGlassesPrefs()
+}
+
+async function syncGlassesPrefs() {
+  display.setKana(settings.glassesKana)
+  await display.setMode(settings.mode)
 }
 
 function syncState() {
@@ -180,7 +241,7 @@ async function haltCapture() {
  * the Deepgram sockets drop), a BLE hiccup, or a stream that gave up reconnecting. Keeps the user's pause choice.
  */
 async function resumeCapture() {
-  if (!bridge || paused || !connected || phase === 'talking') return
+  if (!bridge || paused || !connected || phase === 'talking' || lab) return
   turn++
   clearTimeout(doneTimer)
   clearTimeout(micWatchdog)
@@ -189,9 +250,9 @@ async function resumeCapture() {
   await startAmbient()
 }
 
-/** Long press on the glasses / phone button: stop or resume always-on listening. */
+/** Glasses menu / phone button: stop or resume always-on listening. */
 async function toggleListening() {
-  if (phase === 'talking') return // don't yank the mic out from under a held button
+  if (phase === 'talking' || lab) return // don't yank the mic out from under a held button or the voice setup
   if (paused) {
     if (!keysAvailable()) return needKeys()
     paused = false
@@ -210,9 +271,9 @@ async function toggleListening() {
   await closeMic()
 }
 
-/** Wearer starts talking English (phone hold button down, or glasses tap). */
+/** Wearer starts talking English (phone hold button down). */
 async function startTalk() {
-  if (phase === 'talking') return
+  if (phase === 'talking' || lab) return
   if (!bridge) {
     ui.addError('No glasses mic — Even bridge not connected')
     return
@@ -275,14 +336,42 @@ function handleServerMessage(msg: ServerMsg) {
       break
     case 'final': {
       const t: Translation = msg
-      display.addTranslation(t)
+      display.addTranslation(t, predictive() && t.dir === 'listen' && !t.unsure)
       ui.addTranslation(t)
       break
     }
+    case 'predictions':
+      display.predictions(msg.turnId, msg.prediction)
+      ui.addPredictions(msg.prediction)
+      break
+    case 'self':
+      display.self(msg.optionIndex)
+      display.setLive('')
+      ui.addSelf(msg.text, msg.option)
+      break
+    case 'voice_score':
+      ui.showVoiceScore(msg)
+      break
+    case 'voice_profile':
+      voiceProfile = msg.profile
+      ui.setVoiceProfile(voiceProfile)
+      void saveVoice(voiceProfile, bridge)
+      break
     case 'done':
       settle()
       break
     case 'error':
+      if (msg.code === 'no_llm') {
+        // Predictive was asked for but the provider can't do it: fall back to the classic screen and say why.
+        ui.addError(msg.message)
+        if (settings.mode === 'predictive') void updateSettings({ mode: 'standard' })
+        break
+      }
+      if (msg.message.startsWith('reply suggestions:')) {
+        display.predictionFailed(msg.message.replace('reply suggestions: ', ''))
+        ui.addError(msg.message)
+        break
+      }
       display.note(msg.message.slice(0, 80))
       ui.setLive('speak', '')
       if (msg.code === 'no_keys') {
@@ -297,22 +386,167 @@ function handleServerMessage(msg: ServerMsg) {
       ui.showResults(msg.results)
       break
     case 'config_ok':
+      predictReady = msg.predict
+      break
     case 'ready':
       break
   }
 }
 
+// ── Voice setup: enrollment and live test ────────────────────────────────────
+// Both borrow the glasses mic while normal listening is paused, and work entirely on the phone (nothing is sent to
+// Deepgram or anywhere else). Enrollment turns a few read-aloud sentences into the wearer's voiceprint; the test shows,
+// for each thing said, exactly what the voice filter would decide — the tool for tuning it.
+
+async function startLab(kind: 'enroll' | 'test') {
+  if (lab) return
+  if (!bridge) {
+    ui.addError('The glasses mic is needed for voice setup. Open Honyaku from the Even app with the glasses connected')
+    return
+  }
+  if (phase === 'talking') return
+  const resume = !paused
+  if (resume) await toggleListening() // pauses and closes the mic
+  const enrollment = kind === 'enroll' ? new Enrollment() : undefined
+  const seg = new Segmenter(
+    (audio) => onLabSegment(audio),
+    (db, speaking) => ui.setLabLevel(db, speaking),
+  )
+  lab = { kind, seg, enrollment, resume }
+  ui.setLabState(kind)
+  if (enrollment) ui.setEnrollStep(enrollment.current, enrollment.index, enrollment.total)
+  await openMic()
+  if (!micOpen) await stopLab()
+}
+
+function onLabSegment(audio: Float32Array) {
+  if (!lab) return
+  if (lab.enrollment) {
+    const e = lab.enrollment
+    const r = e.submit(audio)
+    if (!r.ok) {
+      ui.setLabMessage(REASON_TEXT[r.reason], 'warn')
+      return
+    }
+    ui.setLabMessage('Got it.', 'ok')
+    if (e.done) return void finishEnroll()
+    ui.setEnrollStep(e.current, e.index, e.total)
+    return
+  }
+  // live test: the same analysis the engine runs on every utterance (minus the echo signal)
+  const a = analyze(voiceProfile, audio, settings.voiceStrictness)
+  ui.setTestResult(a.who, a.voice, a.level, voiceProfile !== null)
+}
+
+function skipEnroll() {
+  const e = lab?.enrollment
+  if (!e) return
+  e.skip()
+  if (e.done) return void finishEnroll()
+  ui.setEnrollStep(e.current, e.index, e.total)
+}
+
+async function finishEnroll() {
+  const e = lab?.enrollment
+  if (!e) return
+  const { profile, ready, quality } = e.result()
+  if (!ready) {
+    ui.setLabMessage('Not enough good samples to build a voice profile. Try again in a quieter place.', 'warn')
+    await stopLab()
+    return
+  }
+  // A fresh enrollment replaces the old voiceprint, including what it had learned.
+  voiceProfile = profile
+  await saveVoice(voiceProfile, bridge)
+  ui.setVoiceProfile(voiceProfile)
+  session.reconfigure()
+  ui.setLabMessage(`Voice profile saved (${quality.label}). Try the live test to check it.`, 'ok')
+  await stopLab()
+}
+
+async function stopLab() {
+  const current = lab
+  if (!current) return
+  current.seg.flush()
+  lab = null
+  ui.setLabState('idle')
+  await closeMic()
+  if (current.resume) await toggleListening()
+}
+
+async function deleteVoice() {
+  voiceProfile = null
+  await saveVoice(null, bridge)
+  ui.setVoiceProfile(null)
+  session.reconfigure()
+  ui.addNote('Voice profile deleted.')
+}
+
 // ── Glasses ──────────────────────────────────────────────────────────────────
-// Glasses: hold (long press, SDK 0.0.14+ / Even App 2.2.9+) pauses / resumes always-on listening,
-// swipe scrolls the feed, double tap exits. Hold-to-talk-in-English lives on the phone button.
+// Glasses: double tap opens the menu (Pause/Resume listening · Settings · Exit); swipe scrolls the feed (or moves
+// the highlight in Predictive mode); tap zooms into a suggested reply. Hold (long press) is left alone — users
+// commonly bind it to their own action. Hold-to-talk-in-English lives on the phone button.
 
 // The event subscription is created once and never removed: the app must keep reacting to the glasses for as long
 // as it is alive, including after the user answers "No" to the exit dialog or the phone has been in the background.
 let lastScrollAt = 0
-let lastHoldAt = 0
+let lastMenuAt = 0
 let lastExitAt = 0
 /** The OS told us the app is closing (or its capture is gone); recover on the next sign of life. */
 let suspended = false
+
+const MENU_IDLE_MS = 12_000
+let menuScreen: MenuScreen = 'main'
+let menuTimer: ReturnType<typeof setTimeout> | undefined
+
+const menuState = (): MenuState => ({
+  screen: menuScreen,
+  listening: !paused,
+  hasLlm: hasLlm(),
+  settings: { mode: settings.mode, replyStyle: settings.replyStyle, maxOptions: settings.maxOptions, voiceFilter: settings.voiceFilter, glassesKana: settings.glassesKana },
+})
+
+async function openMenu(screen: MenuScreen = 'main') {
+  menuScreen = screen
+  const ok = await display.openMenu(menuItems(menuState()))
+  if (!ok) return
+  clearTimeout(menuTimer)
+  menuTimer = setTimeout(() => void closeMenu(), MENU_IDLE_MS)
+}
+
+async function closeMenu() {
+  clearTimeout(menuTimer)
+  menuScreen = 'main'
+  await display.closeMenu()
+}
+
+async function onMenuPick(click: { name?: string; index?: number }) {
+  const item = resolvePick(menuItems(menuState()), click)
+  const action = item ? menuPick(menuState(), item.id) : null
+  if (!action) return
+  clearTimeout(menuTimer)
+  menuTimer = setTimeout(() => void closeMenu(), MENU_IDLE_MS)
+  switch (action.type) {
+    case 'toggle_listen':
+      await toggleListening()
+      await closeMenu() // so the header shows the new state
+      break
+    case 'screen':
+      await openMenu(action.screen)
+      break
+    case 'set':
+      await updateSettings(action.patch)
+      await openMenu(menuScreen) // a list can't be edited in place: redraw it with the new values
+      break
+    case 'note':
+      display.note(action.text)
+      await openMenu(menuScreen)
+      break
+    case 'exit':
+      await exit()
+      break
+  }
+}
 
 async function initGlasses() {
   const found = await Promise.race([
@@ -323,7 +557,10 @@ async function initGlasses() {
     ui.addError('Even bridge not found. Open Honyaku from the Even app. Typed text still works; mic and glasses are off')
     return
   }
-  const glasses = new Display(found)
+  // The bridge's store outlives the WebView's localStorage; prefer it (and re-seed it from localStorage).
+  const stored = await loadSettingsFromBridge(found)
+  const storedVoice = await loadVoiceFromBridge(found)
+  const glasses = new Display(found, { mode: stored.mode, kana: stored.glassesKana })
   const initResult = await glasses.init()
   if (initResult !== 0) {
     ui.addError(`Glasses page failed to start (code ${initResult}); phone UI only`)
@@ -331,15 +568,15 @@ async function initGlasses() {
   }
   bridge = found
   display = glasses
-  // The bridge's store outlives the WebView's localStorage; prefer it (and re-seed it from localStorage).
-  const stored = await loadSettingsFromBridge(found)
+  voiceProfile = storedVoice ?? voiceProfile
+  ui.setVoiceProfile(voiceProfile)
   if (JSON.stringify(stored) !== JSON.stringify(settings)) {
     settings = stored
     ui.setSettings(settings)
-    session.reset() // restart the engine with the stored keys
-    await session.connect()
-    if (hasKeys(settings)) ui.showView('feed')
   }
+  session.reset() // restart the engine with the stored keys, preferences and voiceprint
+  await session.connect()
+  if (hasKeys(settings)) ui.showView('feed')
   refreshSetup()
   bridge.onEvenHubEvent(onGlassesEvent)
   watchLiveness()
@@ -349,9 +586,11 @@ async function initGlasses() {
 
 function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0]>[0]) {
   if (event.audioEvent) {
-    const raw = event.audioEvent.audioPcm
-    const pcm = toBytes(raw)
-    if (pcm && phase !== 'idle' && phase !== 'paused') {
+    const pcm = toBytes(event.audioEvent.audioPcm)
+    if (pcm && lab) {
+      micChunks++
+      lab.seg.push(pcm)
+    } else if (pcm && phase !== 'idle' && phase !== 'paused') {
       micChunks++
       session.sendAudio(pcm)
     }
@@ -366,10 +605,33 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
     if (input !== 'long_press') void resumeCapture()
   }
 
+  if (display.menuOpen && input !== 'exit' && input !== 'abnormal_exit' && input !== 'foreground') {
+    // The menu owns the touchpad: a tap picks, a double tap closes, everything else is the list scrolling itself.
+    clearTimeout(menuTimer)
+    menuTimer = setTimeout(() => void closeMenu(), MENU_IDLE_MS)
+    if (input === 'double_click') {
+      const now = Date.now()
+      if (now - lastMenuAt > 600) {
+        lastMenuAt = now
+        void closeMenu()
+      }
+      return
+    }
+    const click = listClick(event)
+    if (click) void onMenuPick(click)
+    return
+  }
+
   switch (input) {
-    case 'double_click':
-      void exit()
+    case 'double_click': {
+      // Open the menu. (The system exit dialog is behind its Exit item; the first double tap never quits.)
+      const now = Date.now()
+      if (now - lastMenuAt > 600) {
+        lastMenuAt = now
+        void openMenu()
+      }
       break
+    }
     case 'exit':
       // The app is closing. Stop streaming, but stay subscribed in case it isn't (the user can still get back in).
       suspended = true
@@ -389,33 +651,30 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
       }
       break
     }
-    case 'long_press': {
-      // Fires once when the hold registers; the release event is ignored. Debounced against repeats.
-      const now = Date.now()
-      if (now - lastHoldAt > 800) {
-        lastHoldAt = now
-        void toggleListening()
-      }
+    case 'click': {
+      // Predictive mode: zoom into the highlighted reply. A tap can't open the mic, so it is safe to use.
+      const chose = display.tap()
+      if (chose) session.chose(chose)
       break
     }
     default:
-      break // single taps are deliberately ignored so a stray touch can't open the mic
+      break // long press is deliberately unused
   }
 }
 
 /**
- * Double tap → the system exit dialog (mode 1; required on the root page). Nothing is torn down here: the user may
- * answer "No", and then listening and every gesture (including another double tap) must keep working. If they
- * answer "Yes" the OS closes us and a SYSTEM_EXIT event stops the capture.
+ * The menu's Exit item → the system exit dialog (mode 1; required on the root page). Nothing is torn down here: the
+ * user may answer "No", and then listening and every gesture must keep working. If they answer "Yes" the OS closes us
+ * and a SYSTEM_EXIT event stops the capture.
  */
 async function exit() {
   const now = Date.now()
-  if (now - lastExitAt < 1000) return // one dialog per double tap, never a stuck flag
+  if (now - lastExitAt < 1000) return // one dialog per tap, never a stuck flag
   lastExitAt = now
   try {
     await bridge?.shutDownPageContainer(1)
   } catch {
-    /* the next double tap simply tries again */
+    /* the next tap simply tries again */
   }
 }
 

@@ -18,14 +18,15 @@ import { EchoMatcher } from './echo'
 import { isBackchannel, predictReplies } from './predict'
 import { testConfig } from './probes'
 import { type Range, type Stt, createStt as defaultCreateStt } from './stt'
+import { NEW_TURN_AFTER_MS } from './turns'
 import { detectDir, translate } from './translate'
 import {
   ECHO_CERTAIN,
   ECHO_LIKELY,
   VoiceTimeline,
   analyze,
-  emptyProfile,
   parseProfile,
+  profileReady,
   withLearned,
 } from './voice'
 
@@ -40,6 +41,7 @@ export interface EngineOptions {
 const tooShort = (text: string) => text.replace(/\s/g, '').length < 2
 
 const DEFAULT_TURN_GAP_MS = 900
+
 /** A voice vector needs this much clearly-voiced speech before it may teach the voiceprint. */
 const MIN_LEARN_SEC = 1.0
 
@@ -62,7 +64,7 @@ export class Engine {
   private pending: Promise<void> = Promise.resolve()
 
   /** The other person's current turn: what they said since the wearer last spoke. */
-  private turn: { texts: string[]; firstId: number; lastId: number } | null = null
+  private turn: { texts: string[]; firstId: number; lastId: number; at: number } | null = null
   private turnTimer: ReturnType<typeof setTimeout> | undefined
   private predicting: AbortController | null = null
 
@@ -292,11 +294,15 @@ export class Engine {
     }
   }
 
-  /** Add an utterance we are sure was the wearer's to their voiceprint (kept apart from the enrolled samples). */
+  /**
+   * Add an utterance we are sure was the wearer's to their voiceprint (kept apart from the enrolled samples). Only ever
+   * refines a profile the user chose to record: nobody gets a voiceprint they didn't ask for.
+   */
   private learn(lang: 'en' | 'ja', audio: Float32Array | null) {
+    if (!profileReady(this.profile)) return
     const f = audio ? voiceFeatures(audio) : null
     if (!f || f.voicedSec < MIN_LEARN_SEC) return
-    this.profile = withLearned(this.profile ?? emptyProfile(), lang, f)
+    this.profile = withLearned(this.profile, lang, f)
     clearTimeout(this.profileTimer)
     this.profileTimer = setTimeout(() => {
       if (!this.closed && this.profile) this.emit({ type: 'voice_profile', profile: this.profile })
@@ -335,7 +341,10 @@ export class Engine {
   // ── turns and predictions ──────────────────────────────────────────────────
 
   private addToTurn(text: string, id: number) {
-    this.turn = { texts: [...(this.turn?.texts ?? []), text].slice(-3), firstId: this.turn?.firstId ?? id, lastId: id }
+    const now = Date.now()
+    // Long after the last phrase with no answer from the wearer, this is a new question rather than a continuation.
+    const prev = this.turn && now - this.turn.at <= NEW_TURN_AFTER_MS ? this.turn : null
+    this.turn = { texts: [...(prev?.texts ?? []), text].slice(-3), firstId: prev?.firstId ?? id, lastId: id, at: now }
     this.scheduleTurn()
   }
 
