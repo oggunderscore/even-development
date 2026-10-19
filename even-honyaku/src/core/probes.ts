@@ -3,12 +3,15 @@
 
 import type { Provider, TestResult, TestScope } from '../protocol'
 import { type ResolvedConfig, translateKey } from './config'
+import { describeError } from './errors'
 import { deepgramUrl } from './stt'
 import { activeModel } from './models'
 import { translate } from './translate'
 import { RomajiNotInstalledError, loadRomajiDictionary } from './romaji'
 
 const TIMEOUT_MS = 8000
+/** A test phrase slower than this will feel laggy in conversation. */
+export const SLOW_MS = 2500
 
 export const PROVIDER_NAME: Record<Provider, string> = { google: 'Google', openrouter: 'OpenRouter', anthropic: 'Claude (Anthropic)' }
 
@@ -95,26 +98,37 @@ export async function testConfig(cfg: ResolvedConfig, scope: TestScope = 'transl
       await loadRomajiDictionary()
       results.push({ service: 'romaji', ok: true, detail: `dictionary ready (${((Date.now() - t0) / 1000).toFixed(1)}s)` })
     } catch (err) {
-      results.push(
-        err instanceof RomajiNotInstalledError
-          ? { service: 'romaji', ok: false, detail: 'Key accepted. The romaji dictionary (about 18 MB) needs to be downloaded.', action: 'download_dictionary' }
-          : { service: 'romaji', ok: false, detail: `The romaji dictionary failed to load: ${err instanceof Error ? err.message : 'error'}` },
-      )
+      if (err instanceof RomajiNotInstalledError) {
+        results.push({ service: 'romaji', ok: false, detail: 'Key accepted. The romaji dictionary (about 18 MB) needs to be downloaded.', action: 'download_dictionary' })
+      } else {
+        const e = describeError('check', err)
+        results.push({ service: 'romaji', ok: false, detail: `The romaji dictionary failed to load (${e.ref}).`, ref: e.ref, diag: `romaji ${e.detail}` })
+      }
     }
   }
 
   // End to end with the chosen model: only worth a call if the provider accepted the key (and, for Google, romaji works).
   if (provider.ok && results.every((r) => r.ok)) {
     const model = activeModel(cfg.translate.provider, cfg.translate)
+    const t0 = Date.now()
     try {
       const t = await translate('speak', 'How much is this?', [], 0, cfg.translate)
-      results.push({ service: 'translate', ok: true, detail: `"How much is this?" → ${t.romaji}` })
+      const ms = Date.now() - t0
+      results.push({ service: 'translate', ok: true, detail: `"How much is this?" → ${t.romaji} (${(ms / 1000).toFixed(1)}s)`, ms })
     } catch (err) {
-      const why = err instanceof Error ? err.message.replace(/\s+/g, ' ').slice(0, 120) : 'failed'
+      const e = describeError('check', err, model)
+      const hint =
+        e.ref === 'K-AUTH' || e.ref === 'K-RATE'
+          ? 'Check your key and credit.'
+          : e.ref === 'K-NET' || e.ref === 'K-TIME'
+            ? 'Check your connection and try again.'
+            : 'Try another model.'
       results.push({
         service: 'translate',
         ok: false,
-        detail: model ? `The key works, but the model "${model}" did not answer (${why}). Choose another model.` : `The key works, but a test translation failed (${why}).`,
+        detail: `The key works, but a test translation${model ? ` with "${model}"` : ''} failed (${e.ref}). ${hint}`,
+        ref: e.ref,
+        diag: `${cfg.translate.provider} ${e.detail}`,
       })
     }
   }
@@ -128,5 +142,7 @@ export function summarize(results: TestResult[]): { ok: boolean; text: string; n
   const failed = results.find((r) => !r.ok)
   if (failed) return { ok: false, text: failed.detail }
   const sample = results.find((r) => r.service === 'translate')
-  return { ok: true, text: sample ? 'Key accepted · test translation worked' : (results[0]?.detail ?? 'ok') }
+  if (!sample) return { ok: true, text: results[0]?.detail ?? 'ok' }
+  const secs = sample.ms === undefined ? '' : ` in ${(sample.ms / 1000).toFixed(1)}s`
+  return { ok: true, text: `Key accepted · test translation worked${secs}${(sample.ms ?? 0) > SLOW_MS ? ' · slow for live use, a faster model is listed above' : ''}` }
 }

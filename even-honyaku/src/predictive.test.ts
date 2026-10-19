@@ -74,8 +74,8 @@ describe('PredictiveView rows', () => {
     expect(v.rows()).toEqual(['JP: Hot or iced? (?)'])
     const w = view()
     w.heard(q(1, 'Hot or iced?'), true)
-    w.failed('timeout')
-    expect(w.rows().join(' ')).toMatch(/no suggestions: timeout/)
+    w.failed('Replies: too slow (R-TIME)')
+    expect(w.rows().join(' ')).toMatch(/Replies: too slow \(R-TIME\)/)
   })
 })
 

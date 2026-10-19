@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { OPENROUTER_DEFAULT_MODEL, type TranslateConfig, detectDir, parseJson, stripMacrons, translate } from './translate'
+import { OPENROUTER_DEFAULT_MODEL, type TranslateConfig, complete, detectDir, parseJson, parseLabeled, stripMacrons, translate } from './translate'
 import '../test/romaji-node'
 
 describe('stripMacrons', () => {
@@ -26,15 +26,37 @@ describe('detectDir', () => {
   })
 })
 
+describe('parseLabeled', () => {
+  it('reads the labelled lines', () => {
+    expect(parseLabeled('JA: こんにちは\nROMAJI: konnichiwa')).toEqual({ ja: 'こんにちは', romaji: 'konnichiwa' })
+  })
+  it('tolerates quotes, bold labels, bullets, fences, lower case and chatter', () => {
+    expect(parseLabeled('Sure!\n```\n- **EN:** "Hello there"\nromaji: yaa\n```')).toEqual({ en: 'Hello there', romaji: 'yaa' })
+    expect(parseLabeled('JA：「ありがとう」\nROMAJI: arigatou')).toEqual({ ja: 'ありがとう', romaji: 'arigatou' })
+  })
+  it('falls back to a JSON object from a model that ignored the format', () => {
+    expect(parseLabeled('{"ja":"こんにちは","romaji":"konnichiwa"}')).toEqual({ ja: 'こんにちは', romaji: 'konnichiwa' })
+  })
+  it('broken output is a coded failure that carries none of the text', () => {
+    const err = (() => {
+      try {
+        parseLabeled('{"ja": "x" "romaji": }')
+      } catch (e) {
+        return e as Error
+      }
+    })()
+    expect(err).toMatchObject({ kind: 'FORM' })
+    expect(err!.message).not.toContain('romaji')
+  })
+})
+
 describe('parseJson', () => {
-  it('parses bare JSON', () => {
-    expect(parseJson('{"ja":"こんにちは","romaji":"konnichiwa"}')).toEqual({ ja: 'こんにちは', romaji: 'konnichiwa' })
+  it('parses an object out of chatter and fences', () => {
+    expect(parseJson('Sure!\n```json\n{"en":"hi"}\n```')).toEqual({ en: 'hi' })
   })
-  it('tolerates code fences and chatter around the object', () => {
-    expect(parseJson('Sure!\n```json\n{"en":"hi","romaji":"yaa"}\n```')).toEqual({ en: 'hi', romaji: 'yaa' })
-  })
-  it('throws when there is no object', () => {
-    expect(() => parseJson('no json here')).toThrow(/no JSON/)
+  it('throws a coded failure, never the text', () => {
+    expect(() => parseJson('no json here')).toThrow(expect.objectContaining({ kind: 'FORM', message: 'no json' }))
+    expect(() => parseJson('{"a" "b"}')).toThrow(expect.objectContaining({ kind: 'FORM', message: 'bad json' }))
   })
 })
 
@@ -45,8 +67,8 @@ describe('translate via OpenRouter (mocked fetch)', () => {
   const cfg: TranslateConfig = { provider: 'openrouter', openrouterKey: 'sk-or-test' }
   afterEach(() => vi.unstubAllGlobals())
 
-  it('speak: sends a JSON-mode request and returns macron-free romaji', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(reply('{"ja":"ありがとう","romaji":"arigatō"}'))
+  it('speak: asks for plain labelled lines and returns macron-free romaji', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(reply('JA: ありがとう\nROMAJI: arigatō'))
     vi.stubGlobal('fetch', fetchMock)
 
     const t = await translate('speak', 'Thank you', [], 7, cfg)
@@ -57,12 +79,14 @@ describe('translate via OpenRouter (mocked fetch)', () => {
     expect(init.headers.Authorization).toBe('Bearer sk-or-test')
     const body = JSON.parse(init.body)
     expect(body.model).toBe(OPENROUTER_DEFAULT_MODEL)
-    expect(body.response_format).toEqual({ type: 'json_object' })
-    expect(body.messages[1].content).toContain('Mode "speak"')
+    expect(body.response_format).toBeUndefined()
+    expect(body.stream).toBe(false)
+    expect(body.messages[0].content).toContain('JA:')
+    expect(body.messages[1].content).toContain('Thank you')
   })
 
-  it('listen: maps {en, romaji} and honours the chosen model', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(reply('{"en":"How much is this?","romaji":"kore wa ikura desu ka"}'))
+  it('listen: maps EN and ROMAJI and honours the chosen model', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(reply('EN: How much is this?\nROMAJI: kore wa ikura desu ka'))
     vi.stubGlobal('fetch', fetchMock)
 
     const t = await translate('listen', 'これはいくらですか？', [], 0, { ...cfg, openrouterModel: 'qwen/qwen3.7-flash' })
@@ -72,14 +96,47 @@ describe('translate via OpenRouter (mocked fetch)', () => {
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body).model).toBe('qwen/qwen3.7-flash')
   })
 
-  it('throws a readable error on HTTP failure, error bodies and missing key', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('nope', { status: 402 })))
-    await expect(translate('speak', 'hi', [], 0, cfg)).rejects.toThrow(/openrouter 402/)
+  it('listen without romaji (Predictive mode) does not ask for it', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(reply('EN: Hot or iced?'))
+    vi.stubGlobal('fetch', fetchMock)
+    const t = await translate('listen', 'ホットですか、アイスですか', [], 0, cfg, { romaji: false })
+    expect(t).toMatchObject({ english: 'Hot or iced?', romaji: '' })
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body)
+    expect(body.messages[0].content).not.toContain('ROMAJI')
+    expect(body.max_tokens).toBeLessThan(200)
+  })
 
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: 'upstream down' } }))))
-    await expect(translate('speak', 'hi', [], 0, cfg)).rejects.toThrow(/upstream down/)
+  it('an answer without the expected line is a coded FORM failure', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply('Sorry, I cannot translate that.')))
+    await expect(translate('speak', 'hi', [], 0, cfg)).rejects.toMatchObject({ kind: 'FORM' })
+  })
 
-    await expect(translate('speak', 'hi', [], 0, { provider: 'openrouter' })).rejects.toThrow(/OpenRouter key is not set/)
+  it('failures are coded by cause; the upstream text never travels with them', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"error":{"message":"Your key sk-or-secret ran out","code":"insufficient_quota"}}', { status: 402 })))
+    const err = await translate('speak', 'hi', [], 0, cfg).catch((e: unknown) => e)
+    expect(err).toMatchObject({ kind: 'RATE', message: 'openrouter 402 insufficient_quota' })
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: 'upstream down', code: 502 } }))))
+    await expect(translate('speak', 'hi', [], 0, cfg)).rejects.toMatchObject({ kind: 'SVC', message: 'openrouter body error 502' })
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 401 })))
+    await expect(translate('speak', 'hi', [], 0, cfg)).rejects.toMatchObject({ kind: 'AUTH' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 404 })))
+    await expect(translate('speak', 'hi', [], 0, cfg)).rejects.toMatchObject({ kind: 'MODEL' })
+
+    await expect(translate('speak', 'hi', [], 0, { provider: 'openrouter' })).rejects.toMatchObject({ kind: 'AUTH' })
+  })
+
+  it('a reply that takes too long is a TIME failure', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('fetch', vi.fn().mockImplementation((_u: string, init: RequestInit) => new Promise((_r, rej) => init.signal!.addEventListener('abort', () => rej(new DOMException('x', 'AbortError'))))))
+      const run = translate('speak', 'hi', [], 0, cfg).catch((e: unknown) => e)
+      await vi.advanceTimersByTimeAsync(21_000)
+      expect(await run).toMatchObject({ kind: 'TIME' })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -112,7 +169,7 @@ describe('translate via Google Cloud Translation (mocked fetch)', () => {
 
   it('surfaces API errors', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"error":{"message":"API key not valid"}}', { status: 400 })))
-    await expect(translate('speak', 'hi', [], 0, cfg)).rejects.toThrow(/google translate 400/)
+    await expect(translate('speak', 'hi', [], 0, cfg)).rejects.toMatchObject({ kind: 'UNK', message: 'google 400' })
   })
 })
 
@@ -120,9 +177,9 @@ describe('translate via Anthropic (mocked fetch)', () => {
   const cfg: TranslateConfig = { provider: 'anthropic', anthropicKey: 'sk-ant-test' }
   afterEach(() => vi.unstubAllGlobals())
 
-  it('calls the Messages API directly with the browser-access header and parses the JSON reply', async () => {
+  it('calls the Messages API directly with the browser-access header and parses the labelled reply', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ content: [{ type: 'text', text: '{"ja":"ありがとう","romaji":"arigatō"}' }] }), { status: 200 }),
+      new Response(JSON.stringify({ content: [{ type: 'text', text: 'JA: ありがとう\nROMAJI: arigatō' }] }), { status: 200 }),
     )
     vi.stubGlobal('fetch', fetchMock)
 
@@ -138,7 +195,30 @@ describe('translate via Anthropic (mocked fetch)', () => {
 
   it('surfaces API errors and a missing key', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('overloaded', { status: 529 })))
-    await expect(translate('speak', 'hi', [], 0, cfg)).rejects.toThrow(/anthropic 529/)
-    await expect(translate('speak', 'hi', [], 0, { provider: 'anthropic' })).rejects.toThrow(/Anthropic key is not set/)
+    await expect(translate('speak', 'hi', [], 0, cfg)).rejects.toMatchObject({ kind: 'SVC', message: 'anthropic 529' })
+    await expect(translate('speak', 'hi', [], 0, { provider: 'anthropic' })).rejects.toMatchObject({ kind: 'AUTH' })
+  })
+
+  it('streams text deltas and reports a refusal as DECL', async () => {
+    const sse = (events: object[]) => new Response(events.map((e) => `event: x\ndata: ${JSON.stringify(e)}\n\n`).join(''), { status: 200 })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        sse([
+          { type: 'content_block_delta', delta: { type: 'text_delta', text: 'single\nYes ' } },
+          { type: 'content_block_delta', delta: { type: 'text_delta', text: '| hai\n' } },
+          { type: 'message_stop' },
+        ]),
+      ),
+    )
+    const seen: string[] = []
+    expect(await complete('s', 'u', cfg, { onText: (t) => seen.push(t) })).toBe('single\nYes | hai\n')
+    expect(seen).toEqual(['single\nYes ', 'single\nYes | hai\n'])
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse([{ type: 'content_block_delta', delta: { text: 'x' } }, { type: 'message_delta', delta: { stop_reason: 'refusal' } }])))
+    await expect(complete('s', 'u', cfg, { onText: () => {} })).rejects.toMatchObject({ kind: 'DECL' })
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse([{ type: 'error', error: { type: 'overloaded_error', message: 'secret text' } }])))
+    await expect(complete('s', 'u', cfg, { onText: () => {} })).rejects.toMatchObject({ kind: 'SVC', message: 'anthropic stream overloaded_error' })
   })
 })

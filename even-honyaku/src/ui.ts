@@ -26,6 +26,8 @@ export interface PhoneUiHandlers {
   onEditing(scope: TestScope): void
   /** The romaji dictionary download failed and the user asked to try again. */
   onDictionaryRetry(): void
+  /** The text for "Copy error details" (see diagnostics.ts). */
+  onDiagnostics(): string
   /** A conversation / voice-filter preference changed; applies immediately (no SAVE). */
   onPrefs(patch: Partial<Settings>): void
   onEnroll(): void
@@ -91,6 +93,7 @@ export class PhoneUi {
     this.wireTabs()
     this.wireSettings()
     this.wireGuide()
+    this.wireDiagnostics()
     this.wirePrefs()
     this.wireVoice()
     this.listenBtn.addEventListener('click', () => handlers.onToggleListen())
@@ -212,14 +215,30 @@ export class PhoneUi {
     this.scroll()
   }
 
-  /** The suggested replies, under the translation they answer. */
-  addPredictions(p: Prediction) {
-    const el = this.entry('reply', p.kind === 'choice' ? 'REPLY · PICK ONE' : 'REPLY')
-    el.querySelector('.big')!.remove()
-    el.querySelector('.sub')!.remove()
+  /**
+   * The suggested replies, under the translation they answer. While the model is still writing, the same entry is
+   * updated as each option arrives (`done` false); `ms` is how long the model took to get that far.
+   */
+  addPredictions(turnId: number, p: Prediction, ms?: number, done = true) {
+    const key = String(turnId)
+    let el = [...this.log.querySelectorAll<HTMLElement>('.entry.reply')].reverse().find((e) => e.dataset['turn'] === key)
+    const fresh = !el
+    if (!el) {
+      el = this.entry('reply', '')
+      el.dataset['turn'] = key
+      el.dataset['clock'] = clock()
+      el.querySelector('.big')?.remove()
+      el.querySelector('.sub')?.remove()
+    }
+    const said = new Set([...el.querySelectorAll<HTMLElement>('.opt.said')].map((r) => r.dataset['romaji']))
+    el.querySelectorAll('.opt').forEach((r) => r.remove())
+    const title = `${p.kind === 'choice' ? 'REPLY · PICK ONE' : 'REPLY'}${done && ms !== undefined ? ` · ${(ms / 1000).toFixed(1)}s` : ''}`
+    const meta = el.querySelector('.entry-meta')
+    if (meta) meta.textContent = `${el.dataset['clock']}  ${title}`
     p.options.forEach((o, i) => {
       const row = document.createElement('div')
       row.className = 'opt'
+      if (said.has(o.romaji)) row.classList.add('said')
       row.dataset['romaji'] = o.romaji
       const n = this.span(p.options.length > 1 ? String(i + 1) : '›')
       n.className = 'n'
@@ -230,7 +249,7 @@ export class PhoneUi {
       row.append(n, gloss, rom)
       el.append(row)
     })
-    this.append(el)
+    if (fresh) this.append(el)
     this.scroll()
   }
 
@@ -539,6 +558,28 @@ export class PhoneUi {
   }
 
   // ── controls guide ─────────────────────────────────────────────────────────
+
+  private wireDiagnostics() {
+    const button = $('copy-diag')
+    const status = $('diag-status')
+    const box = $<HTMLTextAreaElement>('diag-text')
+    button.addEventListener('click', () => {
+      const text = this.handlers.onDiagnostics()
+      box.value = text
+      void (async () => {
+        try {
+          await navigator.clipboard.writeText(text)
+          box.hidden = true
+          status.textContent = 'Copied. Paste it into your message to the developer.'
+        } catch {
+          // No clipboard access in this WebView: show the text so it can be selected by hand.
+          box.hidden = false
+          box.select()
+          status.textContent = 'Select all of this text, copy it and send it to the developer.'
+        }
+      })()
+    })
+  }
 
   private wireGuide() {
     const dialog = $('guide')

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ServerMsg, UserConfig, VoiceProfile } from '../protocol'
+import { chatResponse } from '../test/llm'
 import { OTHER, WEARER, synthVoice, toPcm } from '../test/synth'
 import { voiceFeatures } from './dsp'
 import { Engine } from './engine'
@@ -7,25 +8,17 @@ import type { SttHandlers } from './stt'
 import { emptyProfile, withSeed } from './voice'
 
 const keys = { deepgram: 'dg-user-key-123', openrouter: 'or-user-key-123' }
-const json = (content: unknown) => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status: 200 })
 
 const QUESTION = 'ホットですか、アイスですか。'
-const OPTIONS = {
-  kind: 'choice',
-  options: [
-    { gloss: 'Hot, please', ja: 'ホットでお願いします。', romaji: 'hotto de onegaishimasu.' },
-    { gloss: 'Iced, please', ja: 'アイスでお願いします。', romaji: 'aisu de onegaishimasu.' },
-  ],
-}
+const OPTIONS = 'choice\nHot, please | hotto de onegaishimasu\nIced, please | aisu de onegaishimasu\n'
 
 /** LLM stand-in: translations for translate calls, option lists for the reply assistant. */
 function llm() {
   return vi.fn().mockImplementation((_url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body))
     const system: string = body.messages[0].content
-    if (system.includes('reply assistant')) return Promise.resolve(json(OPTIONS))
-    const user: string = body.messages[1].content
-    return Promise.resolve(user.includes('Mode "listen"') ? json({ en: 'Hot or iced?', romaji: 'hotto desu ka, aisu desu ka' }) : json({ ja: 'こんにちは', romaji: 'konnichiwa' }))
+    if (system.includes('Line 1: single')) return Promise.resolve(chatResponse(init, OPTIONS))
+    return Promise.resolve(chatResponse(init, system.includes('EN:') ? 'EN: Hot or iced?' : 'JA: こんにちは\nROMAJI: konnichiwa'))
   })
 }
 
@@ -41,8 +34,11 @@ function setup(config: UserConfig = {}) {
   })
   engine.handle({ type: 'config', config: { keys, provider: 'openrouter', predict: { enabled: true, style: 'polite', level: 'beginner', maxOptions: 3 }, ...config } })
   engine.handle({ type: 'start', mode: 'auto' })
-  const types = () => out.map((m) => m.type)
-  const of = <T extends ServerMsg['type']>(t: T) => out.filter((m) => m.type === t) as Extract<ServerMsg, { type: T }>[]
+  // Replies stream in as partial updates first; these helpers see only the finished answer.
+  const done = () => out.filter((m) => !(m.type === 'predictions' && m.partial))
+  const types = () => done().map((m) => m.type)
+  const of = <T extends ServerMsg['type']>(t: T) => done().filter((m) => m.type === t) as Extract<ServerMsg, { type: T }>[]
+  const partials = () => out.filter((m): m is Extract<ServerMsg, { type: 'predictions' }> => m.type === 'predictions' && !!m.partial)
   /** Feed `seconds` of a voice into the engine and return the stream-time range it occupies. */
   const speak = (x: Float32Array) => {
     const start = (engine as unknown as { timeline: { seconds: number } }).timeline.seconds
@@ -50,7 +46,7 @@ function setup(config: UserConfig = {}) {
     for (let at = 0; at < pcm.length; at += 3200) engine.audio(pcm.subarray(at, at + 3200))
     return { start, end: start + x.length / 16000 }
   }
-  return { engine, out, types, of, speak, h: () => handlers }
+  return { engine, out, types, of, partials, speak, h: () => handlers }
 }
 
 function enrolledProfile(): VoiceProfile {
@@ -87,7 +83,7 @@ describe('Engine: predictive mode', () => {
     t.h().onFinal(QUESTION, 'listen', { start: 1.2, end: 3 })
     await vi.waitFor(() => expect(t.types()).toContain('predictions'))
     expect(t.of('predictions')).toHaveLength(1)
-    const predictCall = fetchMock.mock.calls.map((c) => JSON.parse(String(c[1].body))).find((b) => b.messages[0].content.includes('reply assistant'))
+    const predictCall = fetchMock.mock.calls.map((c) => JSON.parse(String(c[1].body))).find((b) => b.messages[0].content.includes('Line 1: single'))
     expect(predictCall.messages[1].content).toContain('いらっしゃいませ。 ホットですか')
     t.engine.close()
   })
@@ -102,7 +98,7 @@ describe('Engine: predictive mode', () => {
     vi.spyOn(Date, 'now').mockImplementation(() => realNow() + 30_000)
     t.h().onFinal('ミルクは入れますか。', 'listen', { start: 40, end: 42 })
     await vi.waitFor(() => expect(t.of('predictions')).toHaveLength(2))
-    const calls = fetchMock.mock.calls.map((c) => JSON.parse(String(c[1].body))).filter((b) => b.messages[0].content.includes('reply assistant'))
+    const calls = fetchMock.mock.calls.map((c) => JSON.parse(String(c[1].body))).filter((b) => b.messages[0].content.includes('Line 1: single'))
     const justSaid: string = calls[1].messages[1].content.split('The other person just said:')[1]
     expect(justSaid).not.toContain('ホットですか') // the old question is context now, not part of this turn
     expect(justSaid).toContain('ミルク')
@@ -152,7 +148,7 @@ describe('Engine: predictive mode', () => {
     await vi.waitFor(() => expect(t.types()).toContain('self'))
     t.h().onFinal('ミルクは入れますか。', 'listen', { start: 8, end: 10 })
     await vi.waitFor(() => expect(t.of('predictions')).toHaveLength(2))
-    const second = fetchMock.mock.calls.map((c) => JSON.parse(String(c[1].body))).filter((b) => b.messages[0].content.includes('reply assistant'))[1]
+    const second = fetchMock.mock.calls.map((c) => JSON.parse(String(c[1].body))).filter((b) => b.messages[0].content.includes('Line 1: single'))[1]
     expect(second.messages[1].content).toContain('wearer said: Hot, please')
     t.engine.close()
   })
@@ -233,9 +229,56 @@ describe('Engine: robustness', () => {
     await vi.waitFor(() => expect(t.of('self')).toHaveLength(2))
     t.h().onFinal('ミルクは入れますか。', 'listen', { start: 12, end: 14 })
     await vi.waitFor(() => expect(t.of('predictions')).toHaveLength(2))
-    const last = fetchMock.mock.calls.map((c) => JSON.parse(String(c[1].body))).filter((b) => b.messages[0].content.includes('reply assistant')).at(-1)
+    const last = fetchMock.mock.calls.map((c) => JSON.parse(String(c[1].body))).filter((b) => b.messages[0].content.includes('Line 1: single')).at(-1)
     const said = [...last.messages[1].content.matchAll(/wearer said: ([^\n]+)/g)].map((m) => m[1])
     expect(said).toEqual(['Iced, please', 'Hot, please'])
+    t.engine.close()
+  })
+
+  it('streams: the first reply is sent while the model is still writing, then the finished answer with its timing', async () => {
+    vi.stubGlobal('fetch', llm())
+    const t = setup()
+    t.h().onFinal(QUESTION, 'listen', { start: 0, end: 2 })
+    await vi.waitFor(() => expect(t.of('predictions')).toHaveLength(1))
+    expect(t.partials().map((p) => p.prediction.options.length)).toEqual([1, 2])
+    expect(t.partials().every((p) => p.partial)).toBe(true)
+    expect(t.of('predictions')[0]!.ms).toBeGreaterThanOrEqual(0)
+    t.engine.close()
+  })
+
+  it('a model that answers in a broken shape shows a code and a generic sentence, never the parser text', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((_u: string, init: RequestInit) => {
+        const system: string = JSON.parse(String(init.body)).messages[0].content
+        return Promise.resolve(chatResponse(init, system.includes('Line 1: single') ? '{"kind":"single","options":[{"gloss":"a" "ja"' : 'EN: Hot or iced?'))
+      }),
+    )
+    const t = setup()
+    t.h().onFinal(QUESTION, 'listen', { start: 0, end: 2 })
+    await vi.waitFor(() => expect(t.of('error')).toHaveLength(1))
+    const err = t.of('error')[0]!
+    expect(err).toMatchObject({ ref: 'R-FORM', message: 'Replies: something went wrong (R-FORM)' })
+    expect(err.detail).toContain('no reply lines')
+    expect(err.message).not.toMatch(/JSON|position|Expected|gloss/)
+    t.engine.close()
+  })
+
+  it('upstream failures are generic for the user and specific for the developer', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((_u: string, init: RequestInit) => {
+        const system: string = JSON.parse(String(init.body)).messages[0].content
+        return Promise.resolve(system.includes('Line 1: single') ? new Response('{"error":{"code":"rate_limit_exceeded","message":"You sent: ホットですか"}}', { status: 429 }) : chatResponse(init, 'EN: Hot or iced?'))
+      }),
+    )
+    const t = setup()
+    t.h().onFinal(QUESTION, 'listen', { start: 0, end: 2 })
+    await vi.waitFor(() => expect(t.of('error')).toHaveLength(1))
+    const err = t.of('error')[0]!
+    expect(err.message).toBe('Replies: busy or out of credit (R-RATE)')
+    expect(err.detail).toBe('openrouter 429 rate_limit_exceeded model=anthropic/claude-haiku-5.5')
+    expect(JSON.stringify(err)).not.toContain('ホット')
     t.engine.close()
   })
 
@@ -243,17 +286,17 @@ describe('Engine: robustness', () => {
     let n = 0
     const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body))
-      if (!body.messages[0].content.includes('reply assistant')) return Promise.resolve(json({ en: 'x', romaji: 'x' }))
+      if (!body.messages[0].content.includes('Line 1: single')) return Promise.resolve(chatResponse(init, 'EN: x'))
       const mine = ++n
       return new Promise((resolve, reject) => {
         init.signal!.addEventListener('abort', () => reject(new Error('aborted')))
-        setTimeout(() => resolve(json({ kind: 'single', options: [{ gloss: `Answer ${mine}`, ja: 'はい', romaji: `hai ${mine}` }] })), 150)
+        setTimeout(() => resolve(chatResponse(init, `single\nAnswer ${mine} | hai ${mine}\n`)), 150)
       })
     })
     vi.stubGlobal('fetch', fetchMock)
     const t = setup()
     t.h().onFinal('いらっしゃいませ。', 'listen', { start: 0, end: 1 })
-    await vi.waitFor(() => expect(fetchMock.mock.calls.some((c) => JSON.parse(String(c[1].body)).messages[0].content.includes('reply assistant'))).toBe(true))
+    await vi.waitFor(() => expect(fetchMock.mock.calls.some((c) => JSON.parse(String(c[1].body)).messages[0].content.includes('Line 1: single'))).toBe(true))
     t.h().onFinal(QUESTION, 'listen', { start: 1.5, end: 3 }) // arrives while the first prediction is in flight
     await vi.waitFor(() => expect(t.of('predictions')).toHaveLength(1), { timeout: 3000 })
     await new Promise((r) => setTimeout(r, 250))
@@ -299,7 +342,7 @@ describe('Engine: voice filter with an enrolled voiceprint', () => {
     t.h().onFinal('Okay, thank you', 'speak', range)
     await vi.waitFor(() => expect(t.types()).toContain('final'))
     expect(t.of('final')[0]).toMatchObject({ dir: 'listen', heardEnglish: true, english: 'Okay, thank you' })
-    const translateCalls = fetchMock.mock.calls.filter((c) => !JSON.parse(String(c[1].body)).messages[0].content.includes('reply assistant'))
+    const translateCalls = fetchMock.mock.calls.filter((c) => !JSON.parse(String(c[1].body)).messages[0].content.includes('Line 1: single'))
     expect(translateCalls).toHaveLength(0)
     t.engine.close()
   })

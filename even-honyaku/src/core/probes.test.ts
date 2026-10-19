@@ -4,21 +4,21 @@ import { summarize, testConfig } from './probes'
 import './../test/romaji-node'
 
 const orCfg = (model?: string) => resolveConfig({ keys: { deepgram: 'dg-user-key-123', openrouter: 'or-user-key-123' }, provider: 'openrouter', openrouterModel: model })
-const reply = (content: unknown) => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status: 200 })
+const reply = (content: string) => new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 })
 
 describe('testConfig: translate scope', () => {
   afterEach(() => vi.unstubAllGlobals())
 
   it('key accepted and the chosen model answers a sample translation', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) =>
-      Promise.resolve(String(url).endsWith('/key') ? new Response('{}', { status: 200 }) : reply({ ja: 'いくらですか', romaji: 'ikura desu ka' })),
+      Promise.resolve(String(url).endsWith('/key') ? new Response('{}', { status: 200 }) : reply('JA: いくらですか\nROMAJI: ikura desu ka')),
     )
     vi.stubGlobal('fetch', fetchMock)
     const results = await testConfig(orCfg('openai/gpt-4o-mini'), 'translate')
     expect(results.map((r) => [r.service, r.ok])).toEqual([['openrouter', true], ['translate', true]])
     const call = fetchMock.mock.calls.find((c) => String(c[0]).includes('chat/completions'))!
     expect(JSON.parse(call[1].body).model).toBe('openai/gpt-4o-mini')
-    expect(summarize(results)).toEqual({ ok: true, text: 'Key accepted · test translation worked' })
+    expect(summarize(results)).toMatchObject({ ok: true, text: expect.stringMatching(/^Key accepted · test translation worked in \d+\.\ds$/) })
   })
 
   it('a rejected key says so in plain words and skips the sample translation', async () => {
@@ -39,8 +39,8 @@ describe('testConfig: translate scope', () => {
     ))
     const s = summarize(await testConfig(orCfg('old/retired-model'), 'translate'))
     expect(s.ok).toBe(false)
-    expect(s.text).toMatch(/The key works, but the model "old\/retired-model" did not answer/)
-    expect(s.text).toMatch(/Choose another model/)
+    expect(s.text).toBe('The key works, but a test translation with "old/retired-model" failed (K-MODEL). Try another model.')
+    expect(s.text).not.toMatch(/not found/) // the provider's own words stay out of the UI
   })
 
   it('being offline reads as a connection problem, not a bad key', async () => {

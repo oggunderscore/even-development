@@ -271,7 +271,7 @@ export class PredictiveView {
 
     const options = t.prediction?.options ?? []
     if (!options.length) {
-      if (t.error) out.push('', ...clampRows(`(no suggestions: ${t.error})`, 3))
+      if (t.error) out.push('', ...clampRows(t.error, 3))
       else if (t.thinking) out.push('', 'thinking...')
       return out.slice(0, BODY_ROWS)
     }

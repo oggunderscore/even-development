@@ -1,7 +1,10 @@
 import { AudioInputSource, waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
 import { captureHealthy } from './capture-health'
 import { MAX_TURN_MS } from './config'
+import { HonyakuError, describeError } from './core/errors'
+import { activeModel } from './core/models'
 import { analyze } from './core/voice'
+import { diagnosticsReport, recordError } from './diagnostics'
 import { Segmenter } from './core/vad'
 import { Display, type UiState } from './display'
 import { Enrollment, REASON_TEXT } from './enroll'
@@ -92,6 +95,13 @@ const ui = new PhoneUi(
     },
     onChange: (next) => void queueSettingsChange(next),
     onDictionaryRetry: () => void ensureDictionary(),
+    onDiagnostics: () =>
+      diagnosticsReport({
+        version: __APP_VERSION__,
+        provider: settings.provider,
+        model: activeModel(settings.provider, { openrouterModel: settings.openrouterModel, anthropicModel: settings.anthropicModel }),
+        mode: settings.mode,
+      }),
     onEditing: (scope) => {
       checkId[scope]++ // an answer about the old text must not land under the new
       checkOk[scope] = false
@@ -234,8 +244,10 @@ async function ensureDictionary() {
     )
     if (settings.provider === 'google') runCheck('translate') // finish the key check: a sample translation with the chosen model
   } catch (err) {
-    const why = err instanceof Error ? err.message : 'Unknown error.'
-    ui.setDictStatus('failed', `The romaji dictionary could not be downloaded. ${why}`)
+    // The cause (a file name, a size) goes to the diagnostics log; the user gets a code.
+    const e = describeError('config', new HonyakuError('DICT', err instanceof Error ? err.message.slice(0, 100) : 'unknown'))
+    recordError(e.ref, e.detail)
+    ui.setDictStatus('failed', `The romaji dictionary could not be downloaded. Check your connection and try again (${e.ref}).`)
     if (settings.provider === 'google') {
       checkOk.translate = false
       ui.setKeyStatus('translate', 'bad', 'Key accepted, but the romaji dictionary is missing, so Google Translate cannot be used yet.')
@@ -272,6 +284,7 @@ async function checkDictionaryAtStart() {
 function onCheckResult(msg: Extract<ServerMsg, { type: 'test_result' }>) {
   if (msg.id !== checkId[msg.scope]) return
   const s = summarize(msg.results)
+  for (const r of msg.results) if (!r.ok && r.ref) recordError(r.ref, r.diag)
   if (msg.results.some((r) => r.service === 'romaji' && r.ok)) ui.setDictStatus('ready', 'Romaji dictionary ready.')
   if (s.needsDictionary) {
     // The key is valid: now (and only now) fetch the dictionary.
@@ -489,7 +502,7 @@ function handleServerMessage(msg: ServerMsg) {
     }
     case 'predictions':
       display.predictions(msg.turnId, msg.prediction)
-      ui.addPredictions(msg.prediction)
+      ui.addPredictions(msg.turnId, msg.prediction, msg.ms, !msg.partial)
       break
     case 'self':
       display.self(msg.optionIndex, msg.turnId)
@@ -508,6 +521,7 @@ function handleServerMessage(msg: ServerMsg) {
       settle()
       break
     case 'error':
+      recordError(msg.ref, msg.detail)
       if (msg.code === 'no_llm') {
         // Predictive was asked for but the provider can't do it: fall back to the classic screen and say why.
         ui.addError(msg.message)
@@ -523,8 +537,8 @@ function handleServerMessage(msg: ServerMsg) {
         dictionaryNeededNow()
         break
       }
-      if (msg.message.startsWith('reply suggestions:')) {
-        display.predictionFailed(msg.message.replace('reply suggestions: ', ''))
+      if (msg.ref?.startsWith('R-')) {
+        display.predictionFailed(msg.message)
         ui.addError(msg.message)
         break
       }

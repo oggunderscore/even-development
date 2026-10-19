@@ -46,12 +46,12 @@ describe('Google Translate before the romaji dictionary is downloaded', () => {
     vi.stubGlobal('fetch', googleOk())
     const results = await testConfig(googleCfg(), 'translate')
     expect(results.map((r) => [r.service, r.ok])).toEqual([['google', true], ['romaji', true], ['translate', true]])
-    expect(summarize(results)).toEqual({ ok: true, text: 'Key accepted · test translation worked' })
+    expect(summarize(results)).toMatchObject({ ok: true, text: expect.stringMatching(/^Key accepted · test translation worked in \d+\.\ds$/) })
   })
 
   it('other providers never ask for the dictionary', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) =>
-      Promise.resolve(String(url).endsWith('/key') ? new Response('{}', { status: 200 }) : new Response(JSON.stringify({ choices: [{ message: { content: '{"ja":"はい","romaji":"hai"}' } }] }), { status: 200 })),
+      Promise.resolve(String(url).endsWith('/key') ? new Response('{}', { status: 200 }) : new Response(JSON.stringify({ choices: [{ message: { content: 'JA: はい\nROMAJI: hai' } }] }), { status: 200 })),
     ))
     const results = await testConfig(resolveConfig({ keys: { openrouter: 'or-user-key-12345' }, provider: 'openrouter' }), 'translate')
     expect(results.some((r) => r.service === 'romaji' || r.action)).toBe(false)
@@ -70,7 +70,7 @@ describe('Google Translate before the romaji dictionary is downloaded', () => {
     expect(finals.map((f) => [f.dir, f.english, f.romaji])).toEqual([['listen', 'How much is this?', ''], ['listen', 'How much is this?', '']])
     const notices = out.filter((m) => m.type === 'error' && m.code === 'no_romaji')
     expect(notices).toHaveLength(1) // not one per phrase
-    expect(notices[0]).toMatchObject({ message: 'The romaji dictionary is not downloaded yet. Open Settings to download it.' })
+    expect(notices[0]).toMatchObject({ ref: 'C-DICT', message: 'The romaji dictionary is not downloaded yet. Open Settings to download it.' })
     engine.close()
   })
 

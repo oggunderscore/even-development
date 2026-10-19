@@ -228,7 +228,7 @@ export class Display {
   }
 
   predictionFailed(message: string) {
-    this.view.failed(message.slice(0, 40))
+    this.view.failed(message)
     this.renderBody()
   }
 

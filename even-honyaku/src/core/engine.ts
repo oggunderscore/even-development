@@ -16,6 +16,8 @@ import { type ResolvedConfig, missingKeys, resolveConfig, validateConfig } from 
 import { voiceFeatures } from './dsp'
 import { EchoMatcher } from './echo'
 import { isBackchannel, predictReplies } from './predict'
+import { type ErrorArea, HonyakuError, codedMessage, describeError } from './errors'
+import { activeModel } from './models'
 import { testConfig } from './probes'
 import { type Range, type Stt, createStt as defaultCreateStt } from './stt'
 import { NEW_TURN_AFTER_MS } from './turns'
@@ -41,7 +43,11 @@ export interface EngineOptions {
 /** Ignore recogniser noise like a lone "uh" / "。". */
 const tooShort = (text: string) => text.replace(/\s/g, '').length < 2
 
-const DEFAULT_TURN_GAP_MS = 900
+/**
+ * Quiet time before the other person's turn counts as finished. Deepgram has already waited out its own pause before it
+ * finalised the phrase, so this is on top of that; if they carry on, the suggestion is abandoned and asked for again.
+ */
+const DEFAULT_TURN_GAP_MS = 450
 
 /** A voice vector needs this much clearly-voiced speech before it may teach the voiceprint. */
 const MIN_LEARN_SEC = 1.0
@@ -140,7 +146,7 @@ export class Engine {
   private onConfig(user: UserConfig) {
     const problem = validateConfig(user ?? {})
     if (problem) {
-      this.emit({ type: 'error', message: problem })
+      this.emit({ type: 'error', ref: 'C-CFG', message: codedMessage('C-CFG', problem) })
       return
     }
     this.cfg = resolveConfig(user)
@@ -169,7 +175,7 @@ export class Engine {
     if (wantsPredict && !llm) {
       if (!this.warnedNoLlm) {
         this.warnedNoLlm = true
-        this.emit({ type: 'error', code: 'no_llm', message: 'Predictive mode needs an OpenRouter or Claude key; Google Translate cannot suggest replies' })
+        this.emit({ type: 'error', code: 'no_llm', ref: 'C-LLM', message: codedMessage('C-LLM', 'Predictive mode needs an OpenRouter or Claude key; Google Translate cannot suggest replies') })
       }
     } else this.warnedNoLlm = false
   }
@@ -179,15 +185,22 @@ export class Engine {
     const missing = missingKeys(this.cfg).filter((m) => needed.includes(m))
     if (missing.length === 0) return true
     const names = missing.map((m) => (m === 'deepgram' ? 'Deepgram' : this.cfg.translate.provider)).join(' and ')
-    this.emit({ type: 'error', code: 'no_keys', message: `Missing ${names} key — add it in Settings` })
+    this.emit({ type: 'error', code: 'no_keys', ref: 'C-KEYS', message: codedMessage('C-KEYS', `Missing ${names} key - add it in Settings`) })
     return false
+  }
+
+  /** Report a failure as a code and a generic sentence; what really happened goes in `detail` for the developer only. */
+  private fail(area: ErrorArea, err: unknown) {
+    const model = area === 'translate' || area === 'replies' ? activeModel(this.cfg.translate.provider, this.cfg.translate) : undefined
+    const e = describeError(area, err, model)
+    this.emit({ type: 'error', ref: e.ref, message: e.message, detail: e.detail })
   }
 
   private async runTest(scope: TestScope, id: number) {
     try {
       this.emit({ type: 'test_result', scope, id, results: await testConfig(this.cfg, scope) })
     } catch (err) {
-      this.emit({ type: 'error', message: `test failed: ${err instanceof Error ? err.message : 'unknown error'}` })
+      this.fail('check', err)
     }
   }
 
@@ -229,7 +242,7 @@ export class Engine {
           this.onFinal(text, dir, range, timeline, mode)
         },
         onError: (err) => {
-          this.emit({ type: 'error', message: `speech-to-text: ${err.message}` })
+          this.fail('speech', err)
         },
         onClose: () => {
           if (this.stt !== stt || this.mode !== 'auto') return
@@ -247,7 +260,7 @@ export class Engine {
     const now = Date.now()
     this.restarts = this.restarts.filter((t) => now - t < 30_000)
     if (this.restarts.length >= 5) {
-      this.emit({ type: 'error', message: 'speech-to-text keeps disconnecting; check your Deepgram key and network' })
+      this.fail('speech', new HonyakuError('NET', 'reconnect limit'))
       this.mode = null
       return
     }
@@ -263,7 +276,7 @@ export class Engine {
     this.stt = null
     this.mode = null
     if (mode === 'talk' && this.audioBytes === 0) {
-      this.emit({ type: 'error', message: 'No audio received from the glasses mic' })
+      this.fail('speech', new HonyakuError('EMPTY', 'no audio from glasses mic'))
     }
     if (stt) await stt.finish()
     await this.pending
@@ -354,19 +367,18 @@ export class Engine {
       try {
         const t: Translation = flags.heardEnglish
           ? { id, dir: 'listen', japanese: '', romaji: '', english: text, heardEnglish: true }
-          : { ...(await translate(dir, text, this.history, id, this.cfg.translate)), ...(flags.unsure ? { unsure: true } : {}) }
+          : { ...(await translate(dir, text, this.history, id, this.cfg.translate, { romaji: !this.predict })), ...(flags.unsure ? { unsure: true } : {}) }
         this.history.push(t)
         if (this.history.length > 6) this.history.shift()
         this.emit({ type: 'final', ...t })
         // Google gave the English but there is no romaji because the dictionary isn't installed: ask the app to fetch it (once).
         if (this.cfg.translate.provider === 'google' && t.dir === 'listen' && !t.romaji && !this.warnedNoRomaji) {
           this.warnedNoRomaji = true
-          this.emit({ type: 'error', code: 'no_romaji', message: new RomajiNotInstalledError().message })
+          this.emit({ type: 'error', code: 'no_romaji', ref: 'C-DICT', message: new RomajiNotInstalledError().message })
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        if (err instanceof RomajiNotInstalledError) this.emit({ type: 'error', code: 'no_romaji', message })
-        else this.emit({ type: 'error', message: `translate: ${message}` })
+        if (err instanceof RomajiNotInstalledError) this.emit({ type: 'error', code: 'no_romaji', ref: 'C-DICT', message: err.message })
+        else this.fail('translate', err)
       }
     })
     if (dir === 'listen' && !flags.unsure && this.predict) this.addToTurn(text, id)
@@ -412,16 +424,21 @@ export class Engine {
     this.predicting?.abort()
     const ctl = new AbortController()
     this.predicting = ctl
+    const t0 = Date.now()
     try {
       // The turn itself is passed as `heard`; history holds only what came before it.
       const history = this.history.filter((h) => h.id < turn.firstId)
-      const prediction = await predictReplies(heard, history, this.cfg.translate, predict, ctl.signal)
+      const prediction = await predictReplies(heard, history, this.cfg.translate, predict, ctl.signal, (partial) => {
+        if (ctl.signal.aborted || this.closed) return
+        this.echo.remember(turn.lastId, partial.options)
+        this.emit({ type: 'predictions', turnId: turn.lastId, prediction: partial, partial: true, ms: Date.now() - t0 })
+      })
       if (ctl.signal.aborted || this.closed) return
       this.echo.remember(turn.lastId, prediction.options)
-      this.emit({ type: 'predictions', turnId: turn.lastId, prediction })
+      this.emit({ type: 'predictions', turnId: turn.lastId, prediction, ms: Date.now() - t0 })
     } catch (err) {
       if (ctl.signal.aborted || this.closed) return
-      this.emit({ type: 'error', message: `reply suggestions: ${err instanceof Error ? err.message : String(err)}` })
+      this.fail('replies', err)
     } finally {
       if (this.predicting === ctl) this.predicting = null
     }

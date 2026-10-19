@@ -118,7 +118,7 @@ Google returns Japanese text but no romaji, so Honyaku makes the romaji itself w
 If the download fails (offline, CDN blocked) the field says why and shows **RETRY DOWNLOAD**. Translating never starts a download in the middle of a conversation: without the dictionary the glasses say "The romaji dictionary is not downloaded yet. Open Settings to download it." and the app fetches it. The dictionary files come from the `kuromoji` npm package; `npm run dict:manifest` regenerates their list and hashes (`src/dictionary-manifest.ts`), and a test fails if they ever drift from the installed package.
 
 ### Choosing a model
-With OpenRouter or Claude you pick the model from a dropdown (Settings → Translation), not a text box. **? COMPARE MODELS** lists them with prices. They are ranked for this app: fast (no reasoning pass), reliable JSON, natural Japanese, with price as the tiebreaker. A phrase costs a fraction of a cent on every one (about $0.07 to $0.30 per 1,000 phrases; roughly double with Predictive replies).
+With OpenRouter or Claude you pick the model from a dropdown (Settings → Translation), not a text box. **? COMPARE MODELS** lists them with prices. They are ranked for this app: fast (no reasoning pass), reliable output format, natural Japanese, with price as the tiebreaker. A phrase costs a fraction of a cent on every one (about $0.07 to $0.30 per 1,000 phrases; roughly double with Predictive replies).
 
 | OpenRouter model | $ per 1M tokens (in / out) | Why it is there |
 | --- | --- | --- |
@@ -138,3 +138,9 @@ The direct **Claude** provider offers Haiku 5.5 (default) and Sonnet 5.5 (about 
 npm run pack            # build + evenhub pack → even-honyaku.ehpk (well under 1 MB)
 ```
 Upload `even-honyaku.ehpk` under **Private builds** in the dev portal (hub.evenrealities.com) and install it from the Even app: **Even Hub tab → Me → Apps → Private builds → Install**. The package contains no keys; each user enters their own in Settings.
+
+## Errors and speed
+
+- **Errors:** nothing technical reaches the user. A failure shows a short sentence and a code such as `Replies: something went wrong (R-FORM)`: the letter is the area (T translation, R replies, S speech, K key check, C setup), the word is the cause (NET, AUTH, RATE, SVC, TIME, FORM, EMPTY, MODEL, DECL, DICT, UNK). The details (service, HTTP status, the provider's short error word) go to a memory-only log; Settings -> **Copy error details** copies it for a bug report. Codes live in `src/core/errors.ts`; add new failures there, never `message: err.message`.
+- **Replies are plain lines, not JSON:** the model answers `single` or `choice`, then one `meaning | romaji` line per option, so a stray quote can no longer break a reply. The kana is derived from the romaji locally. Translations use `JA:`/`EN:`/`ROMAJI:` lines. Anything unreadable is a `FORM` error.
+- **Speed:** replies stream, so the first option is on the glasses while the rest is still being written; the model writes about half as many tokens as before (no Japanese script); in Predictive mode the other person's romaji is not requested; OpenRouter is asked for the lowest-latency provider; the pause before asking is 450 ms. The key check and every REPLY entry show how long the model took. If it still feels slow, choose **Gemini 2.5 Flash Lite** (OpenRouter) or use Claude Haiku directly with an Anthropic key, which skips a network hop.

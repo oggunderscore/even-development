@@ -6,6 +6,7 @@
 //                           audio, arbitrated with a bias towards Japanese (see arbiter.ts). A single multilingual
 //                           stream tended to start Japanese phrases as English text, so we pay for two streams.
 
+import { HonyakuError } from './errors'
 import type { Direction, StreamMode } from '../protocol'
 import { Arbiter } from './arbiter'
 import { hasJapanese } from './lang'
@@ -81,7 +82,7 @@ class DeepgramStream implements Stt {
     } catch (err) {
       // e.g. a key containing characters that aren't legal in a subprotocol
       queueMicrotask(() => {
-        handlers.onError(new Error(`[${lang}] cannot open Deepgram stream: the key is not valid`))
+        handlers.onError(new HonyakuError('AUTH', `deepgram ${lang} key not usable`))
         this.resolveClosed()
         handlers.onClose()
       })
@@ -104,8 +105,7 @@ class DeepgramStream implements Stt {
     }
     ws.onerror = () => {
       // Browsers hide the HTTP status; a socket that never opened almost always means a rejected key.
-      const hint = this.isOpen ? 'connection error' : 'could not connect — check the Deepgram API key and network'
-      handlers.onError(new Error(`[${lang}] ${hint}`))
+      handlers.onError(this.isOpen ? new HonyakuError('NET', `deepgram ${lang} connection error`) : new HonyakuError('AUTH', `deepgram ${lang} never opened`))
     }
     ws.onclose = () => {
       clearInterval(this.keepAlive)

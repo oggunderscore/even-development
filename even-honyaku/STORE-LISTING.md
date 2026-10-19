@@ -14,6 +14,10 @@ You bring your own Deepgram and translation (Google, OpenRouter or Claude) keys;
 
 ## Release notes (English, 1 to 3 lines each)
 
+**1.1.7**
+- Predictive replies arrive faster: the first reply appears while the rest are still being written, and the wait after they stop talking is shorter.
+- Errors now show a short code and a plain sentence instead of technical text. Settings has a Copy error details button if you need help.
+
 **1.1.6**
 - The app package is now tiny: Google Translate users download the romaji dictionary once, after their key is accepted; OpenRouter and Claude users never need it.
 

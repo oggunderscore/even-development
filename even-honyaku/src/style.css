@@ -181,6 +181,8 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 
 
 .fineprint { color: var(--faint); font-size: 10px; letter-spacing: 0.4px; line-height: 1.7; margin: 8px 0 14px; }
+.support { margin: 14px 0 4px; text-align: center; }
+.support textarea { width: 100%; margin-top: 8px; font-size: 11px !important; background: var(--bg); color: var(--dim); border: 1px solid var(--border); border-radius: 0; padding: 6px; }
 .version { margin: 4px 0 18px; padding-top: 12px; border-top: 1px solid var(--border); color: var(--faint); font-size: 10px; letter-spacing: 2px; text-align: center; }
 
 /* ── motion ───────────────────────────── */

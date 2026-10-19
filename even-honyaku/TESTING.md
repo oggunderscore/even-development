@@ -1,6 +1,6 @@
 # Testing the prototype on real G2 glasses
 
-Release candidate 1.1.6 (Predictive Conversation Mode + voice filter): **builds, typechecks and passes unit tests; the menu, the Predictive screen and the Settings list were driven in the Even simulator (0.9.5) with a faked network, and the phone UI was checked in a headless browser. None of it has run on real glasses or with a real voice yet.** Items in sections 3 and 4 are still unverified on a device.
+Release candidate 1.1.7 (Predictive Conversation Mode + voice filter): **builds, typechecks and passes unit tests; the menu, the Predictive screen and the Settings list were driven in the Even simulator (0.9.5) with a faked network, and the phone UI was checked in a headless browser. None of it has run on real glasses or with a real voice yet.** Items in sections 3 and 4 are still unverified on a device.
 
 ## 1. Run it on your own machine (phone + computer on the same Wi-Fi)
 
@@ -34,7 +34,7 @@ Optional first: `npm run simulator` (needs a desktop).
 1. Real-mic behaviour of the dual listen engine (`src/core/stt.ts`, `arbiter.ts`): is Japanese ever shown as English, or English dropped? Tune `graceMs` / confidence thresholds in `arbiter.ts`. Does background noise produce phantom phrases? (Verified only with macOS `say` audio.)
 2. Whether `audioEvent.audioPcm` arrives as bytes, `number[]` or base64 on a real device (handled, but untested).
 3. Whether `ws://` to a LAN IP is allowed by the app's network permission for sideloaded dev builds.
-4. Quality + latency of the models in the dropdown (`src/core/models.ts`, ranked by judgement and list price, not benchmarked). The default is Claude Haiku 5.5 through OpenRouter, which has not been run live: check it returns clean JSON with `response_format`, and compare it with Gemini 2.5 Flash Lite on real Japanese. Japanese quality and romaji accuracy matter most.
+4. Quality + latency of the models in the dropdown (`src/core/models.ts`, ranked by judgement and list price, not benchmarked). The default is Claude Haiku 5.5 through OpenRouter, which has not been run live: check that it follows the plain-line reply format (a failure shows as `R-FORM` and is listed under Settings -> Copy error details), read the time shown in the key check and on each REPLY entry in the feed, and compare it with Gemini 2.5 Flash Lite on real Japanese. Latency changes in 1.1.7 (streamed replies, shorter output, `provider.sort=latency`, 450 ms turn gap) are unmeasured with real keys: confirm the first reply lands quickly and that `provider: {sort: 'latency'}` is accepted by OpenRouter. Japanese quality and romaji accuracy matter most.
 5. Whether the glasses mic sends audio continuously (also during silence) — if not, the app shows *No audio from the mic yet* after 3 seconds of listening.
 6. Phone hold button behaviour inside the Even app WebView (pointer events).
 

@@ -2,7 +2,7 @@
 // translating a phrase into English/romaji (or the reverse), and suggesting a few replies in Predictive mode. So the list
 // favours models that
 //   - answer fast and don't "think" first (a reasoning pass adds seconds a live conversation can't afford),
-//   - return clean JSON reliably (every OpenRouter model below supports JSON mode),
+//   - follow a strict output format reliably (replies are plain labelled lines, and anything unreadable is a coded error),
 //   - write natural Japanese, with price as the tiebreaker: a phrase costs a fraction of a cent on all of them.
 //
 // The ranking is an editorial judgement (Japanese quality for the money), NOT a benchmark we ran. Prices are the OpenRouter
@@ -22,8 +22,8 @@ export interface ModelChoice {
 
 /** OpenRouter model ids, best first. The first entry is the default. */
 export const OPENROUTER_MODELS: ModelChoice[] = [
-  { id: 'anthropic/claude-haiku-5.5', name: 'Claude Haiku 5.5', inPer1M: 0.1, outPer1M: 0.5, note: 'Best-sounding Japanese and the most reliable replies, at nearly the lowest price.' },
-  { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', inPer1M: 0.1, outPer1M: 0.4, note: 'Fastest and cheapest all-rounder, with very good Japanese.' },
+  { id: 'anthropic/claude-haiku-5.5', name: 'Claude Haiku 5.5', inPer1M: 0.1, outPer1M: 0.5, note: 'Best-sounding Japanese and the most reliable replies, at nearly the lowest price. Noticeably slower than Gemini 2.5 Flash Lite.' },
+  { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', inPer1M: 0.1, outPer1M: 0.4, note: 'Fastest of these and cheap, with very good Japanese. The pick if replies feel slow.' },
   { id: 'qwen/qwen3-235b-a22b-2507', name: 'Qwen3 235B', inPer1M: 0.09, outPer1M: 0.55, note: 'Strong multilingual model, very low price; a little slower.' },
   { id: 'openai/gpt-4o-mini', name: 'GPT-4o mini', inPer1M: 0.15, outPer1M: 0.6, note: 'Dependable and consistent; solid, slightly plainer Japanese.' },
   { id: 'google/gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', inPer1M: 0.25, outPer1M: 1.5, note: 'Newer Gemini: a step up in quality for a few times the cost.' },
@@ -34,7 +34,7 @@ export const OPENROUTER_MODELS: ModelChoice[] = [
 
 /** Claude model ids for the direct Anthropic provider, best first. The first entry is the default. */
 export const ANTHROPIC_MODELS: ModelChoice[] = [
-  { id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', inPer1M: 0.1, outPer1M: 0.5, note: 'Fast and very cheap, with excellent Japanese. The right choice for almost everyone.' },
+  { id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', inPer1M: 0.1, outPer1M: 0.5, note: 'Fast and very cheap, with excellent Japanese. Talking to Anthropic directly skips a hop, so it is quicker than Haiku through OpenRouter.' },
   { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', inPer1M: 2, outPer1M: 10, note: 'Most polished wording, at about 20 times the cost of Haiku.' },
 ]
 

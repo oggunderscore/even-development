@@ -78,6 +78,11 @@ export interface TestResult {
   detail: string
   /** The key is fine but something must be done before the check can finish: download the romaji dictionary. */
   action?: 'download_dictionary'
+  /** How long the sample translation took (ms), so a slow model shows up when it is chosen. */
+  ms?: number
+  /** Error code and developer-only detail for a failed check; the user sees `detail` only. */
+  ref?: string
+  diag?: string
 }
 
 export type ClientMsg =
@@ -130,7 +135,7 @@ export type ServerMsg =
   | { type: 'partial'; dir: Direction; text: string }
   | ({ type: 'final' } & Translation)
   /** Suggested replies for the other person's last turn (`turnId` = the id of the `final` they answer). */
-  | { type: 'predictions'; turnId: number; prediction: Prediction }
+  | { type: 'predictions'; turnId: number; prediction: Prediction; partial?: boolean; ms?: number }
   /** The wearer's own speech was recognised and kept out of the conversation. `option` = which suggestion they read, from the suggestions for `turnId`. */
   | { type: 'self'; text: string; option?: ReplyOption; optionIndex?: number; turnId?: number }
   /** Voice-filter verdict for one utterance (feeds the tuning panel; nothing is stored). */
@@ -140,5 +145,7 @@ export type ServerMsg =
   | { type: 'done' }
   /** `no_keys`: a key needed for this action is missing — send the user to Settings.
    *  `no_llm`: Predictive mode needs an OpenRouter or Claude key (Google Translate can't suggest replies).
-   *  `no_romaji`: Google Translate is selected but the romaji dictionary isn't downloaded yet. */
-  | { type: 'error'; message: string; code?: 'no_keys' | 'no_llm' | 'no_romaji' }
+   *  `no_romaji`: Google Translate is selected but the romaji dictionary isn't downloaded yet.
+   *  `message` is always a generic sentence ending in a code; `ref` is that code and `detail` is for the developer
+   *  diagnostics only (never shown): see core/errors.ts. */
+  | { type: 'error'; message: string; code?: 'no_keys' | 'no_llm' | 'no_romaji'; ref?: string; detail?: string }
