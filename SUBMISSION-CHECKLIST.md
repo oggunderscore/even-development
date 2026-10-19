@@ -76,6 +76,10 @@ Allowed names: `network`, `location`, `g2-microphone`, `phone-microphone`, `albu
 - **Never log secrets or user content.** The phone app's Developer-Mode console is visible to reviewers. Our code makes
   no `console.*` calls (tested). The SDK itself logs bridge events, **including mic audio payloads**, and its own init
   lines; that is outside our control but is why we log nothing ourselves.
+- **Errors shown to users are a code plus a generic sentence**, never parser, HTTP or provider text (a raw "Expected ',' or
+  ']' after array element in JSON" reached a user once and confused them). Keep the cause in a memory-only diagnostics log the
+  user can copy on request (private project: `src/core/errors.ts`, `src/diagnostics.ts`), and do not ask an LLM for JSON on a live
+  path: use plain lines and parse leniently.
 - **No console errors at boot**: the buffer must be clean right after launch [you; checked in the simulator against the
   production build, not the dev server].
 
