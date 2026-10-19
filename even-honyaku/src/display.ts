@@ -337,5 +337,6 @@ export class Display {
 export function formatEntry(t: Translation, kana = false): string {
   if (t.dir === 'speak') return `you: ${t.english}\n${kana && t.japanese ? `${t.japanese}\n` : ''}> ${t.romaji}`
   if (t.heardEnglish) return `them: ${t.english}`
+  if (!t.romaji) return `JP${t.unsure ? '?' : ''}> ${t.english}` // no romaji yet (the dictionary is still being fetched)
   return `JP${t.unsure ? '?' : ''}: ${t.romaji}\n${kana && t.japanese ? `${t.japanese}\n` : ''}> ${t.english}`
 }

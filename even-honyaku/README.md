@@ -72,7 +72,7 @@ The Even app hosts this app in a phone WebView, where a Node server can't run �
 ```
 glasses mic → app (WebView) ──wss──▶ Deepgram            (speech-to-text)
                            └──https─▶ Google / OpenRouter / Claude   (translation)
-                 romaji: local dictionary (kuromoji) · keys: yours, entered in Settings
+                 romaji: local dictionary (kuromoji, Google only, downloaded once) · keys: yours, entered in Settings
 ```
 Nothing is hosted, no keys are bundled (a `.ehpk` can be unpacked), and your keys go only to the providers you chose. `app.json` whitelists exactly those domains.
 
@@ -95,7 +95,7 @@ Pasted only an OpenRouter key while Google is selected? Honyaku switches to Open
 ## Development
 ```bash
 npm install
-npm run dev          # copies the romaji dictionary to public/dict, starts Vite
+npm run dev          # starts Vite
 npm run simulator    # or: npm run qr  (sideload on real glasses)
 npm test             # engine, config, settings, gesture tests
 ```
@@ -103,11 +103,19 @@ npm test             # engine, config, settings, gesture tests
 ## Translation backends
 | Provider (Settings → Translation) | What | Cost |
 | --- | --- | --- |
-| Google | Google Cloud Translation for the text; **romaji is generated locally** (kuromoji + wanakana, `src/core/romaji.ts`) | 500k chars/month free, then $20/1M chars. No LLM. |
+| Google | Google Cloud Translation for the text; **romaji is generated on the phone** (kuromoji + wanakana, `src/core/romaji.ts`) with a dictionary downloaded once after your key is accepted (see below) | 500k chars/month free, then $20/1M chars. No LLM. |
 | OpenRouter | any OpenRouter model does translation + romaji | per token |
 | Claude | Anthropic directly | per token |
 
 Google gives literal, context-free translations; the LLM backends handle tone and conversation context better. **Predictive replies need OpenRouter or Claude** (one extra short LLM call per question the other person asks; the default OpenRouter model is cheap and fast).
+
+### The romaji dictionary (Google Translate only)
+Google returns Japanese text but no romaji, so Honyaku makes the romaji itself with the kuromoji dictionary (about 18 MB). It is **not in the app package** (which keeps the package far below Even Hub's ~10 MB practical cap, and means OpenRouter and Claude users never carry it). Instead:
+1. You enter a Google key; it is checked first.
+2. **Only if the key is accepted**, the app downloads the dictionary once from the jsDelivr CDN (`cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/`, a fixed version), with a progress bar under the key field.
+3. Each of the twelve files is checked against a SHA-256 fingerprint built into the app, so a damaged or tampered file is rejected and never stored.
+4. The files are kept in the phone's browser storage (IndexedDB), so it is a one-time download. If storage is wiped or the app is updated, it is fetched again automatically (after the key is re-checked).
+If the download fails (offline, CDN blocked) the field says why and shows **RETRY DOWNLOAD**. Translating never starts a download in the middle of a conversation: without the dictionary the glasses say "The romaji dictionary is not downloaded yet. Open Settings to download it." and the app fetches it. The dictionary files come from the `kuromoji` npm package; `npm run dict:manifest` regenerates their list and hashes (`src/dictionary-manifest.ts`), and a test fails if they ever drift from the installed package.
 
 ### Choosing a model
 With OpenRouter or Claude you pick the model from a dropdown (Settings → Translation), not a text box. **? COMPARE MODELS** lists them with prices. They are ranked for this app: fast (no reasoning pass), reliable JSON, natural Japanese, with price as the tiebreaker. A phrase costs a fraction of a cent on every one (about $0.07 to $0.30 per 1,000 phrases; roughly double with Predictive replies).
@@ -127,6 +135,6 @@ The direct **Claude** provider offers Haiku 5.5 (default) and Sonnet 5.5 (about 
 
 ## Packaging for the Even app (private build)
 ```bash
-npm run pack            # build (+ romaji dictionary) + evenhub pack → even-honyaku.ehpk (~17 MB)
+npm run pack            # build + evenhub pack → even-honyaku.ehpk (well under 1 MB)
 ```
-Upload `even-honyaku.ehpk` under **Private builds** in the dev portal (hub.evenrealities.com) and install it from the Even app: **Even Hub tab → Me → Apps → Private builds → Install**. The package contains no keys; each user enters their own in Settings. The dictionary is only fetched when the Google provider is used.
+Upload `even-honyaku.ehpk` under **Private builds** in the dev portal (hub.evenrealities.com) and install it from the Even app: **Even Hub tab → Me → Apps → Private builds → Install**. The package contains no keys; each user enters their own in Settings.

@@ -1,13 +1,13 @@
 # Testing the prototype on real G2 glasses
 
-Release candidate 1.1.5 (Predictive Conversation Mode + voice filter): **builds, typechecks and passes unit tests; the menu, the Predictive screen and the Settings list were driven in the Even simulator (0.9.5) with a faked network, and the phone UI was checked in a headless browser. None of it has run on real glasses or with a real voice yet.** Items in sections 3 and 4 are still unverified on a device.
+Release candidate 1.1.6 (Predictive Conversation Mode + voice filter): **builds, typechecks and passes unit tests; the menu, the Predictive screen and the Settings list were driven in the Even simulator (0.9.5) with a faked network, and the phone UI was checked in a headless browser. None of it has run on real glasses or with a real voice yet.** Items in sections 3 and 4 are still unverified on a device.
 
 ## 1. Run it on your own machine (phone + computer on the same Wi-Fi)
 
 ```bash
 cd even-honyaku
 npm install
-npm run dev         # terminal 1 – app dev server (also copies the romaji dictionary to public/dict)
+npm run dev         # terminal 1 – app dev server
 npm run qr          # terminal 2 – prints the QR; scan with "Scan QR" in the Even app
 ```
 There is no server. On first launch the glasses show the setup screen and the phone opens **SETTINGS** — enter your keys there.
@@ -39,6 +39,7 @@ Optional first: `npm run simulator` (needs a desktop).
 6. Phone hold button behaviour inside the Even app WebView (pointer events).
 
 ## 4. Unverified in 1.1.x (most important first)
+0. **The romaji dictionary download (Google users).** Verified in headless Chromium against the real CDN (download with progress, IndexedDB storage, no re-download after reload, tokenizer built from the stored files, retry after a blocked CDN), but not inside the Even app. On a device: enter a valid Google key and watch the progress bar finish; a typed English phrase should then give romaji; kill and reopen the app and check nothing is downloaded again; turn on airplane mode before entering a *second* fresh install's key to see the failure message and RETRY. If the tokenizer fails to build after a successful download, the Even WebView is probably blocking `blob:` XHR (the files are fed to kuromoji through blob URLs): see `withStoredFiles` in `src/romaji-browser.ts`. Also possible: a network layer that transparently decompresses `.gz` responses would make every file fail its size/SHA-256 check (the field then says a file "is not the expected one"); jsDelivr serves these as raw bytes today, and the check exists precisely so a mismatch can never be used silently.
 1. **Voice-filter accuracy on real glasses audio.** The voiceprint is a classical MFCC + pitch model; unit tests use synthetic voices only. Unknowns: how much louder you are than a person across the table at the G2 mic (L1 assumes a clear gap), how well short or halting read-aloud Japanese separates from the other person's voice, and whether the strictness default (50%) is right. Record some real conversations' worth of verdicts from the VOICE log and tune `voiceScore` / `levelScore` / `verdict` in `src/core/voice.ts`. If a classical model proves too weak, `voiceFeatures()` in `src/core/dsp.ts` is the one function to replace with a neural speaker embedding.
 2. Whether the English model's transcript of you reading romaji ever matches the suggested reply closely enough for the echo check (Japanese-model transcripts do).
 3. **Kana/kanji on the glasses** (Settings → Kana on glasses): glyph coverage and width (`feed.ts` assumes 27 px) are unverified.
@@ -46,4 +47,4 @@ Optional first: `npm run simulator` (needs a desktop).
 5. Latency of reply suggestions with your chosen model, and the Predictive screen's 9-row budget with real romaji lengths.
 
 ## 5. The `even-honyaku.ehpk` package
-`npm run pack` builds the app (plus the 17 MB romaji dictionary) and packs against SDK 0.0.16 (`min_app_version` 2.2.10). No keys are baked in; `app.json` whitelists Deepgram, Google Translate, OpenRouter and Anthropic. Upload it as a private build in the dev portal, install from the Even app, then enter your keys in **SETTINGS**. Unverified on-device: that the app's network whitelist accepts `wss://api.deepgram.com` for the WebSocket (both `wss://` and `https://` origins are listed), and that a ~15 MB upload is accepted. If a direct call fails, the check under the key field in Settings says which step failed and why.
+`npm run pack` builds the app (well under 1 MB; the romaji dictionary is downloaded on demand, not shipped) and packs against SDK 0.0.16 (`min_app_version` 2.2.10). No keys are baked in; `app.json` whitelists Deepgram, Google Translate, OpenRouter and Anthropic. Upload it as a private build in the dev portal, install from the Even app, then enter your keys in **SETTINGS**. Unverified on-device: that the app's network whitelist accepts `wss://api.deepgram.com` for the WebSocket (both `wss://` and `https://` origins are listed), and that the on-demand dictionary download from `cdn.jsdelivr.net` (whitelisted) works inside the Even WebView. If a direct call fails, the check under the key field in Settings says which step failed and why.

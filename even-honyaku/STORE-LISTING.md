@@ -14,6 +14,9 @@ You bring your own Deepgram and translation (Google, OpenRouter or Claude) keys;
 
 ## Release notes (English, 1 to 3 lines each)
 
+**1.1.6**
+- The app package is now tiny: Google Translate users download the romaji dictionary once, after their key is accepted; OpenRouter and Claude users never need it.
+
 **1.1.5**
 - Opening the glasses menu no longer interrupts listening mid-sentence, and a refused microphone now says so on the glasses.
 - Changing a setting from the glasses menu shows the new value on screen.

@@ -1,6 +1,6 @@
 # Honyaku: Even Hub submission audit
 
-Checked against `../SUBMISSION-CHECKLIST.md` (the rules) on 2026-10-19, at version 1.1.5. **[auto]** = enforced by
+Checked against `../SUBMISSION-CHECKLIST.md` (the rules) on 2026-10-19, at version 1.1.5 (updated for 1.1.6). **[auto]** = enforced by
 `src/compliance.test.ts`; **[sim]** = checked in the Even simulator; **[you]** = needs a beta build on real glasses and a
 locked phone, which has not been done for 1.1.x.
 
@@ -38,12 +38,11 @@ locked phone, which has not been done for 1.1.x.
 
 ## Risks that remain (decisions for the owner)
 
-1. **Package size: 15.6 MB against a documented practical cap of about 10 MB.** The FAQ says larger packages still upload
-   but degrade install; earlier 1.0.x/1.1.x uploads were accepted, but this is the likeliest "Other" rejection after the exit
-   issue. Almost all of it is the 17 MB kuromoji romaji dictionary, used **only by the Google Translate provider** (the
-   LLM providers write romaji themselves). Options: (a) accept; (b) drop the Google provider and the dictionary, leaving
-   a package under 1 MB; (c) keep Google but romanise with a much smaller table. (b) is the simplest and removes the
-   risk; it costs the free-tier provider.
+1. ~~Package size 15.6 MB against a ~10 MB practical cap~~ **Resolved in 1.1.6**: the 17.8 MB kuromoji dictionary is no longer
+   bundled; Google Translate users download it once, after their key is accepted, from jsDelivr (hash-verified, kept in
+   IndexedDB). The package is now about 100 KB. New things to verify on a device: the download inside the Even WebView, and
+   that `blob:` XHR works there (see TESTING.md section 4, item 0). The new origin `cdn.jsdelivr.net` is whitelisted and in
+   the privacy policy.
 2. **Keys.** The guidance is a server-side proxy; Honyaku is bring-your-own-key with nothing bundled. It has been through
    review before, but mention it in the review notes.
 3. **`supported_languages` is `["en"]`** because the app UI is English. If Japanese is added, release notes are needed for it.

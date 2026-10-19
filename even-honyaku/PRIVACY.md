@@ -10,7 +10,7 @@ server and no accounts**. The developer never receives your audio, text, keys or
 | Permission | Used for | Where the data goes |
 | --- | --- | --- |
 | `g2-microphone` | Captures speech from the glasses microphone **only while listening is on** (it starts paused; pausing closes the mic), and while you record or test your voice profile. | Streamed live to **Deepgram** (`api.deepgram.com`) for speech-to-text, using your own Deepgram key. Not recorded or stored by the app. Recognising *your own voice* happens on your phone and the audio used for it is never sent anywhere. |
-| `network` | Sends the recognised text to the translation service **you choose** in Settings. In Predictive mode it also sends what the other person just said (and the last few turns, including which suggested replies you read) to OpenRouter or Anthropic to get reply suggestions. | **Google Cloud Translation** (`translation.googleapis.com`), **OpenRouter** (`openrouter.ai`, which forwards to the model you pick) or **Anthropic** (`api.anthropic.com`), using your own key for that service. |
+| `network` | Sends the recognised text to the translation service **you choose** in Settings. In Predictive mode it also sends what the other person just said (and the last few turns, including which suggested replies you read) to OpenRouter or Anthropic to get reply suggestions. | **Google Cloud Translation** (`translation.googleapis.com`), **OpenRouter** (`openrouter.ai`, which forwards to the model you pick) or **Anthropic** (`api.anthropic.com`), using your own key for that service. If you use Google Translate, the app also downloads a public romaji dictionary **once** from the **jsDelivr** CDN (`cdn.jsdelivr.net`; the kuromoji package's dictionary files). Nothing about you is sent with that request beyond what any web request reveals (your IP address and the file name), and it only starts after your Google key has been accepted. |
 
 Those are the only network destinations (they are the `app.json` network whitelist). Requests go straight from
 your phone to the service; nothing passes through any developer-run infrastructure. Each service handles the data
@@ -20,6 +20,7 @@ under its own terms and privacy policy, and usage is billed to your own account 
 - Google Cloud: https://cloud.google.com/terms/cloud-privacy-notice
 - OpenRouter: https://openrouter.ai/privacy
 - Anthropic: https://www.anthropic.com/legal/privacy
+- jsDelivr (dictionary download only): https://www.jsdelivr.com/terms/privacy-policy-jsdelivr-net
 
 ## What is stored on your device
 
@@ -27,6 +28,7 @@ under its own terms and privacy policy, and usage is billed to your own account 
   Even Realities app's app storage and the WebView's local storage on your phone, and are never included in the
   app package, logged, or sent anywhere except to the matching service above.
 - **Your voice profile** (if you record one): a few dozen numbers (pitch and spectral features) and loudness statistics computed from the sentences you read, in English and Japanese, plus a few more learned while you use the app. It is **not audio** and cannot be played back, but it is a biometric-style description of how you sound, so it is treated as sensitive: it is kept only in the Even Realities app's app storage and the WebView's local storage on your phone, used only on your phone to tell your voice from other people's, never sent to any service or the developer, never logged. **Delete profile** (VOICE tab) removes it; uninstalling the app does too.
+- **The romaji dictionary** (Google Translate users only): about 18 MB of public dictionary data, checked against a fixed fingerprint after download so a tampered or damaged file is rejected, and kept in the phone's browser storage (IndexedDB). It contains nothing about you and is removed when you uninstall the app.
 - The on-screen feed of recent translations and suggested replies lives in memory only and is gone when the app closes.
 - The app keeps no recordings, transcripts, history, analytics, advertising identifiers or crash reports. The microphone audio recorded while you set up your voice profile is analysed in memory and discarded.
 

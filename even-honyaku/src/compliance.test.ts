@@ -113,6 +113,23 @@ describe('network: every origin the code talks to is whitelisted (the whitelist 
   })
 })
 
+describe('package size: Even Hub\'s practical cap is about 10 MB, so nothing big is bundled', () => {
+  /** Everything Vite would copy into the package from public/ (bundled JS and CSS are small and measured by the build). */
+  const filesIn = (dir: string): number[] => {
+    try {
+      return readdirSync(dir).flatMap((n) => (statSync(join(dir, n)).isDirectory() ? filesIn(join(dir, n)) : [statSync(join(dir, n)).size]))
+    } catch {
+      return []
+    }
+  }
+
+  it('public/ holds no large assets (large optional data is downloaded on demand instead, with a verified hash)', () => {
+    const sizes = filesIn(join(root, 'public'))
+    expect(Math.max(0, ...sizes)).toBeLessThan(1_000_000)
+    expect(sizes.reduce((a, b) => a + b, 0)).toBeLessThan(2_000_000)
+  })
+})
+
 describe('exit: the root page uses the system confirmation dialog', () => {
   // calls only (`bridge.shutDownPageContainer(1)`, `?.shutDownPageContainer(1)`), not a type declaration
   const calls = [...executable.matchAll(/[.?]\s*shutDownPageContainer\(([^)]*)\)/g)].map((m) => m[1]!.trim())

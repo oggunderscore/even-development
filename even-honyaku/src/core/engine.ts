@@ -19,6 +19,7 @@ import { isBackchannel, predictReplies } from './predict'
 import { testConfig } from './probes'
 import { type Range, type Stt, createStt as defaultCreateStt } from './stt'
 import { NEW_TURN_AFTER_MS } from './turns'
+import { RomajiNotInstalledError } from './romaji'
 import { detectDir, translate } from './translate'
 import {
   ECHO_CERTAIN,
@@ -71,6 +72,7 @@ export class Engine {
   private turnTimer: ReturnType<typeof setTimeout> | undefined
   private predicting: AbortController | null = null
   private warnedNoLlm = false
+  private warnedNoRomaji = false
 
   constructor(
     private readonly emit: (msg: ServerMsg) => void,
@@ -142,6 +144,7 @@ export class Engine {
       return
     }
     this.cfg = resolveConfig(user)
+    this.warnedNoRomaji = false
     const missing = missingKeys(this.cfg)
 
     const llm = this.cfg.translate.provider !== 'google'
@@ -355,9 +358,15 @@ export class Engine {
         this.history.push(t)
         if (this.history.length > 6) this.history.shift()
         this.emit({ type: 'final', ...t })
+        // Google gave the English but there is no romaji because the dictionary isn't installed: ask the app to fetch it (once).
+        if (this.cfg.translate.provider === 'google' && t.dir === 'listen' && !t.romaji && !this.warnedNoRomaji) {
+          this.warnedNoRomaji = true
+          this.emit({ type: 'error', code: 'no_romaji', message: new RomajiNotInstalledError().message })
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        this.emit({ type: 'error', message: `translate: ${message}` })
+        if (err instanceof RomajiNotInstalledError) this.emit({ type: 'error', code: 'no_romaji', message })
+        else this.emit({ type: 'error', message: `translate: ${message}` })
       }
     })
     if (dir === 'listen' && !flags.unsure && this.predict) this.addToTurn(text, id)

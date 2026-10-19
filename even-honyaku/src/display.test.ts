@@ -250,6 +250,7 @@ describe('formatEntry', () => {
     expect(formatEntry(t, true)).toBe('JP: ikura desu ka\nいくらですか\n> How much?')
     expect(formatEntry({ ...t, unsure: true })).toMatch(/^JP\?:/)
     expect(formatEntry({ ...t, heardEnglish: true, english: 'Okay' })).toBe('them: Okay')
+    expect(formatEntry({ ...t, romaji: '' })).toBe('JP> How much?') // romaji not available yet: just the English
     expect(formatEntry({ id: 2, dir: 'speak', english: 'Thanks', japanese: 'ありがとう', romaji: 'arigatou' })).toBe('you: Thanks\n> arigatou')
   })
 })

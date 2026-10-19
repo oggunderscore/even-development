@@ -207,6 +207,9 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .help-panel li::marker { color: var(--accent-dim); }
 .help-panel b { color: var(--accent); font-weight: 500; }
 
+/* The hidden attribute must win over any component's display rule (.btn is display:block). */
+[hidden] { display: none !important; }
+
 /* ── conversation + voice ─────────────── */
 .card .lead { color: var(--dim); font-size: 12px; margin-bottom: 14px; }
 .field input[type='range'] { width: 100%; accent-color: var(--accent); background: none; }

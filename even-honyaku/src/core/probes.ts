@@ -6,7 +6,7 @@ import { type ResolvedConfig, translateKey } from './config'
 import { deepgramUrl } from './stt'
 import { activeModel } from './models'
 import { translate } from './translate'
-import { loadRomajiDictionary } from './romaji'
+import { RomajiNotInstalledError, loadRomajiDictionary } from './romaji'
 
 const TIMEOUT_MS = 8000
 
@@ -95,12 +95,16 @@ export async function testConfig(cfg: ResolvedConfig, scope: TestScope = 'transl
       await loadRomajiDictionary()
       results.push({ service: 'romaji', ok: true, detail: `dictionary ready (${((Date.now() - t0) / 1000).toFixed(1)}s)` })
     } catch (err) {
-      results.push({ service: 'romaji', ok: false, detail: `The romaji dictionary failed to load: ${err instanceof Error ? err.message : 'error'}` })
+      results.push(
+        err instanceof RomajiNotInstalledError
+          ? { service: 'romaji', ok: false, detail: 'Key accepted. The romaji dictionary (about 18 MB) needs to be downloaded.', action: 'download_dictionary' }
+          : { service: 'romaji', ok: false, detail: `The romaji dictionary failed to load: ${err instanceof Error ? err.message : 'error'}` },
+      )
     }
   }
 
-  // End to end with the chosen model: only worth a call if the provider accepted the key.
-  if (provider.ok) {
+  // End to end with the chosen model: only worth a call if the provider accepted the key (and, for Google, romaji works).
+  if (provider.ok && results.every((r) => r.ok)) {
     const model = activeModel(cfg.translate.provider, cfg.translate)
     try {
       const t = await translate('speak', 'How much is this?', [], 0, cfg.translate)
@@ -118,7 +122,9 @@ export async function testConfig(cfg: ResolvedConfig, scope: TestScope = 'transl
 }
 
 /** One line for the field: ok only if every check passed; otherwise the first thing that failed. */
-export function summarize(results: TestResult[]): { ok: boolean; text: string } {
+export function summarize(results: TestResult[]): { ok: boolean; text: string; needsDictionary?: boolean } {
+  const download = results.find((r) => r.action === 'download_dictionary')
+  if (download) return { ok: false, text: download.detail, needsDictionary: true }
   const failed = results.find((r) => !r.ok)
   if (failed) return { ok: false, text: failed.detail }
   const sample = results.find((r) => r.service === 'translate')

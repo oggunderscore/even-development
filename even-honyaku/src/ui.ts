@@ -24,6 +24,8 @@ export interface PhoneUiHandlers {
   onChange(settings: Settings): void
   /** A key field is being edited: whatever was shown about its old value is out of date. */
   onEditing(scope: TestScope): void
+  /** The romaji dictionary download failed and the user asked to try again. */
+  onDictionaryRetry(): void
   /** A conversation / voice-filter preference changed; applies immediately (no SAVE). */
   onPrefs(patch: Partial<Settings>): void
   onEnroll(): void
@@ -330,6 +332,7 @@ export class PhoneUi {
       })
       input.addEventListener('change', () => this.commit())
     }
+    $('dict-retry').addEventListener('click', () => this.handlers.onDictionaryRetry())
     $('set-model').addEventListener('change', () => this.commitModel())
     $('set-anthropic-model').addEventListener('change', () => this.commitModel())
     // No Save button: pressing Enter in a field just commits it.
@@ -513,6 +516,19 @@ export class PhoneUi {
   showProvider(p: Provider) {
     this.base = { ...this.base, provider: p }
     this.setProvider(p)
+  }
+
+  /**
+   * The romaji dictionary (Google Translate only): `downloading` shows a progress bar (0..1), `failed` offers a retry,
+   * `ready` confirms, `idle` hides it.
+   */
+  setDictStatus(state: 'idle' | 'downloading' | 'ready' | 'failed', text = '', fraction = 0) {
+    const el = $('status-dict')
+    el.dataset['state'] = state === 'downloading' ? 'checking' : state === 'failed' ? 'bad' : state === 'ready' ? 'ok' : 'idle'
+    el.textContent = state === 'idle' ? '' : text
+    $('dict-meter').hidden = state !== 'downloading'
+    ;($('dict-meter').firstElementChild as HTMLElement).style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`
+    $('dict-retry').hidden = state !== 'failed'
   }
 
   /** The result of a key check, under the field it belongs to. `checking` shows while the answer is on its way. */

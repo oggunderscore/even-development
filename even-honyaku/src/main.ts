@@ -15,7 +15,7 @@ import { type Settings, hasKeys, loadSettings, loadSettingsFromBridge, providerK
 import { planChange } from './settings-change'
 import { type Phase, PhoneUi } from './ui'
 import { loadVoice, loadVoiceFromBridge, saveVoice } from './voice-store'
-import './romaji-browser'
+import { downloadRomajiDictionary, romajiDictionaryInstalled, romajiDictionaryVolatile } from './romaji-browser'
 
 // Listening starts PAUSED. Once the user resumes it, the glasses mic streams continuously until they pause again:
 //   listening  – always-on; the engine detects English / Japanese per utterance (JP → English, EN → romaji), keeps the
@@ -91,6 +91,7 @@ const ui = new PhoneUi(
       })
     },
     onChange: (next) => void queueSettingsChange(next),
+    onDictionaryRetry: () => void ensureDictionary(),
     onEditing: (scope) => {
       checkId[scope]++ // an answer about the old text must not land under the new
       checkOk[scope] = false
@@ -205,10 +206,79 @@ async function onSettingsChange(raw: Settings) {
 
 const hasKeyFor = (scope: TestScope, s: Settings): boolean => (scope === 'stt' ? s.deepgramKey !== '' : providerKey(s) !== '')
 
+let dictBusy = false
+const mb = (bytes: number) => (bytes / 1e6).toFixed(1)
+
+/**
+ * Google Translate returns no romaji, so Honyaku makes it with a dictionary that is not part of the app. It is downloaded
+ * once (never for the other providers, and never for a key that was rejected), verified, and kept on the phone.
+ */
+async function ensureDictionary() {
+  if (dictBusy) return
+  dictBusy = true
+  ui.setDictStatus('downloading', 'Downloading the romaji dictionary…', 0)
+  try {
+    let last = 0
+    await downloadRomajiDictionary((p) => {
+      const now = Date.now()
+      if (now - last < 150 && p.doneBytes < p.totalBytes) return // the bar needn't move faster than the eye
+      last = now
+      ui.setDictStatus('downloading', `Downloading the romaji dictionary… ${mb(p.doneBytes)} of ${mb(p.totalBytes)} MB`, p.doneBytes / p.totalBytes)
+    })
+    // If the phone refused to keep it (storage blocked or full) it only lasts until the app closes: say so, don't claim it is saved.
+    ui.setDictStatus(
+      'ready',
+      romajiDictionaryVolatile()
+        ? 'Romaji dictionary ready for now, but this phone would not keep it, so it will be downloaded again next time.'
+        : 'Romaji dictionary downloaded and ready.',
+    )
+    if (settings.provider === 'google') runCheck('translate') // finish the key check: a sample translation with the chosen model
+  } catch (err) {
+    const why = err instanceof Error ? err.message : 'Unknown error.'
+    ui.setDictStatus('failed', `The romaji dictionary could not be downloaded. ${why}`)
+    if (settings.provider === 'google') {
+      checkOk.translate = false
+      ui.setKeyStatus('translate', 'bad', 'Key accepted, but the romaji dictionary is missing, so Google Translate cannot be used yet.')
+    }
+  } finally {
+    dictBusy = false
+  }
+}
+
+let lastRomajiCheckAt = 0
+
+/**
+ * Translating found no dictionary. Never download blindly from here (mid-conversation, or for a key nobody has validated):
+ * re-run the key check, which starts the download only if Google accepts the key, and at most once a minute.
+ */
+function dictionaryNeededNow() {
+  const now = Date.now()
+  if (dictBusy || now - lastRomajiCheckAt < 60_000 || settings.provider !== 'google' || !settings.googleKey) return
+  lastRomajiCheckAt = now
+  runCheck('translate')
+}
+
+/** On launch: a Google key is saved but the dictionary isn't on this phone (an update, or storage was cleared): fetch it after the key checks out. */
+async function checkDictionaryAtStart() {
+  if (settings.provider !== 'google' || !settings.googleKey) return
+  if (await romajiDictionaryInstalled().catch(() => false)) {
+    ui.setDictStatus('ready', 'Romaji dictionary ready.')
+    return
+  }
+  runCheck('translate') // validates the key first; the download starts only if it is accepted
+}
+
 /** A key check came back. */
 function onCheckResult(msg: Extract<ServerMsg, { type: 'test_result' }>) {
   if (msg.id !== checkId[msg.scope]) return
   const s = summarize(msg.results)
+  if (msg.results.some((r) => r.service === 'romaji' && r.ok)) ui.setDictStatus('ready', 'Romaji dictionary ready.')
+  if (s.needsDictionary) {
+    // The key is valid: now (and only now) fetch the dictionary.
+    ui.setKeyStatus('translate', 'ok', 'Key accepted.')
+    void ensureDictionary()
+    return
+  }
   checkOk[msg.scope] = s.ok
   ui.setKeyStatus(msg.scope, s.ok ? 'ok' : 'bad', s.text)
   if (!onboarding || !s.ok) return
@@ -444,6 +514,15 @@ function handleServerMessage(msg: ServerMsg) {
         if (settings.mode === 'predictive') void updateSettings({ mode: 'standard' })
         break
       }
+      if (msg.code === 'no_romaji') {
+        // Google Translate is selected but its romaji dictionary isn't on this phone: say so, and fetch it.
+        display.note(msg.message.slice(0, 80))
+        ui.addError(msg.message)
+        ui.setLive('speak', '')
+        if (phase === 'processing') settle()
+        dictionaryNeededNow()
+        break
+      }
       if (msg.message.startsWith('reply suggestions:')) {
         display.predictionFailed(msg.message.replace('reply suggestions: ', ''))
         ui.addError(msg.message)
@@ -640,6 +719,7 @@ async function initGlasses() {
     ui.setSettings(settings)
   }
   onboarding = !hasKeys(settings) // the bridge store may hold keys the WebView's localStorage doesn't
+  void checkDictionaryAtStart() // keys held only in the bridge store weren't known at launch
   session.reset() // restart the engine with the stored keys, preferences and voiceprint
   await session.connect()
   if (hasKeys(settings)) ui.showView('feed')
@@ -695,5 +775,6 @@ function watchLiveness() {
 
 syncState()
 refreshSetup()
+void checkDictionaryAtStart()
 if (!hasKeys(settings)) ui.showView('settings') // first run: straight to setup
 void initGlasses().catch(() => ui.addError('Could not start the glasses display. Phone UI only'))

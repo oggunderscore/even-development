@@ -7,7 +7,7 @@
 import type { Direction, Provider, Translation } from '../../src/protocol'
 import { hasJapanese, stripMacrons } from './lang'
 import { ANTHROPIC_DEFAULT_MODEL, OPENROUTER_DEFAULT_MODEL } from './models'
-import { romanize } from './romaji'
+import { RomajiNotInstalledError, romanize } from './romaji'
 
 export { OPENROUTER_DEFAULT_MODEL, stripMacrons }
 
@@ -86,7 +86,12 @@ async function translateWithGoogle(dir: Direction, text: string, id: number, cfg
     const japanese = await googleTranslate(cfg.googleKey, text, 'en', 'ja')
     return { id, dir, english: text, japanese, romaji: await romanize(japanese) }
   }
-  const [english, romaji] = await Promise.all([googleTranslate(cfg.googleKey, text, 'ja', 'en'), romanize(text)])
+  // The other person's speech: the English is what matters. If the romaji dictionary isn't on this phone yet, show the
+  // English anyway (with no romaji) rather than losing the translation; the engine tells the app to fetch the dictionary.
+  const [english, romaji] = await Promise.all([
+    googleTranslate(cfg.googleKey, text, 'ja', 'en'),
+    romanize(text).catch((err: unknown) => (err instanceof RomajiNotInstalledError ? '' : Promise.reject(err))),
+  ])
   return { id, dir, japanese: text, english, romaji }
 }
 

@@ -146,6 +146,12 @@
                     <input id="set-google" type="password" autocapitalize="off" autocomplete="off" placeholder="paste key" />
                     <button class="reveal" type="button" data-for="set-google">SHOW</button>
                   </div>
+                </div>
+                <div class="field" id="dict-box">
+                  <small class="key-status" id="status-dict" data-state="idle" role="status" aria-live="polite"></small>
+                  <div class="meter" id="dict-meter" hidden><i></i></div>
+                  <button id="dict-retry" class="btn ghost" type="button" hidden>RETRY DOWNLOAD</button>
+                  <small class="hint">Google returns no romaji, so Honyaku makes it on your phone with a dictionary (about 18 MB). It is downloaded once, only after your key is accepted, and kept on this phone.</small>
                 </div></div>
               </div>
               <div class="reveal-row" data-provider="openrouter">

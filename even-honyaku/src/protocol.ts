@@ -76,6 +76,8 @@ export interface TestResult {
   service: 'deepgram' | Provider | 'translate' | 'romaji'
   ok: boolean
   detail: string
+  /** The key is fine but something must be done before the check can finish: download the romaji dictionary. */
+  action?: 'download_dictionary'
 }
 
 export type ClientMsg =
@@ -137,5 +139,6 @@ export type ServerMsg =
   | { type: 'voice_profile'; profile: VoiceProfile }
   | { type: 'done' }
   /** `no_keys`: a key needed for this action is missing — send the user to Settings.
-   *  `no_llm`: Predictive mode needs an OpenRouter or Claude key (Google Translate can't suggest replies). */
-  | { type: 'error'; message: string; code?: 'no_keys' | 'no_llm' }
+   *  `no_llm`: Predictive mode needs an OpenRouter or Claude key (Google Translate can't suggest replies).
+   *  `no_romaji`: Google Translate is selected but the romaji dictionary isn't downloaded yet. */
+  | { type: 'error'; message: string; code?: 'no_keys' | 'no_llm' | 'no_romaji' }
