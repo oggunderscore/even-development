@@ -18,10 +18,13 @@ export interface Heard {
   end: number
 }
 
+/** Where in the stream (seconds from when it opened) a final was spoken — lets the voice filter find the audio. */
+export type Range = { start: number; end: number }
+
 /** What the engine sees, regardless of how many Deepgram sockets are behind it. */
 export interface SttHandlers {
   onPartial(text: string, dir: Direction): void
-  onFinal(text: string, dir: Direction): void
+  onFinal(text: string, dir: Direction, range?: Range): void
   onError(err: Error): void
   /** The stream died on its own (not via abort()/finish()) and should be reopened. */
   onClose(): void
@@ -169,7 +172,7 @@ class DualStt implements Stt {
   private dead = false
 
   constructor(apiKey: string, handlers: SttHandlers) {
-    this.arbiter = new Arbiter((text, dir) => handlers.onFinal(text, dir))
+    this.arbiter = new Arbiter((text, dir, heard) => handlers.onFinal(text, dir, { start: heard.start, end: heard.end }))
     const closeBoth = () => {
       if (this.dead) return
       this.dead = true
@@ -228,7 +231,7 @@ export function createStt(mode: StreamMode, handlers: SttHandlers, { deepgramKey
   if (mode === 'talk') {
     return new DeepgramStream('en', 400, deepgramKey, {
       onPartial: (text) => handlers.onPartial(text, 'speak'),
-      onFinal: (text) => handlers.onFinal(text, 'speak'),
+      onFinal: (text, heard) => handlers.onFinal(text, 'speak', { start: heard.start, end: heard.end }),
       onError: handlers.onError,
       onClose: handlers.onClose,
     })

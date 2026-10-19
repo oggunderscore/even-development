@@ -54,8 +54,7 @@ export async function translate(
     .join('\n')
   const userContent = `${context ? `Recent turns:\n${context}\n\n` : ''}Mode "${dir}":\n${text}`
 
-  const raw = cfg.provider === 'anthropic' ? await completeAnthropic(userContent, cfg) : await completeOpenRouter(userContent, cfg)
-  const parsed = parseJson(raw)
+  const parsed = parseJson(await completeJson(SYSTEM, userContent, cfg))
 
   const romaji = stripMacrons(String(parsed['romaji'] ?? '')).trim()
   return dir === 'speak'
@@ -94,12 +93,19 @@ async function translateWithGoogle(dir: Direction, text: string, id: number, cfg
 
 export const OPENROUTER_DEFAULT_MODEL = 'google/gemini-2.5-flash-lite'
 
-async function completeOpenRouter(userContent: string, cfg: TranslateConfig): Promise<string> {
+/** One JSON-answering LLM call on whichever LLM provider the user chose (OpenRouter or Claude). */
+export async function completeJson(system: string, userContent: string, cfg: TranslateConfig, opts: { signal?: AbortSignal; maxTokens?: number } = {}): Promise<string> {
+  if (cfg.provider === 'google') throw new Error('Google Translate cannot generate text; use an OpenRouter or Claude key')
+  return cfg.provider === 'anthropic' ? completeAnthropic(system, userContent, cfg, opts) : completeOpenRouter(system, userContent, cfg, opts)
+}
+
+async function completeOpenRouter(system: string, userContent: string, cfg: TranslateConfig, opts: { signal?: AbortSignal; maxTokens?: number }): Promise<string> {
   const key = cfg.openrouterKey
   if (!key) throw new Error('OpenRouter key is not set')
 
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
+    signal: opts.signal,
     headers: {
       Authorization: `Bearer ${key}`,
       'Content-Type': 'application/json',
@@ -108,10 +114,10 @@ async function completeOpenRouter(userContent: string, cfg: TranslateConfig): Pr
     body: JSON.stringify({
       model: cfg.openrouterModel || OPENROUTER_DEFAULT_MODEL,
       temperature: 0,
-      max_tokens: 400,
+      max_tokens: opts.maxTokens ?? 400,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: SYSTEM },
+        { role: 'system', content: system },
         { role: 'user', content: userContent },
       ],
     }),
@@ -131,12 +137,13 @@ async function completeOpenRouter(userContent: string, cfg: TranslateConfig): Pr
 
 // ── Anthropic (optional) ─────────────────────────────────────────────────────
 
-async function completeAnthropic(userContent: string, cfg: TranslateConfig): Promise<string> {
+async function completeAnthropic(system: string, userContent: string, cfg: TranslateConfig, opts: { signal?: AbortSignal; maxTokens?: number }): Promise<string> {
   const key = cfg.anthropicKey
   if (!key) throw new Error('Anthropic key is not set')
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
+    signal: opts.signal,
     headers: {
       'x-api-key': key,
       'anthropic-version': '2023-06-01',
@@ -146,8 +153,8 @@ async function completeAnthropic(userContent: string, cfg: TranslateConfig): Pro
     },
     body: JSON.stringify({
       model: cfg.anthropicModel || 'claude-haiku-5-5',
-      max_tokens: 1024,
-      system: SYSTEM,
+      max_tokens: opts.maxTokens ?? 1024,
+      system,
       messages: [{ role: 'user', content: userContent }],
     }),
   })
