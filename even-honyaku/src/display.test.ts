@@ -41,7 +41,7 @@ describe('Display: layouts', () => {
     const page = f.calls[0]!.data
     expect(page.textObject.map((t: any) => t.containerName)).toEqual(['header', 'body', 'footer'])
     expect(page.textObject[1].isEventCapture).toBe(1)
-    expect(page.textObject[2].content).toBe('tap: pause/resume   2x tap: menu')
+    expect(page.textObject[2].content).toBe('tap: pause/resume   2x tap: exit')
   })
 
   it('predictive mode gives the body the footer\'s space and drops the footer', async () => {
@@ -64,120 +64,77 @@ describe('Display: layouts', () => {
   })
 })
 
-describe('Display: menu overlay', () => {
+describe('Display: OS contextual menu', () => {
   const items = [
-    { id: 'toggle', label: 'Pause listening' },
-    { id: 'settings', label: 'Settings' },
-    { id: 'exit', label: 'Exit' },
+    { id: 'toggle', label: 'Pause / Resume' },
+    { id: 'mode', label: 'Mode: Standard' },
   ]
-  const containers = (page: any) => [...page.textObject, ...(page.listObject ?? [])]
+  const declared = (page: any) => page.menuObject?.menuItems?.map((m: any) => [m.itemID, m.itemName])
 
-  it('is a small centred list box over the current screen, and the box is the only thing that captures input', async () => {
+  it('is declared on the first page, with non-zero unique ids', async () => {
     const f = fakeBridge()
-    const d = new Display(f.bridge)
+    const d = new Display(f.bridge, { menu: items })
     await d.init()
-    expect(await d.openMenu(items)).toBe(true)
-    const page = f.calls.at(-1)!.data
-    expect(d.menuOpen).toBe(true)
-    // the normal screen is still there (header, body, footer), no longer capturing
-    expect(page.textObject.map((t: any) => t.containerName)).toEqual(['header', 'body', 'footer'])
-    expect(page.textObject.every((t: any) => t.isEventCapture === 0)).toBe(true)
-    // …with a list on top
-    const box = page.listObject[0]
-    expect(box.itemContainer.itemName).toEqual(['Pause listening', 'Settings', 'Exit'])
-    expect(box.isEventCapture).toBe(1)
-    expect(containers(page).filter((c: any) => c.isEventCapture === 1)).toHaveLength(1)
-    // small and centred, not full width
-    expect(box.width).toBeLessThan(400)
-    expect(box.xPosition + box.width / 2).toBe(288)
-    expect(box.yPosition + box.height / 2).toBeCloseTo(144, -1)
-    expect(page.containerTotalNum).toBe(4)
+    expect(declared(f.calls[0]!.data)).toEqual([[1, 'Pause / Resume'], [2, 'Mode: Standard']])
   })
 
-  it('stacks the box above the screen: zOrderIndex on every container (a platform rule), the box highest, unique', async () => {
+  it('no in-app overlay: the page is still just the screen, with the body capturing input', async () => {
     const f = fakeBridge()
-    const d = new Display(f.bridge, { mode: 'predictive' })
+    const d = new Display(f.bridge, { menu: items })
     await d.init()
-    await d.openMenu(items)
-    const z = containers(f.calls.at(-1)!.data).map((c: any) => c.zOrderIndex)
-    expect(z.every((n: number | undefined) => typeof n === 'number')).toBe(true)
-    expect(new Set(z).size).toBe(z.length)
-    expect(f.calls.at(-1)!.data.listObject[0].zOrderIndex).toBe(Math.max(...z))
-  })
-
-  it('dims the screen behind the box and blanks the text rows the box covers, keeping those above it', async () => {
-    const f = fakeBridge()
-    const d = new Display(f.bridge, { mode: 'predictive' })
-    await d.init()
-    d.addTranslation(hear(1, 'Hot or iced?'), true)
-    d.predictions(1, choice)
-    await d.openMenu(items)
-    const body = f.calls.at(-1)!.data.textObject[1]
-    expect(body.textColor).toBeLessThan(4)
-    const rows = body.content.split('\n')
-    expect(rows[0]).toBe('JP: Hot or iced?') // above the box: kept
-    expect(rows).toHaveLength(5) // the question plus two options of two rows each
-    expect(rows.slice(1).every((r: string) => r === '')).toBe(true) // the box (y 76 to 212) covers every row from the second down
-  })
-
-  it('a taller list (settings) gets a taller box, never more than five items high, and scrolls inside it', async () => {
-    const f = fakeBridge()
-    const d = new Display(f.bridge)
-    await d.init()
-    await d.openMenu(items)
-    const small = f.calls.at(-1)!.data.listObject[0].height
-    await d.openMenu(Array.from({ length: 6 }, (_, i) => ({ id: `i${i}`, label: `Ignore my own voice: ${i}` })))
-    const big = f.calls.at(-1)!.data.listObject[0]
-    expect(big.height).toBeGreaterThan(small)
-    expect(big.height).toBeLessThanOrEqual(216)
-    expect(big.itemContainer.itemName).toHaveLength(6)
-  })
-
-  it('redrawing with new items rebuilds again; closing returns to the mode\'s own layout', async () => {
-    const f = fakeBridge()
-    const d = new Display(f.bridge, { mode: 'predictive' })
-    await d.init()
-    await d.openMenu(items)
-    await d.openMenu([{ id: 'toggle', label: 'Resume listening' }])
-    expect(f.calls.at(-1)!.data.listObject[0].itemContainer.itemName).toEqual(['Resume listening'])
-    await d.closeMenu()
-    expect(d.menuOpen).toBe(false)
-    const page = f.calls.at(-1)!.data
-    expect(page.textObject.map((t: any) => t.containerName)).toEqual(['header', 'body'])
-    expect(page.textObject[1].isEventCapture).toBe(1)
+    const page = f.calls[0]!.data
+    expect(page.listObject).toBeUndefined()
+    expect(page.textObject.filter((t: any) => t.isEventCapture === 1)).toHaveLength(1)
     expect(page.textObject.every((t: any) => t.zOrderIndex === undefined)).toBe(true)
   })
 
-  it('a mode change made inside the menu takes effect when it closes', async () => {
+  it('every rebuild re-declares the menu (leaving it out would clear it)', async () => {
     const f = fakeBridge()
-    const d = new Display(f.bridge)
+    const d = new Display(f.bridge, { menu: items })
     await d.init()
-    await d.openMenu(items)
     await d.setMode('predictive')
-    expect(d.menuOpen).toBe(true)
-    await d.closeMenu()
-    expect(f.calls.at(-1)!.data.textObject.map((t: any) => t.containerName)).toEqual(['header', 'body'])
+    expect(declared(f.calls.at(-1)!.data)).toEqual([[1, 'Pause / Resume'], [2, 'Mode: Standard']])
   })
 
-  it('if the glasses refuse the rebuild, the old layout stays and the menu is not considered open', async () => {
-    const f = fakeBridge({ rebuildOk: false })
+  it('changed labels rebuild the page with the new labels; identical labels do nothing', async () => {
+    const f = fakeBridge()
+    const d = new Display(f.bridge, { menu: items })
+    await d.init()
+    await d.setMenu(items)
+    expect(f.calls.filter((c) => c.kind === 'rebuild')).toHaveLength(0)
+    await d.setMenu([items[0]!, { id: 'mode', label: 'Mode: Predictive' }])
+    expect(f.calls.filter((c) => c.kind === 'rebuild')).toHaveLength(1)
+    expect(declared(f.calls.at(-1)!.data)).toEqual([[1, 'Pause / Resume'], [2, 'Mode: Predictive']])
+  })
+
+  it('a mode change and new labels together cost one rebuild', async () => {
+    const f = fakeBridge()
+    const d = new Display(f.bridge, { menu: items })
+    await d.init()
+    await d.configure({ mode: 'predictive', menu: [items[0]!, { id: 'mode', label: 'Mode: Predictive' }] })
+    expect(f.calls.filter((c) => c.kind === 'rebuild')).toHaveLength(1)
+    const page = f.calls.at(-1)!.data
+    expect(page.textObject.map((t: any) => t.containerName)).toEqual(['header', 'body'])
+    expect(declared(page)[1][1]).toBe('Mode: Predictive')
+  })
+
+  it('a menu with no items is simply not declared', async () => {
+    const f = fakeBridge()
     const d = new Display(f.bridge)
     await d.init()
-    expect(await d.openMenu(items)).toBe(false)
-    expect(d.menuOpen).toBe(false)
+    expect(f.calls[0]!.data.menuObject).toBeUndefined()
   })
 
-  it('swipes do nothing to the conversation while the menu is open', async () => {
-    const f = fakeBridge()
-    const d = new Display(f.bridge, { mode: 'predictive' })
+  it('if the glasses refuse the rebuild, mode and menu roll back to what is actually on screen', async () => {
+    const f = fakeBridge({ rebuildOk: false })
+    const d = new Display(f.bridge, { menu: items })
     await d.init()
+    await d.configure({ mode: 'predictive', menu: [items[0]!] })
     d.addTranslation(hear(1, 'Hot or iced?'), true)
-    d.predictions(1, choice)
-    await d.openMenu(items)
-    d.scroll('down')
-    await d.closeMenu()
     await flush()
-    expect(f.lastText(2)).toMatch(/▶ 1 Hot, please/)
+    expect(f.lastText(2)).toContain('hotto desu ka') // standard entries show the romaji line, predictive ones do not
+    await d.setMenu(items) // unchanged from the rolled-back state: no further rebuild attempt
+    expect(f.calls.filter((c) => c.kind === 'rebuild')).toHaveLength(1)
   })
 })
 

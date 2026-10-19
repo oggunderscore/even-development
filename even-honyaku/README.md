@@ -19,14 +19,15 @@ Listening is **off when the app starts** — turn it on when you want it.
 | Where | Gesture | Action |
 | --- | --- | --- |
 | Glasses | **tap** | pause / resume listening (the mic closes while paused: nothing is streamed or billed). The tap takes effect about a third of a second later, so a double tap never also toggles it |
-| Glasses | **double tap** | open the menu: **Pause / Resume listening**, **Settings**, **Exit**. It is a small box centred over the screen. Double tap again, or wait 12 s, to close it |
-| Glasses | swipe | Standard: scroll the feed one translation at a time (up pushes the top one off, down brings one back). Predictive: move the highlight between suggested replies; swipe up past the first one to read earlier turns |
-| Phone | Pause / Resume listening button | same as the menu item |
+| Glasses | **double tap** | exit: opens the system exit confirmation (answer *No* and everything keeps working) |
+| Glasses | **tap, then long press** | the glasses' own menu, with Honyaku's items added: **Pause / Resume**, **Mode**, **Replies**, **Options**, **Voice filter**, **Kana** |
+| Glasses | swipe | Standard: scroll the feed one translation at a time (up pushes the top one off, down brings one back). Predictive: move the highlight between suggested replies; swipe up past the first one to read earlier turns, down to come back |
+| Phone | Pause / Resume listening button | same as a tap on the glasses |
 | Phone | **Hold** big button | talk English while held, translate on release (works while paused) |
 
-**Hold (long press) is left alone** — many people bind it to a function of their own in the Even app, and the OS reserves tap-then-long-press for its own menu. Nothing in Honyaku uses it. **Exit** in the menu closes Honyaku immediately, with no confirmation step (it stops listening first).
+A plain **hold (long press) is left alone**: many people bind it to a function of their own in the Even app. Honyaku's items live in the glasses' built-in menu (the one with display off and brightness), which the OS raises on tap then long press.
 
-The menu's **Settings** screen changes Mode (Standard / Predictive replies), reply style (Polite / Casual), how many options are shown, *Ignore my own voice*, and *Kana on glasses*. The glasses redraw the list after each change (a list can't be edited in place), so the highlight returns to the top.
+The menu items toggle: Mode (Standard / Predictive), reply style (Polite / Casual), how many options are shown (2 / 3), *Voice filter* (ignore my own voice) and *Kana* on the glasses. The OS can't relabel an item in place, so after a change the page is redrawn with the new labels; reopen the menu to see them.
 
 ## Predictive Conversation Mode
 Switch it on in **Settings → Conversation** (or in the glasses menu). It needs an **OpenRouter or Claude** key: Google Translate can't write replies.

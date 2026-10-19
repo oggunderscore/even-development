@@ -1,38 +1,56 @@
 import { describe, expect, it } from 'vitest'
-import { type MenuState, menuItems, menuPick, overlayGeometry, resolvePick } from './menu'
+import { MAX_LABEL_BYTES, MAX_LABEL_CHARS, MAX_MENU_ITEMS, type MenuState, itemForId, itemIdAt, menuItems, menuPick } from './menu'
 
 const state = (over: Partial<MenuState> = {}, settings: Partial<MenuState['settings']> = {}): MenuState => ({
-  screen: 'main',
-  listening: true,
   hasLlm: true,
   settings: { mode: 'standard', replyStyle: 'polite', maxOptions: 3, voiceFilter: true, glassesKana: false, ...settings },
   ...over,
 })
+const bytes = (s: string) => new TextEncoder().encode(s).length
 
-describe('menu', () => {
-  it('main menu is Pause/Resume, Settings, Exit — and the first item says what it will do', () => {
-    expect(menuItems(state()).map((i) => i.label)).toEqual(['Pause listening', 'Settings', 'Exit'])
-    expect(menuItems(state({ listening: false }))[0]!.label).toBe('Resume listening')
+describe('menu items', () => {
+  it('starts with Pause / Resume listening, then the settings with their current values', () => {
+    expect(menuItems(state()).map((i) => i.label)).toEqual([
+      'Pause / Resume',
+      'Mode: Standard',
+      'Replies: Polite',
+      'Options: 3',
+      'Voice filter: On',
+      'Kana: Off',
+    ])
+    expect(menuItems(state({}, { mode: 'predictive', replyStyle: 'casual', maxOptions: 2, voiceFilter: false, glassesKana: true })).map((i) => i.label)).toEqual([
+      'Pause / Resume',
+      'Mode: Predictive',
+      'Replies: Casual',
+      'Options: 2',
+      'Voice filter: Off',
+      'Kana: On',
+    ])
   })
 
-  it('every label fits the platform limit of 64 characters, and ids are unique', () => {
-    for (const screen of ['main', 'settings'] as const) {
-      const items = menuItems(state({ screen }, { mode: 'predictive', glassesKana: true }))
+  it('respects the firmware limits: at most 10 items, labels short enough not to be truncated, unique ids, and non-zero item ids', () => {
+    for (const settings of [{}, { mode: 'predictive', replyStyle: 'casual', maxOptions: 2, voiceFilter: false, glassesKana: true }] as const) {
+      const items = menuItems(state({}, settings))
+      expect(items.length).toBeLessThanOrEqual(MAX_MENU_ITEMS)
       expect(new Set(items.map((i) => i.id)).size).toBe(items.length)
-      for (const i of items) expect(i.label.length).toBeLessThanOrEqual(64)
+      for (const i of items) {
+        expect(bytes(i.label)).toBeLessThanOrEqual(MAX_LABEL_BYTES)
+        expect(i.label.length).toBeLessThanOrEqual(MAX_LABEL_CHARS) // longer ones are cut off with "…" on the glasses
+      }
+      const ids = items.map((_, n) => itemIdAt(n))
+      expect(ids.every((n) => Number.isInteger(n) && n > 0)).toBe(true)
+      expect(new Set(ids).size).toBe(ids.length)
     }
   })
 
-  it('settings screen shows the current values', () => {
-    const labels = menuItems(state({ screen: 'settings' }, { mode: 'predictive', replyStyle: 'casual', maxOptions: 2, voiceFilter: false, glassesKana: true })).map((i) => i.label)
-    expect(labels).toEqual(['Mode: Predictive replies', 'Replies: Casual', 'Options shown: 2', 'Ignore my own voice: Off', 'Kana on glasses: On', 'Back'])
+  it('there is no Exit item: double tap is the exit', () => {
+    expect(menuItems(state()).some((i) => /exit/i.test(i.label))).toBe(false)
   })
+})
 
-  it('picking maps to actions: navigation, listening, exit', () => {
+describe('menuPick', () => {
+  it('toggles listening', () => {
     expect(menuPick(state(), 'toggle')).toEqual({ type: 'toggle_listen' })
-    expect(menuPick(state(), 'settings')).toEqual({ type: 'screen', screen: 'settings' })
-    expect(menuPick(state({ screen: 'settings' }), 'back')).toEqual({ type: 'screen', screen: 'main' })
-    expect(menuPick(state(), 'exit')).toEqual({ type: 'exit' })
     expect(menuPick(state(), 'nope')).toBeNull()
   })
 
@@ -52,33 +70,13 @@ describe('menu', () => {
   })
 })
 
-describe('resolvePick', () => {
-  const items = menuItems(state())
-  it('prefers the name, falls back to the index, and treats a missing index as the first item', () => {
-    expect(resolvePick(items, { name: 'Exit', index: 0 })?.id).toBe('exit')
-    expect(resolvePick(items, { index: 1 })?.id).toBe('settings')
-    expect(resolvePick(items, {})?.id).toBe('toggle')
-    expect(resolvePick(items, { index: 9 })).toBeNull()
-    expect(resolvePick(items, { name: 'renamed since', index: 2 })?.id).toBe('exit')
-  })
-})
-
-describe('overlayGeometry', () => {
-  it('is a small box centred on the 576 x 288 screen, sized to the items', () => {
-    const main = overlayGeometry(menuItems(state()))
-    expect(main.x * 2 + main.width).toBe(576)
-    expect(main.y * 2 + main.height).toBeCloseTo(288, -1)
-    expect(main.width).toBeLessThan(300)
-    expect(main.height).toBe(3 * 40 + 16)
-    expect(main.itemWidth).toBeLessThan(main.width)
-  })
-
-  it('widens for longer labels, but never past the screen, and caps its height at five items', () => {
-    const settings = overlayGeometry(menuItems(state({ screen: 'settings' }, { mode: 'predictive' })))
-    expect(settings.width).toBeGreaterThan(overlayGeometry(menuItems(state())).width)
-    expect(settings.height).toBe(5 * 40 + 16) // six items, five visible
-    expect(settings.x).toBeGreaterThan(0)
-    const huge = overlayGeometry([{ id: 'a', label: 'W'.repeat(60) }])
-    expect(huge.width).toBeLessThanOrEqual(440)
+describe('itemForId', () => {
+  it('maps the OS item id back to the item, and ignores anything it never declared', () => {
+    const items = menuItems(state())
+    expect(itemForId(items, itemIdAt(0))?.id).toBe('toggle')
+    expect(itemForId(items, itemIdAt(5))?.id).toBe('kana')
+    expect(itemForId(items, 0)).toBeNull()
+    expect(itemForId(items, 99)).toBeNull()
+    expect(itemForId(items, undefined)).toBeNull()
   })
 })

@@ -1,29 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
-import { exitImmediately } from './exit'
+import { requestExit } from './exit'
 
-describe('exitImmediately', () => {
-  it('stops capture, then closes with the immediate mode (0), never the confirmation dialog (1)', async () => {
-    const order: string[] = []
-    const bridge = { shutDownPageContainer: vi.fn(async (mode: number) => (order.push(`shutdown:${mode}`), true)) }
-    const closed = await exitImmediately(bridge, async () => void order.push('stop'), async () => void order.push('resume'))
-    expect(closed).toBe(true)
-    expect(order).toEqual(['stop', 'shutdown:0'])
+describe('requestExit', () => {
+  it('asks for the system confirmation dialog (mode 1), never the immediate exit (mode 0)', async () => {
+    const bridge = { shutDownPageContainer: vi.fn(async () => true) }
+    expect(await requestExit(bridge)).toBe(true)
     expect(bridge.shutDownPageContainer).toHaveBeenCalledTimes(1)
-    expect(bridge.shutDownPageContainer).not.toHaveBeenCalledWith(1)
+    expect(bridge.shutDownPageContainer).toHaveBeenCalledWith(1)
+    expect(bridge.shutDownPageContainer).not.toHaveBeenCalledWith(0)
   })
 
-  it('if the glasses refuse (or throw), capture is re-armed and the app keeps working', async () => {
-    const resume = vi.fn(async () => {})
-    expect(await exitImmediately({ shutDownPageContainer: async () => false }, async () => {}, resume)).toBe(false)
-    expect(resume).toHaveBeenCalledTimes(1)
-    const resume2 = vi.fn(async () => {})
-    expect(await exitImmediately({ shutDownPageContainer: async () => Promise.reject(new Error('x')) }, async () => {}, resume2)).toBe(false)
-    expect(resume2).toHaveBeenCalledTimes(1)
-  })
-
-  it('without a bridge there is nothing to close: carry on', async () => {
-    const resume = vi.fn(async () => {})
-    expect(await exitImmediately(null, async () => {}, resume)).toBe(false)
-    expect(resume).toHaveBeenCalled()
+  it('a refused or failing request, or no bridge, is just "not accepted" and never throws', async () => {
+    expect(await requestExit({ shutDownPageContainer: async () => false })).toBe(false)
+    expect(await requestExit({ shutDownPageContainer: async () => Promise.reject(new Error('x')) })).toBe(false)
+    expect(await requestExit(null)).toBe(false)
   })
 })

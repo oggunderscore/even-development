@@ -1,20 +1,17 @@
-// The menu's Exit item: leave the app at once, with no confirmation. Choosing Exit from our own menu is already a
-// deliberate act, so there is no "Are you sure?" step (that is what shutDownPageContainer(1), the system dialog, adds).
-// Capture is stopped first: with no "No" answer to come back from, there is nothing to keep running.
+// Double tap on the home page → the system exit confirmation (shutDownPageContainer(1)). The store requires exactly
+// this on the root page: mode 0 (immediate exit) is only for cleanup after the user has already confirmed. Nothing is
+// torn down first, so if the user answers "No" listening and every gesture keep working; if they answer "Yes" the OS
+// closes the app and a SYSTEM_EXIT event stops the capture.
 
 export interface ExitBridge {
   shutDownPageContainer(mode: number): Promise<boolean>
 }
 
-/** Stop listening, then close the app immediately. Returns false (and re-arms capture) if the glasses refused. */
-export async function exitImmediately(bridge: ExitBridge | null, stopCapture: () => Promise<void>, resumeCapture: () => Promise<void>): Promise<boolean> {
-  await stopCapture()
-  let closed = false
+/** Ask the glasses to show the exit confirmation. Returns whether the request was accepted. */
+export async function requestExit(bridge: ExitBridge | null): Promise<boolean> {
   try {
-    closed = (await bridge?.shutDownPageContainer(0)) === true // mode 0 = immediate, no system dialog
+    return (await bridge?.shutDownPageContainer(1)) === true
   } catch {
-    /* treated as refused */
+    return false // the next double tap simply tries again
   }
-  if (!closed) await resumeCapture() // still here: carry on listening
-  return closed
 }

@@ -4,9 +4,9 @@ import { analyze } from './core/voice'
 import { Segmenter } from './core/vad'
 import { Display, type UiState } from './display'
 import { Enrollment, REASON_TEXT } from './enroll'
-import { exitImmediately } from './exit'
-import { classifyInput, listClick } from './input'
-import { type MenuScreen, type MenuState, menuItems, menuPick, resolvePick } from './menu'
+import { requestExit } from './exit'
+import { classifyInput, menuClick } from './input'
+import { type MenuState, itemForId, menuItems, menuPick } from './menu'
 import { toBytes } from './pcm'
 import type { ServerMsg, Translation, VoiceProfile } from './protocol'
 import { Session } from './session'
@@ -26,7 +26,7 @@ import './romaji-browser'
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>
 type GlassesDisplay = Pick<
   Display,
-  'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll' | 'setSetup' | 'predictions' | 'predictionFailed' | 'self' | 'setMode' | 'setKana' | 'openMenu' | 'closeMenu' | 'menuOpen'
+  'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll' | 'setSetup' | 'predictions' | 'predictionFailed' | 'self' | 'setMode' | 'setKana' | 'configure'
 >
 
 // The phone UI + engine are set up BEFORE we wait for the Even bridge, so they work (and the
@@ -44,9 +44,7 @@ const noDisplay: GlassesDisplay = {
   self() {},
   setMode: () => Promise.resolve(),
   setKana() {},
-  openMenu: () => Promise.resolve(false),
-  closeMenu: () => Promise.resolve(),
-  menuOpen: false,
+  configure: () => Promise.resolve(),
 }
 let bridge: Bridge | null = null
 let display: GlassesDisplay = noDisplay
@@ -113,7 +111,7 @@ void session.connect()
 
 const keysAvailable = (): boolean => hasKeys(settings)
 /** Predictive mode needs a provider that can write text; Google Translate cannot. */
-const hasLlm = (): boolean => settings.provider !== 'google' && providerKey(settings) !== ''
+const hasLlm = (s: Settings = settings): boolean => s.provider !== 'google' && providerKey(s) !== ''
 const predictive = (): boolean => settings.mode === 'predictive' && predictReady
 
 /** What first-run setup is still missing, in words for the glasses. Null once both keys are in. */
@@ -175,7 +173,8 @@ async function updateSettings(patch: Partial<Settings>) {
 
 async function syncGlassesPrefs() {
   display.setKana(settings.glassesKana)
-  await display.setMode(settings.mode)
+  // Mode and the contextual-menu labels (which show the settings' values) change together, in one page rebuild.
+  await display.configure({ mode: settings.mode, menu: menuItems(menuState()) })
 }
 
 function syncState() {
@@ -494,70 +493,40 @@ async function deleteVoice() {
 }
 
 // ── Glasses ──────────────────────────────────────────────────────────────────
-// Glasses: a single tap pauses / resumes listening; a double tap opens the menu (Pause/Resume listening · Settings ·
-// Exit); swipe scrolls the feed (or moves the highlight in Predictive mode). Hold (long press) is left alone — users
-// commonly bind it to their own action. Hold-to-talk-in-English lives on the phone button.
+// Glasses: a single tap pauses / resumes listening; a double tap on the home page opens the system exit dialog
+// (required by the store); the OS contextual menu (tap then long press) carries Pause / Resume and the settings; swipe
+// scrolls the feed (or moves the highlight in Predictive mode). Plain hold (long press) is left alone — users commonly
+// bind it to their own action. Hold-to-talk-in-English lives on the phone button.
 
 // The event subscription is created once and never removed: the app must keep reacting to the glasses for as long
-// as it is alive, including after the OS raised an exit dialog that was answered "No" or the phone has been in the background.
+// as it is alive, including after the exit dialog was answered "No" or the phone has been in the background.
 let lastScrollAt = 0
-let lastMenuAt = 0
-/** A single tap waits this long for a possible second tap, so a double tap (the menu) never also toggles listening. */
+/** A single tap waits this long for a possible second tap, so a double tap (exit) never also toggles listening. */
 const SINGLE_TAP_MS = 350
 let tapTimer: ReturnType<typeof setTimeout> | undefined
 let lastExitAt = 0
 /** The OS told us the app is closing (or its capture is gone); recover on the next sign of life. */
 let suspended = false
 
-const MENU_IDLE_MS = 12_000
-let menuScreen: MenuScreen = 'main'
-let menuTimer: ReturnType<typeof setTimeout> | undefined
-
-const menuState = (): MenuState => ({
-  screen: menuScreen,
-  listening: !paused,
-  hasLlm: hasLlm(),
-  settings: { mode: settings.mode, replyStyle: settings.replyStyle, maxOptions: settings.maxOptions, voiceFilter: settings.voiceFilter, glassesKana: settings.glassesKana },
+const menuState = (s: Settings = settings): MenuState => ({
+  hasLlm: hasLlm(s),
+  settings: { mode: s.mode, replyStyle: s.replyStyle, maxOptions: s.maxOptions, voiceFilter: s.voiceFilter, glassesKana: s.glassesKana },
 })
 
-async function openMenu(screen: MenuScreen = 'main') {
-  menuScreen = screen
-  const ok = await display.openMenu(menuItems(menuState()))
-  if (!ok) return
-  clearTimeout(menuTimer)
-  menuTimer = setTimeout(() => void closeMenu(), MENU_IDLE_MS)
-}
-
-async function closeMenu() {
-  clearTimeout(menuTimer)
-  menuScreen = 'main'
-  await display.closeMenu()
-}
-
-async function onMenuPick(click: { name?: string; index?: number }) {
-  const item = resolvePick(menuItems(menuState()), click)
+/** The wearer picked one of our items in the OS contextual menu. */
+async function onMenuPick(itemID: number) {
+  const item = itemForId(menuItems(menuState()), itemID)
   const action = item ? menuPick(menuState(), item.id) : null
   if (!action) return
-  clearTimeout(menuTimer)
-  menuTimer = setTimeout(() => void closeMenu(), MENU_IDLE_MS)
   switch (action.type) {
     case 'toggle_listen':
       await toggleListening()
-      await closeMenu() // so the header shows the new state
-      break
-    case 'screen':
-      await openMenu(action.screen)
       break
     case 'set':
-      await updateSettings(action.patch)
-      await openMenu(menuScreen) // a list can't be edited in place: redraw it with the new values
+      await updateSettings(action.patch) // also re-declares the menu so its labels show the new values
       break
     case 'note':
       display.note(action.text)
-      await openMenu(menuScreen)
-      break
-    case 'exit':
-      await exit()
       break
   }
 }
@@ -574,7 +543,7 @@ async function initGlasses() {
   // The bridge's store outlives the WebView's localStorage; prefer it (and re-seed it from localStorage).
   const stored = await loadSettingsFromBridge(found)
   const storedVoice = await loadVoiceFromBridge(found)
-  const glasses = new Display(found, { mode: stored.mode, kana: stored.glassesKana })
+  const glasses = new Display(found, { mode: stored.mode, kana: stored.glassesKana, menu: menuItems(menuState(stored)) })
   const initResult = await glasses.init()
   if (initResult !== 0) {
     ui.addError(`Glasses page failed to start (code ${initResult}); phone UI only`)
@@ -611,44 +580,27 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
     return
   }
 
+  const pick = menuClick(event)
+  if (pick !== null) {
+    void onMenuPick(pick)
+    return
+  }
+
   const input = classifyInput(event)
 
-  // Any sign of life after the OS closed our session (e.g. an OS exit dialog answered "No") brings capture back.
+  // Any sign of life after the OS closed our session (e.g. the exit dialog was answered "No") brings capture back.
   const wasSuspended = suspended
   if (suspended && input !== 'exit' && input !== 'unknown' && input !== 'long_press_release') {
     suspended = false
     if (input !== 'long_press') void resumeCapture()
   }
 
-  if (display.menuOpen && input !== 'exit' && input !== 'abnormal_exit' && input !== 'foreground') {
-    // The menu owns the touchpad: a tap picks, a double tap closes, everything else is the list scrolling itself.
-    clearTimeout(tapTimer)
-    clearTimeout(menuTimer)
-    menuTimer = setTimeout(() => void closeMenu(), MENU_IDLE_MS)
-    if (input === 'double_click') {
-      const now = Date.now()
-      if (now - lastMenuAt > 600) {
-        lastMenuAt = now
-        void closeMenu()
-      }
-      return
-    }
-    const click = listClick(event)
-    if (click) void onMenuPick(click)
-    return
-  }
-
   switch (input) {
-    case 'double_click': {
-      // Open the menu. (Exit is a menu item; the double tap itself never quits.)
+    case 'double_click':
+      // The home page's double tap is the exit: the system confirmation dialog (store requirement).
       clearTimeout(tapTimer) // the first tap of this double tap must not also toggle listening
-      const now = Date.now()
-      if (now - lastMenuAt > 600) {
-        lastMenuAt = now
-        void openMenu()
-      }
+      void exit()
       break
-    }
     case 'exit':
       // The app is closing. Stop streaming, but stay subscribed in case it isn't (the user can still get back in).
       suspended = true
@@ -670,7 +622,7 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
     }
     case 'click':
       // Pause / resume listening. Wait briefly in case this is the first half of a double tap. (A tap that merely woke
-      // the app after an OS exit dialog was answered "No" has already re-armed capture; it should not also pause it.)
+      // the app after the exit dialog was answered "No" has already re-armed capture; it should not also pause it.)
       if (wasSuspended) break
       clearTimeout(tapTimer)
       tapTimer = setTimeout(() => void toggleListening(), SINGLE_TAP_MS)
@@ -680,16 +632,12 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
   }
 }
 
-/**
- * The menu's Exit item: leave right away, no confirmation (see exit.ts). Capture is stopped first. If the glasses
- * refuse the request the app simply carries on listening.
- */
+/** Double tap → the system exit confirmation. Nothing is torn down: the user may answer "No" (see exit.ts). */
 async function exit() {
   const now = Date.now()
-  if (now - lastExitAt < 1000) return // one exit per tap
+  if (now - lastExitAt < 1000) return // one dialog per double tap
   lastExitAt = now
-  clearTimeout(menuTimer)
-  await exitImmediately(bridge, haltCapture, resumeCapture)
+  await requestExit(bridge)
 }
 
 /**
