@@ -36,4 +36,24 @@ describe('settings', () => {
     expect(setupSteps({ ...defaultSettings(), deepgramKey: 'dg', googleKey: 'g' }).every((x) => x.done)).toBe(true)
   })
 
+  it('conversation settings default to the classic behaviour and survive a round trip', () => {
+    const d = defaultSettings()
+    expect(d).toMatchObject({ mode: 'standard', replyStyle: 'polite', jpLevel: 'beginner', maxOptions: 3, voiceFilter: true, voiceStrictness: 0.5, glassesKana: false })
+    const s = { ...d, mode: 'predictive' as const, replyStyle: 'casual' as const, jpLevel: 'advanced' as const, maxOptions: 2 as const, voiceFilter: false, voiceStrictness: 0.8, glassesKana: true }
+    expect(parseSettings(JSON.stringify(s))).toEqual(s)
+  })
+
+  it('bad conversation values fall back or clamp', () => {
+    const p = parseSettings(JSON.stringify({ mode: 'turbo', replyStyle: 7, jpLevel: 'god', maxOptions: 9, voiceFilter: 'yes', voiceStrictness: 4, glassesKana: 1 }))!
+    expect(p).toMatchObject({ mode: 'standard', replyStyle: 'polite', jpLevel: 'beginner', maxOptions: 3, voiceFilter: true, voiceStrictness: 1, glassesKana: false })
+    expect(parseSettings(JSON.stringify({ voiceStrictness: -3 }))!.voiceStrictness).toBe(0)
+  })
+
+  it('toUserConfig hands the engine the predict and voice settings, plus the voiceprint', () => {
+    const profile = { v: 1 as const, updated: 1, en: { seed: [], adapt: [] }, ja: { seed: [], adapt: [] } }
+    const cfg = toUserConfig({ ...defaultSettings(), mode: 'predictive', maxOptions: 2, voiceStrictness: 0.7 }, profile)
+    expect(cfg.predict).toEqual({ enabled: true, style: 'polite', level: 'beginner', maxOptions: 2 })
+    expect(cfg.voice).toEqual({ filter: true, strictness: 0.7, profile })
+    expect(toUserConfig(defaultSettings()).predict?.enabled).toBe(false)
+  })
 })

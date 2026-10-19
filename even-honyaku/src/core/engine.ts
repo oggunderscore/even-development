@@ -13,7 +13,7 @@
 
 import type { ClientMsg, Direction, PredictConfig, ReplyOption, ServerMsg, StreamMode, Translation, UserConfig, VoiceProfile } from '../protocol'
 import { type ResolvedConfig, missingKeys, resolveConfig, validateConfig } from './config'
-import { speechLevelDb, voiceFeatures } from './dsp'
+import { voiceFeatures } from './dsp'
 import { EchoMatcher } from './echo'
 import { isBackchannel, predictReplies } from './predict'
 import { testConfig } from './probes'
@@ -23,12 +23,9 @@ import {
   ECHO_CERTAIN,
   ECHO_LIKELY,
   VoiceTimeline,
+  analyze,
   emptyProfile,
-  levelScore,
   parseProfile,
-  profileReady,
-  verdict,
-  voiceScore,
   withLearned,
 } from './voice'
 
@@ -193,6 +190,8 @@ export class Engine {
       mode,
       {
         onPartial: (text, dir) => {
+          // Half a suggested reply being read aloud is the wearer, not the other person: don't show or count it.
+          if (dir === 'listen' && this.voice.filter && (this.echo.match(text, 'ja')?.score ?? 0) >= ECHO_CERTAIN) return
           if (dir === 'listen' && this.turnTimer) this.scheduleTurn() // they are still talking
           this.emit({ type: 'partial', dir, text })
         },
@@ -262,12 +261,7 @@ export class Engine {
 
     const lang = dir === 'listen' ? 'ja' : 'en'
     const echo = this.echo.match(text, lang)
-    const ready = profileReady(this.profile)
-    const features = audio && ready ? voiceFeatures(audio) : null
-    const levelDb = features?.levelDb ?? (audio && ready ? speechLevelDb(audio) : null)
-    const voice = features && this.profile ? voiceScore(this.profile, features, this.voice.strictness) : null
-    const level = levelDb !== null && this.profile ? levelScore(this.profile, levelDb, this.voice.strictness) : null
-    const who = verdict({ echo: echo?.score ?? 0, voice, level })
+    const { who, voice, level } = analyze(this.profile, audio, this.voice.strictness, echo?.score ?? 0)
     this.emit({ type: 'voice_score', who, text, echo: echo?.score ?? 0, voice, level })
 
     if (who === 'wearer') {

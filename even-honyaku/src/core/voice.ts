@@ -7,7 +7,7 @@
 // They are fused into a verdict: wearer / other / unsure. Everything stays on the device.
 
 import type { Speaker, VoiceProfile, VoiceSample, VoiceSet } from '../protocol'
-import { SAMPLE_RATE, VOICE_DIMS, type VoiceFeatures, pcmToFloat } from './dsp'
+import { SAMPLE_RATE, VOICE_DIMS, type VoiceFeatures, pcmToFloat, speechLevelDb, voiceFeatures } from './dsp'
 
 // ── audio timeline ───────────────────────────────────────────────────────────
 
@@ -196,6 +196,27 @@ export function verdict(e: Evidence): Speaker {
   if (total >= 1.4) return 'wearer'
   if (total <= -1.4) return 'other'
   return 'unsure'
+}
+
+export interface Analysis {
+  who: Speaker
+  voice: number | null
+  level: number | null
+  features: VoiceFeatures | null
+}
+
+/**
+ * Everything the filter knows about one utterance's audio. Used by the engine for every final, and by the Voice tab's
+ * test so what you see there is exactly what the engine would decide. With no usable voiceprint it answers from
+ * `echo` alone.
+ */
+export function analyze(profile: VoiceProfile | null, audio: Float32Array | null, strictness: number, echo = 0): Analysis {
+  if (!profileReady(profile) || !audio) return { who: verdict({ echo, voice: null, level: null }), voice: null, level: null, features: null }
+  const features = voiceFeatures(audio)
+  const levelDb = features?.levelDb ?? speechLevelDb(audio)
+  const voice = features ? voiceScore(profile, features, strictness) : null
+  const level = levelDb === null ? null : levelScore(profile, levelDb, strictness)
+  return { who: verdict({ echo, voice, level }), voice, level, features }
 }
 
 /** How trustworthy an enrollment looks, for the Voice tab. */

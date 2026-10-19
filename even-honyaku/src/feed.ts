@@ -14,6 +14,8 @@ const MAX_ROWS = 240
 
 /** Rough advance widths of the G2 font; unknown glyphs count as an average lower-case letter. */
 function glyphPx(ch: string): number {
+  // Kana/kanji/full-width forms are drawn about as wide as they are tall. The real width is unverified, so err wide.
+  if (/[\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]/.test(ch)) return 27
   if ('il.,:;\'!|jtfI '.includes(ch)) return 6
   if ('mwMW@'.includes(ch)) return 17
   if (ch >= 'A' && ch <= 'Z') return 13.5
