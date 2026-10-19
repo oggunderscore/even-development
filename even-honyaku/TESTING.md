@@ -1,6 +1,6 @@
 # Testing the prototype on real G2 glasses
 
-Release candidate 1.1.0 (Predictive Conversation Mode + voice filter): **builds, typechecks and passes unit tests; the menu, the Predictive screen and the Settings list were driven in the Even simulator (0.9.5) with a faked network, and the phone UI was checked in a headless browser. None of it has run on real glasses or with a real voice yet.** Items in sections 3 and 4 are still unverified on a device.
+Release candidate 1.1.1 (Predictive Conversation Mode + voice filter): **builds, typechecks and passes unit tests; the menu, the Predictive screen and the Settings list were driven in the Even simulator (0.9.5) with a faked network, and the phone UI was checked in a headless browser. None of it has run on real glasses or with a real voice yet.** Items in sections 3 and 4 are still unverified on a device.
 
 ## 1. Run it on your own machine (phone + computer on the same Wi-Fi)
 
@@ -37,7 +37,7 @@ Optional first: `npm run simulator` (needs a desktop).
 5. Whether the glasses mic sends audio continuously (also during silence) — if not, the app shows *No audio from the mic yet* after 3 seconds of listening.
 6. Phone hold button behaviour inside the Even app WebView (pointer events).
 
-## 4. Unverified in 1.1.0 (most important first)
+## 4. Unverified in 1.1.x (most important first)
 1. **Voice-filter accuracy on real glasses audio.** The voiceprint is a classical MFCC + pitch model; unit tests use synthetic voices only. Unknowns: how much louder you are than a person across the table at the G2 mic (L1 assumes a clear gap), how well short or halting read-aloud Japanese separates from the other person's voice, and whether the strictness default (50%) is right. Record some real conversations' worth of verdicts from the VOICE log and tune `voiceScore` / `levelScore` / `verdict` in `src/core/voice.ts`. If a classical model proves too weak, `voiceFeatures()` in `src/core/dsp.ts` is the one function to replace with a neural speaker embedding.
 2. Whether the English model's transcript of you reading romaji ever matches the suggested reply closely enough for the echo check (Japanese-model transcripts do).
 3. **Kana/kanji on the glasses** (Settings → Kana on glasses): glyph coverage and width (`feed.ts` assumes 27 px) are unverified.

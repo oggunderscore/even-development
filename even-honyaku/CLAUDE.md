@@ -37,7 +37,7 @@ G2 app for live English ⇄ Japanese conversation. Sibling project in the `even-
 - `app.json` `version` is the single source: `vite.config.ts` injects it as `__APP_VERSION__` (footer of Settings); `package.json` must match (`src/release.test.ts` checks it, plus store manifest rules). Bump both for every release; released versions are immutable.
 - **No logging** anywhere (no console, no on-screen debug log): audio, transcripts, translations and keys must never be written out. Errors shown to the user must not echo a key (the browser's WebSocket error quotes the subprotocol, so Deepgram errors are generic). Google's key goes in the `X-Goog-Api-Key` header, never the URL.
 - The production build adds a CSP meta tag (`script-src 'self'`, no inline script) — see `vite.config.ts`. It deliberately doesn't set `connect-src`; the Even app enforces the `app.json` network whitelist.
-- Keep permissions to what's used (`g2-microphone`, `network`); `PRIVACY.md` must cover each. 1.1.0 added no permissions or network origins.
+- Keep permissions to what's used (`g2-microphone`, `network`); `PRIVACY.md` must cover each. 1.1.x added no permissions or network origins.
 
 ## Commands
 `npm run dev` · `npm run simulator` · `npm run qr` · `npm run pack` · `npm test`

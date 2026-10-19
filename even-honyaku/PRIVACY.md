@@ -1,6 +1,6 @@
 # Honyaku privacy policy
 
-*Last updated: 2026-10-18 · applies to Honyaku 1.1.0*
+*Last updated: 2026-10-18 · applies to Honyaku 1.1.x*
 
 Honyaku translates live speech between English and Japanese on Even Realities G2 glasses. It has **no
 server and no accounts**. The developer never receives your audio, text, keys or any usage data.
