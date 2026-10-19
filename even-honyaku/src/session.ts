@@ -19,6 +19,11 @@ export class Session {
 
   constructor(private readonly handlers: SessionHandlers) {}
 
+  /** The engine has a live speech stream (false once it has given up reconnecting). */
+  get isStreaming(): boolean {
+    return this.engine?.streaming ?? false
+  }
+
   get isOpen(): boolean {
     return this.engine !== null
   }

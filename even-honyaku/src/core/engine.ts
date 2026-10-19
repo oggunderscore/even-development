@@ -100,6 +100,11 @@ export class Engine {
     }
   }
 
+  /** A speech stream is wanted and the engine hasn't given up on it. */
+  get streaming(): boolean {
+    return !this.closed && this.mode !== null
+  }
+
   audio(chunk: Uint8Array) {
     if (this.closed) return
     this.audioBytes += chunk.length

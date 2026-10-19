@@ -28,6 +28,10 @@ G2 app for live English ⇄ Japanese conversation. Sibling project in the `even-
 - Capture dies silently when the phone locks / the WebView is suspended (mic stops, Deepgram sockets drop, timers freeze). `resumeCapture()` in `main.ts` rebuilds the stream + mic on `FOREGROUND_ENTER`, `ABNORMAL_EXIT`, `visibilitychange`, and when a 5 s wall-clock tick finds a >20 s gap. It keeps the user's pause choice.
 - Glasses writes are deduped and live interim text is throttled (`display.ts`) so BLE isn't flooded.
 
+## Submission rules
+- Every Even Hub requirement is in `../SUBMISSION-CHECKLIST.md`; this project's status against it is in `SUBMISSION-AUDIT.md`; store copy and release notes are in `STORE-LISTING.md`. The machine-checkable rules run in `src/compliance.test.ts` (manifest, permissions used, whitelist covers every origin, exit is mode 1 only, no `console.*`, SDK pinned, privacy covers every permission): keep it green, and add a rule there when a reviewer teaches you a new one.
+- Capture re-arming goes through `captureHealthy` (`src/capture-health.ts`): `FOREGROUND_ENTER/EXIT` also fire on every OS-menu open/close, so never restart a stream that is still delivering audio.
+
 ## Settings form
 - There is **no Save button**: `ui.ts` commits the form (keys ~700 ms after typing stops or on blur; provider/model/preferences at once) via `onChange` → `main.ts onSettingsChange`, which saves, hands the engine the new values (`session.reconfigure()`, or `reset()` only when the Deepgram key changed) and runs the checks `planChange` asks for. A key with the wrong characters/length is never saved (the saved one stays) and shows ✗ at once.
 - Key checks are scoped (`stt` = Deepgram socket; `translate` = provider key probe then a sample translation **with the chosen model**) and carry a request `id`; `main.ts` ignores an answer whose id isn't the newest for its scope. Failure text is written for users (`core/probes.ts`); results never contain a key.

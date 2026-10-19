@@ -240,18 +240,20 @@ export class Display {
     this.renderBody()
   }
 
+  /** A short message in the header for a few seconds, on either screen: visible feedback for a gesture that changes nothing else. */
+  flashMessage(text: string) {
+    this.flash = text
+    clearTimeout(this.flashTimer)
+    this.flashTimer = setTimeout(() => {
+      this.flash = ''
+      this.renderHeader()
+    }, FLASH_MS)
+    this.renderHeader()
+  }
+
   /** A short message (errors, menu notes): in the feed on the classic screen, in the header on the predictive one. */
   note(text: string) {
-    if (this.mode === 'predictive') {
-      this.flash = text
-      clearTimeout(this.flashTimer)
-      this.flashTimer = setTimeout(() => {
-        this.flash = ''
-        this.renderHeader()
-      }, FLASH_MS)
-      this.renderHeader()
-      return
-    }
+    if (this.mode === 'predictive') return this.flashMessage(text)
     this.feed.add(text)
     this.renderHeader()
     this.renderBody()
@@ -269,14 +271,16 @@ export class Display {
   // ── text ────────────────────────────────────────────────────────────────────
 
   private headerText(layout: Layout = this.layout): string {
-    if (this.setup) return 'EN<>JP   x setup needed'
+    if (this.setup) return 'Honyaku   x setup needed'
     if (layout === 'predictive') {
       const viewHint = this.view.hint()
       const hint = this.flash || (viewHint ? `${viewHint}  2x tap: exit` : HINT_BASE)
       return wrapLine(`${STATE_LABEL[this.state]}   ${hint}`.trimEnd())[0] ?? ''
     }
+    if (this.flash) return wrapLine(`${STATE_LABEL[this.state]}   ${this.flash}`)[0] ?? '' // keep the state visible
     const where = this.feed.cleared ? '  [cleared]' : ''
-    return `EN<>JP   ${STATE_LABEL[this.state]}${where}`
+    // The app's own name, as in the store listing: the on-glasses name must match it.
+    return `Honyaku   ${STATE_LABEL[this.state]}${where}`
   }
 
   /** The rows the body shows in the current mode. */

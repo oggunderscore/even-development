@@ -1,4 +1,5 @@
-import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
+import { AudioInputSource, waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
+import { captureHealthy } from './capture-health'
 import { MAX_TURN_MS } from './config'
 import { analyze } from './core/voice'
 import { Segmenter } from './core/vad'
@@ -27,7 +28,7 @@ import './romaji-browser'
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>
 type GlassesDisplay = Pick<
   Display,
-  'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll' | 'setSetup' | 'predictions' | 'predictionFailed' | 'self' | 'setMode' | 'setKana' | 'configure'
+  'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll' | 'setSetup' | 'predictions' | 'predictionFailed' | 'self' | 'flashMessage' | 'setMode' | 'setKana' | 'configure'
 >
 
 // The phone UI + engine are set up BEFORE we wait for the Even bridge, so they work (and the
@@ -43,6 +44,7 @@ const noDisplay: GlassesDisplay = {
   predictions() {},
   predictionFailed() {},
   self() {},
+  flashMessage() {},
   setMode: () => Promise.resolve(),
   setKana() {},
   configure: () => Promise.resolve(),
@@ -70,6 +72,8 @@ let doneTimer: ReturnType<typeof setTimeout> | undefined
 let micWatchdog: ReturnType<typeof setTimeout> | undefined
 /** Mic chunks received since the mic was opened; zero a few seconds in means the mic isn't delivering. */
 let micChunks = 0
+/** When the last mic chunk arrived: tells a stream that is working from one the OS suspended. */
+let lastAudioAt = 0
 /** The voice setup (enrollment or live test) currently borrowing the glasses mic; declared up here because the capture helpers read it. */
 let lab: { kind: 'enroll' | 'test'; seg: Segmenter; enrollment?: Enrollment; resume: boolean } | null = null
 
@@ -250,9 +254,10 @@ function syncState() {
 async function openMic() {
   if (micOpen || !bridge) return
   micChunks = 0
-  const ok = await bridge.audioControl(true)
+  // The glasses' own mic, named explicitly: this is the call the g2-microphone permission is for.
+  const ok = await bridge.audioControl(true, AudioInputSource.Glasses)
   if (!ok) {
-    ui.addError('Mic did not open. Check the microphone permission and that the glasses are connected')
+    micRefused()
     return
   }
   micOpen = true
@@ -262,6 +267,14 @@ async function openMic() {
       ui.addError('No audio from the mic yet')
     }
   }, 3000)
+}
+
+/** The mic wouldn't open (permission denied, glasses not connected): say so on the glasses too, and stop pretending to listen. */
+function micRefused() {
+  ui.addError('Mic did not open. Check the microphone permission and that the glasses are connected')
+  display.note('Mic unavailable. Check the mic permission.')
+  if (phase === 'talking') void stopTalk()
+  else if (!paused) void toggleListening()
 }
 
 async function closeMic() {
@@ -303,6 +316,9 @@ async function haltCapture() {
  */
 async function resumeCapture() {
   if (!bridge || paused || !connected || phase === 'talking' || lab) return
+  // FOREGROUND_ENTER/EXIT also fire whenever the OS contextual menu opens or closes. If audio is still arriving into an
+  // open stream nothing was lost, so leave it alone instead of restarting it mid-phrase.
+  if (captureHealthy({ micOpen, lastAudioAt, streaming: session.isStreaming })) return
   turn++
   clearTimeout(doneTimer)
   clearTimeout(micWatchdog)
@@ -579,11 +595,15 @@ async function onMenuPick(itemID: number) {
     case 'toggle_listen':
       await toggleListening()
       break
-    case 'set':
+    case 'set': {
       await updateSettings(action.patch) // also re-declares the menu so its labels show the new values
+      // A menu pick closes the menu and changes nothing visible by itself: confirm it in the header.
+      const now = menuItems(menuState()).find((i) => i.id === item!.id)
+      if (now) display.flashMessage(now.label)
       break
+    }
     case 'note':
-      display.note(action.text)
+      display.flashMessage(action.text)
       break
   }
 }
@@ -643,6 +663,7 @@ const handleGlassesInput = createGlassesEventHandler({
 function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0]>[0]) {
   if (event.audioEvent) {
     const pcm = toBytes(event.audioEvent.audioPcm)
+    if (pcm) lastAudioAt = Date.now()
     if (pcm && lab) {
       micChunks++
       lab.seg.push(pcm)

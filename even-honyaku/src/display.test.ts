@@ -210,6 +210,39 @@ describe('Display: predictive screen', () => {
   })
 })
 
+describe('Display: header', () => {
+  it('shows the app name (as in the store listing), on the setup screen too', async () => {
+    const f = fakeBridge()
+    const d = new Display(f.bridge)
+    await d.init()
+    d.setState('listening')
+    await flush()
+    expect(f.lastText(1)).toBe('Honyaku   ● listening')
+    d.setSetup(['Deepgram key'])
+    await flush()
+    expect(f.lastText(1)).toBe('Honyaku   x setup needed')
+  })
+
+  it('a flashed message replaces the header for a few seconds on both screens, then the header returns', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    try {
+      for (const mode of ['standard', 'predictive'] as const) {
+        const f = fakeBridge()
+        const d = new Display(f.bridge, { mode })
+        await d.init()
+        d.setState('listening')
+        d.flashMessage('Replies: Casual')
+        await vi.advanceTimersByTimeAsync(10)
+        expect(f.lastText(1)).toBe('● listening   Replies: Casual')
+        await vi.advanceTimersByTimeAsync(5200)
+        expect(f.lastText(1)).toMatch(/listening/)
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('formatEntry', () => {
   it('classic entries; kana is added only when asked for', () => {
     const t = hear(1, 'How much?', { japanese: 'いくらですか', romaji: 'ikura desu ka' })
