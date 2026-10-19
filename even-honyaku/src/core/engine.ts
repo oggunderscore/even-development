@@ -71,8 +71,6 @@ export class Engine {
   private turnTimer: ReturnType<typeof setTimeout> | undefined
   private predicting: AbortController | null = null
   private warnedNoLlm = false
-  /** The wearer's latest reply as recorded in the history (and whether it was actually heard, not just tapped). */
-  private lastSaid: { entry: Translation | null; confirmed: boolean } = { entry: null, confirmed: false }
 
   constructor(
     private readonly emit: (msg: ServerMsg) => void,
@@ -98,9 +96,6 @@ export class Engine {
         break
       case 'text':
         if (this.requireKeys(['translate'])) this.enqueue(detectDir(msg.text), msg.text)
-        break
-      case 'chose':
-        this.wearerSaid(msg.option, false)
         break
     }
   }
@@ -295,7 +290,7 @@ export class Engine {
       if (dir === 'listen' || reading) {
         // The wearer's own Japanese (usually a suggested reply being read aloud): not part of the conversation.
         this.emit({ type: 'self', text, ...(reading ? { option: reading.option, optionIndex: reading.index, turnId: reading.turnId } : {}) })
-        if (reading) this.wearerSaid(reading.option, true)
+        if (reading) this.wearerSaid(reading.option)
         else this.cancelTurn()
         // Learn only when the audio agrees it was the wearer: an echo match alone can be the other person saying the
         // same phrase, and a wrong sample would pull the voiceprint towards them.
@@ -336,20 +331,10 @@ export class Engine {
     }, 3000)
   }
 
-  /** The wearer said (or picked) one of the suggestions: it joins the conversation history and ends the other's turn. */
-  private wearerSaid(option: ReplyOption, confirmed: boolean) {
-    const last = this.history.at(-1)
-    const prior = this.lastSaid
-    // A tap on the glasses only says what they intend to say. If it is followed by the same reply being read, or by a
-    // different pick, that is one reply, not two. Two replies actually spoken stay as two.
-    const replaceable = last !== undefined && prior.entry === last && (!prior.confirmed || last.romaji === option.romaji)
-    const t: Translation = { id: replaceable ? last.id : this.nextId++, dir: 'speak', english: option.gloss, japanese: option.ja, romaji: option.romaji }
-    if (replaceable) this.history[this.history.length - 1] = t
-    else {
-      this.history.push(t)
-      if (this.history.length > 6) this.history.shift()
-    }
-    this.lastSaid = { entry: t, confirmed: confirmed || (replaceable && prior.confirmed) }
+  /** The wearer read one of the suggestions aloud: it joins the conversation history and ends the other's turn. */
+  private wearerSaid(option: ReplyOption) {
+    this.history.push({ id: this.nextId++, dir: 'speak', english: option.gloss, japanese: option.ja, romaji: option.romaji })
+    if (this.history.length > 6) this.history.shift()
     this.cancelTurn()
   }
 

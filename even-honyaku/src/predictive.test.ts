@@ -92,21 +92,7 @@ describe('PredictiveView gestures', () => {
     expect(v.rows().find((r) => r.startsWith('▶'))).toBe('▶ 2 Iced, please')
   })
 
-  it('tap zooms into the highlighted option once, reporting it as chosen, and tap again zooms out', () => {
-    const v = view()
-    v.heard(q(1, 'Hot or iced?'), true)
-    v.predictions(1, choice)
-    v.move('down')
-    const first = v.tap()
-    expect(first).toEqual({ changed: true, chose: choice.options[1] })
-    expect(v.isFocused).toBe(true)
-    expect(v.rows()).toEqual(['JP: Hot or iced?', '', 'Iced, please', 'aisu de onegaishimasu'])
-    expect(v.tap()).toEqual({ changed: true })
-    expect(v.isFocused).toBe(false)
-    expect(v.rows().find((r) => r.startsWith('●'))).toBe('● 2 Iced, please')
-  })
-
-  it('swiping up past the first option reads earlier turns; tap returns to the live one', () => {
+  it('swiping up past the first option reads earlier turns; swiping down comes back to the live one', () => {
     const v = view()
     v.heard(q(1, 'Hot or iced?'), true)
     v.predictions(1, choice)
@@ -118,7 +104,8 @@ describe('PredictiveView gestures', () => {
     expect(v.isLive).toBe(false)
     expect(v.rows()[0]).toBe('JP: Hot or iced?')
     expect(v.rows().find((r) => r.startsWith('●'))).toBe('● 1 Hot, please')
-    expect(v.tap().changed).toBe(true)
+    expect(v.hint()).toBe('earlier: swipe down')
+    expect(v.move('down')).toBe(true)
     expect(v.isLive).toBe(true)
     expect(v.rows()[0]).toBe('JP: Would you like milk?')
   })

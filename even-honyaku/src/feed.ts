@@ -22,6 +22,9 @@ function glyphPx(ch: string): number {
   return 11.5
 }
 
+/** Estimated width in pixels of a line of text on the glasses. */
+export const textWidth = (text: string): number => [...text].reduce((n, ch) => n + glyphPx(ch), 0)
+
 /** Word-wrap one logical line into rows no wider than ROW_PX. Over-long words are split. */
 export function wrapLine(line: string): string[] {
   const rows: string[] = []

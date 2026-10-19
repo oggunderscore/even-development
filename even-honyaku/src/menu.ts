@@ -1,7 +1,8 @@
-// The glasses menu (double tap): Pause / Resume listening, Settings, Exit. Pure state → items → action, so it is
+// The glasses menu (double tap; a single tap pauses / resumes listening on its own): Pause / Resume listening, Settings, Exit. Pure state → items → action, so it is
 // testable without a bridge. The Display draws the items as a native list; a list can't be updated in place, so every
 // change (a toggled setting, a renamed Pause/Resume) re-draws the whole menu, and the highlight starts at the top again.
 
+import { textWidth } from './feed'
 import type { Settings } from './settings'
 
 export type MenuScreen = 'main' | 'settings'
@@ -86,4 +87,32 @@ export function resolvePick(items: MenuItem[], click: { name?: string; index?: n
     if (byName) return byName
   }
   return items[click.index ?? 0] ?? null
+}
+
+// ── overlay geometry ─────────────────────────────────────────────────────────
+
+/** Height of one list row on the glasses (measured in the simulator: ~40 px per item). */
+export const ITEM_PX = 40
+const MAX_VISIBLE = 5
+const SCREEN_W = 576
+const SCREEN_H = 288
+
+export interface Overlay {
+  x: number
+  y: number
+  width: number
+  height: number
+  /** Width given to each list item (a little less than the container, for its padding and border). */
+  itemWidth: number
+}
+
+/**
+ * A small box centred on the screen, sized to its content: as wide as the longest label needs and as tall as the
+ * items (at most five at a time; a longer list scrolls inside the box).
+ */
+export function overlayGeometry(items: MenuItem[]): Overlay {
+  const labelPx = Math.max(0, ...items.map((i) => textWidth(i.label)))
+  const width = Math.min(440, Math.max(220, Math.ceil((labelPx + 64) / 2) * 2))
+  const height = Math.min(items.length, MAX_VISIBLE) * ITEM_PX + 16
+  return { x: (SCREEN_W - width) / 2, y: Math.round((SCREEN_H - height) / 2), width, height, itemWidth: width - 16 }
 }

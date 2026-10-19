@@ -7,7 +7,7 @@
 
 import { NEW_TURN_AFTER_MS } from './core/turns'
 import { wrapLine } from './feed'
-import type { Prediction, ReplyOption, Translation } from './protocol'
+import type { Prediction, Translation } from './protocol'
 
 /** Rows in the predictive body (256 px of text at ~28 px a line). */
 export const BODY_ROWS = 9
@@ -60,7 +60,6 @@ export class PredictiveView {
   /** Index into `turns` being looked at; null = the live (newest) turn. */
   private viewing: number | null = null
   private cursor = 0
-  private focused = false
   /** Suggestions that arrived before the translation they answer (a slow or failed translation). */
   private early: { turnId: number; prediction: Prediction } | null = null
 
@@ -86,9 +85,6 @@ export class PredictiveView {
   get hasContent(): boolean {
     return this.turns.length > 0
   }
-  get isFocused(): boolean {
-    return this.focused
-  }
   get isLive(): boolean {
     return this.viewing === null
   }
@@ -99,7 +95,6 @@ export class PredictiveView {
     if (this.turns.length > HISTORY) this.turns.shift()
     this.viewing = null
     this.cursor = 0
-    this.focused = false
     return t
   }
 
@@ -126,7 +121,6 @@ export class PredictiveView {
       t.thinking = false
       t.free = { english: tr.english, romaji: tr.romaji, japanese: tr.japanese }
       this.viewing = null
-      this.focused = false
       return
     }
     const stale = this.live !== undefined && this.live.lines.length > 0 && now - this.live.at > NEW_TURN_AFTER_MS
@@ -149,7 +143,6 @@ export class PredictiveView {
     }
     t.error = null
     this.viewing = null
-    this.focused = false
     if (this.early && this.early.turnId <= tr.id) {
       const e = this.early
       this.early = null
@@ -177,7 +170,6 @@ export class PredictiveView {
     t.thinking = false
     if (t === this.live) {
       this.cursor = 0
-      this.focused = false
     }
   }
 
@@ -228,10 +220,10 @@ export class PredictiveView {
         if (this.viewing === 0) return false
         this.viewing--
       } else {
-        this.viewing = this.viewing >= this.turns.length - 1 ? null : this.viewing + 1
+        const next = this.viewing + 1
+        this.viewing = next >= this.turns.length - 1 ? null : next // the newest turn is the live view
         this.cursor = 0
       }
-      this.focused = false
       return true
     }
 
@@ -249,34 +241,9 @@ export class PredictiveView {
     // top of the options (or nothing to pick): go back through earlier turns
     if (dir === 'up' && this.turns.length > 1) {
       this.viewing = this.turns.length - 2
-      this.focused = false
       return true
     }
     return false
-  }
-
-  /**
-   * Tap: zoom into the highlighted option (returns it so the app can tell the engine it was chosen), zoom back out, or
-   * come back from an earlier turn.
-   */
-  tap(): { changed: boolean; chose?: ReplyOption } {
-    if (this.viewing !== null) {
-      this.viewing = null
-      this.focused = false
-      return { changed: true }
-    }
-    const t = this.live
-    const option = t?.prediction?.options[this.cursor]
-    if (!t || !option || t.free !== null) return { changed: false }
-    if (this.focused) {
-      this.focused = false
-      return { changed: true }
-    }
-    this.focused = true
-    const firstTime = t.said === null || t.said === -1
-    t.said = this.cursor
-    t.thinking = false
-    return { changed: true, ...(firstTime ? { chose: option } : {}) }
   }
 
   // ── rendering ───────────────────────────────────────────────────────────────
@@ -303,13 +270,6 @@ export class PredictiveView {
     out.push(...kanaRow, ...qRows)
 
     const options = t.prediction?.options ?? []
-    if (this.focused && options[this.cursor]) {
-      const o = options[this.cursor]!
-      out.push('', `${o.gloss}`.slice(0, 60), ...wrapLine(o.romaji).slice(0, 4))
-      if (this.opts.kana) out.push(...wrapLine(o.ja).slice(0, 2))
-      return out.slice(0, BODY_ROWS)
-    }
-
     if (!options.length) {
       if (t.error) out.push('', ...clampRows(`(no suggestions: ${t.error})`, 3))
       else if (t.thinking) out.push('', 'thinking...')
@@ -336,15 +296,11 @@ export class PredictiveView {
     return out.slice(0, BODY_ROWS)
   }
 
-  /** Short state for the header's hint area. */
+  /** Short state for the header's hint area (the Display adds the tap and double-tap hints). */
   hint(): string {
-    if (this.viewing !== null) return 'earlier  tap: back'
+    if (this.viewing !== null) return 'earlier: swipe down'
     const t = this.live
-    if (!t) return ''
-    if (this.focused) return 'tap: back'
-    if (t.free) return ''
-    if (t.prediction && t.prediction.options.length > 1) return 'swipe: pick  tap: zoom'
-    if (t.prediction) return 'tap: zoom'
+    if (t?.prediction && t.prediction.options.length > 1 && !t.free) return 'swipe: highlight'
     return ''
   }
 }

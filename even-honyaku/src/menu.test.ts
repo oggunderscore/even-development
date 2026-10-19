@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type MenuState, menuItems, menuPick, resolvePick } from './menu'
+import { type MenuState, menuItems, menuPick, overlayGeometry, resolvePick } from './menu'
 
 const state = (over: Partial<MenuState> = {}, settings: Partial<MenuState['settings']> = {}): MenuState => ({
   screen: 'main',
@@ -60,5 +60,25 @@ describe('resolvePick', () => {
     expect(resolvePick(items, {})?.id).toBe('toggle')
     expect(resolvePick(items, { index: 9 })).toBeNull()
     expect(resolvePick(items, { name: 'renamed since', index: 2 })?.id).toBe('exit')
+  })
+})
+
+describe('overlayGeometry', () => {
+  it('is a small box centred on the 576 x 288 screen, sized to the items', () => {
+    const main = overlayGeometry(menuItems(state()))
+    expect(main.x * 2 + main.width).toBe(576)
+    expect(main.y * 2 + main.height).toBeCloseTo(288, -1)
+    expect(main.width).toBeLessThan(300)
+    expect(main.height).toBe(3 * 40 + 16)
+    expect(main.itemWidth).toBeLessThan(main.width)
+  })
+
+  it('widens for longer labels, but never past the screen, and caps its height at five items', () => {
+    const settings = overlayGeometry(menuItems(state({ screen: 'settings' }, { mode: 'predictive' })))
+    expect(settings.width).toBeGreaterThan(overlayGeometry(menuItems(state())).width)
+    expect(settings.height).toBe(5 * 40 + 16) // six items, five visible
+    expect(settings.x).toBeGreaterThan(0)
+    const huge = overlayGeometry([{ id: 'a', label: 'W'.repeat(60) }])
+    expect(huge.width).toBeLessThanOrEqual(440)
   })
 })

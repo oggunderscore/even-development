@@ -3,7 +3,7 @@
 // Kept as a small class so the rest of the app only deals with `startStream` / `sendAudio` / `onMessage`.
 
 import { Engine } from './core/engine'
-import type { ClientMsg, ReplyOption, ServerMsg, StreamMode, UserConfig } from './protocol'
+import type { ClientMsg, ServerMsg, StreamMode, UserConfig } from './protocol'
 
 export interface SessionHandlers {
   onMessage(msg: ServerMsg): void
@@ -36,11 +36,6 @@ export class Session {
   /** Hand the running engine new preferences (mode, voiceprint…) without restarting its streams. */
   reconfigure() {
     this.engine?.handle({ type: 'config', config: this.handlers.getConfig() })
-  }
-
-  /** The wearer picked a suggested reply on the glasses. */
-  chose(option: ReplyOption) {
-    this.sendJson({ type: 'chose', option })
   }
 
   /** Stop the engine so the next connect() picks up changed settings. */

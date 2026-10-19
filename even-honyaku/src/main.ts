@@ -25,7 +25,7 @@ import './romaji-browser'
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>
 type GlassesDisplay = Pick<
   Display,
-  'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll' | 'setSetup' | 'predictions' | 'predictionFailed' | 'self' | 'tap' | 'setMode' | 'setKana' | 'openMenu' | 'closeMenu' | 'menuOpen'
+  'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll' | 'setSetup' | 'predictions' | 'predictionFailed' | 'self' | 'setMode' | 'setKana' | 'openMenu' | 'closeMenu' | 'menuOpen'
 >
 
 // The phone UI + engine are set up BEFORE we wait for the Even bridge, so they work (and the
@@ -41,7 +41,6 @@ const noDisplay: GlassesDisplay = {
   predictions() {},
   predictionFailed() {},
   self() {},
-  tap: () => undefined,
   setMode: () => Promise.resolve(),
   setKana() {},
   openMenu: () => Promise.resolve(false),
@@ -151,7 +150,7 @@ async function applySettings(raw: Settings, test: boolean) {
   await session.connect()
   if (!test) {
     if (hasKeys(settings)) {
-      ui.addNote('Setup complete. Double-tap the glasses > Resume listening, or tap RESUME LISTENING.')
+      ui.addNote('Setup complete. Tap the glasses (or RESUME LISTENING here) to start listening.')
       ui.showView('feed')
     }
     return
@@ -494,14 +493,17 @@ async function deleteVoice() {
 }
 
 // ── Glasses ──────────────────────────────────────────────────────────────────
-// Glasses: double tap opens the menu (Pause/Resume listening · Settings · Exit); swipe scrolls the feed (or moves
-// the highlight in Predictive mode); tap zooms into a suggested reply. Hold (long press) is left alone — users
+// Glasses: a single tap pauses / resumes listening; a double tap opens the menu (Pause/Resume listening · Settings ·
+// Exit); swipe scrolls the feed (or moves the highlight in Predictive mode). Hold (long press) is left alone — users
 // commonly bind it to their own action. Hold-to-talk-in-English lives on the phone button.
 
 // The event subscription is created once and never removed: the app must keep reacting to the glasses for as long
 // as it is alive, including after the user answers "No" to the exit dialog or the phone has been in the background.
 let lastScrollAt = 0
 let lastMenuAt = 0
+/** A single tap waits this long for a possible second tap, so a double tap (the menu) never also toggles listening. */
+const SINGLE_TAP_MS = 350
+let tapTimer: ReturnType<typeof setTimeout> | undefined
 let lastExitAt = 0
 /** The OS told us the app is closing (or its capture is gone); recover on the next sign of life. */
 let suspended = false
@@ -611,6 +613,7 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
   const input = classifyInput(event)
 
   // Any sign of life after the OS closed our session (e.g. the exit dialog was answered "No") brings capture back.
+  const wasSuspended = suspended
   if (suspended && input !== 'exit' && input !== 'unknown' && input !== 'long_press_release') {
     suspended = false
     if (input !== 'long_press') void resumeCapture()
@@ -618,6 +621,7 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
 
   if (display.menuOpen && input !== 'exit' && input !== 'abnormal_exit' && input !== 'foreground') {
     // The menu owns the touchpad: a tap picks, a double tap closes, everything else is the list scrolling itself.
+    clearTimeout(tapTimer)
     clearTimeout(menuTimer)
     menuTimer = setTimeout(() => void closeMenu(), MENU_IDLE_MS)
     if (input === 'double_click') {
@@ -636,6 +640,7 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
   switch (input) {
     case 'double_click': {
       // Open the menu. (The system exit dialog is behind its Exit item; the first double tap never quits.)
+      clearTimeout(tapTimer) // the first tap of this double tap must not also toggle listening
       const now = Date.now()
       if (now - lastMenuAt > 600) {
         lastMenuAt = now
@@ -662,12 +667,13 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
       }
       break
     }
-    case 'click': {
-      // Predictive mode: zoom into the highlighted reply. A tap can't open the mic, so it is safe to use.
-      const chose = display.tap()
-      if (chose) session.chose(chose)
+    case 'click':
+      // Pause / resume listening. Wait briefly in case this is the first half of a double tap. (A tap that merely woke
+      // the app after the exit dialog was answered "No" has already re-armed capture; it should not also pause it.)
+      if (wasSuspended) break
+      clearTimeout(tapTimer)
+      tapTimer = setTimeout(() => void toggleListening(), SINGLE_TAP_MS)
       break
-    }
     default:
       break // long press is deliberately unused
   }

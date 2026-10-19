@@ -16,9 +16,9 @@ Optional first: `npm run simulator` (needs a desktop).
 
 ## 2. What to try
 - First run: the glasses say *Please set up Honyaku in the Even Realities app / Error: Missing API keys*; the phone shows **SETTINGS** with a SETUP checklist and **? HOW TO GET ONE** help under each key. Enter keys → **SAVE & TEST** → ✓ DEEPGRAM, ✓ provider, ✓ TRANSLATE (plus ✓ ROMAJI for Google). Wrong keys show ✗ with the reason; the feed won't start listening until keys are present.
-- The app starts **paused**. Double-tap the glasses → menu → *Resume listening* (or press the phone's *Resume listening* button) → header says **listening**. Have someone speak Japanese → English appears; speak English → romaji appears.
+- The app starts **paused**. **Tap** the glasses (or press the phone's *Resume listening* button) → header says **listening**; tap again to pause. Have someone speak Japanese → English appears; speak English → romaji appears.
 - Phone: **hold** the big button and speak English → release → romaji (forced English, ignores language detection).
-- Glasses: **double tap** = menu (Pause/Resume listening · Settings · Exit); swipe up/down = scroll the feed one translation pair at a time (up pushes the top pair off until the view is empty and the header says `[cleared]`, down brings one back); tap = zoom into a reply (Predictive only). Long press is unused. Swipe up = `SCROLL_TOP_EVENT` per the docs; if it feels backwards on the glasses, swap the two in `src/input.ts`.
+- Glasses: **tap** = pause/resume listening; **double tap** = menu, a small centred box (Pause/Resume listening · Settings · Exit); swipe up/down = scroll the feed one translation pair at a time (up pushes the top pair off until the view is empty and the header says `[cleared]`, down brings one back). Long press is unused. Swipe up = `SCROLL_TOP_EVENT` per the docs; if it feels backwards on the glasses, swap the two in `src/input.ts`.
 - No mic handy? Use the text box on the phone UI.
 
 ## 2b. Predictive mode and the voice filter — a test script
@@ -41,7 +41,7 @@ Optional first: `npm run simulator` (needs a desktop).
 1. **Voice-filter accuracy on real glasses audio.** The voiceprint is a classical MFCC + pitch model; unit tests use synthetic voices only. Unknowns: how much louder you are than a person across the table at the G2 mic (L1 assumes a clear gap), how well short or halting read-aloud Japanese separates from the other person's voice, and whether the strictness default (50%) is right. Record some real conversations' worth of verdicts from the VOICE log and tune `voiceScore` / `levelScore` / `verdict` in `src/core/voice.ts`. If a classical model proves too weak, `voiceFeatures()` in `src/core/dsp.ts` is the one function to replace with a neural speaker embedding.
 2. Whether the English model's transcript of you reading romaji ever matches the suggested reply closely enough for the echo check (Japanese-model transcripts do).
 3. **Kana/kanji on the glasses** (Settings → Kana on glasses): glyph coverage and width (`feed.ts` assumes 27 px) are unverified.
-4. Menu: the QA rule on root-page exit UI (an in-app menu whose Exit opens the system dialog is the documented "Chess" pattern, but only Beta Testing confirms the reviewer accepts it), the list height (5 items visible) on hardware, and tap-then-long-press never reaching the app.
+4. Single tap vs. double tap: that a double tap reaches the app as one `DOUBLE_CLICK_EVENT` and never as two taps first (a 350 ms delay on the single tap guards against it, but check on hardware), plus the menu: the QA rule on root-page exit UI (an in-app menu whose Exit opens the system dialog is the documented "Chess" pattern, but only Beta Testing confirms the reviewer accepts it), how the centred box and the blanked rows behind it look on hardware (the simulator doesn't visibly dim the text behind it), and tap-then-long-press never reaching the app.
 5. Latency of reply suggestions with your chosen model, and the Predictive screen's 9-row budget with real romaji lengths.
 
 ## 5. The `even-honyaku.ehpk` package

@@ -18,9 +18,9 @@ Listening is **off when the app starts** — turn it on when you want it.
 
 | Where | Gesture | Action |
 | --- | --- | --- |
-| Glasses | **double tap** | open the menu: **Pause / Resume listening**, **Settings**, **Exit** (the mic closes while paused: nothing is streamed or billed). Double tap again, or wait 12 s, to close it |
+| Glasses | **tap** | pause / resume listening (the mic closes while paused: nothing is streamed or billed). The tap takes effect about a third of a second later, so a double tap never also toggles it |
+| Glasses | **double tap** | open the menu: **Pause / Resume listening**, **Settings**, **Exit**. It is a small box centred over the screen. Double tap again, or wait 12 s, to close it |
 | Glasses | swipe | Standard: scroll the feed one translation at a time (up pushes the top one off, down brings one back). Predictive: move the highlight between suggested replies; swipe up past the first one to read earlier turns |
-| Glasses | tap | Predictive only: zoom into the highlighted reply (big, nothing else on screen); tap again to go back |
 | Phone | Pause / Resume listening button | same as the menu item |
 | Phone | **Hold** big button | talk English while held, translate on release (works while paused) |
 
@@ -35,7 +35,7 @@ Switch it on in **Settings → Conversation** (or in the glasses menu). It needs
 2. When they stop talking (about a second of quiet), the assistant suggests what you could say, as short romaji to read aloud:
    - a statement, greeting or thanks gets **one** reply;
    - a decision (yes/no, either/or, how many…) gets **2–3 replies that mean different things**, each with a few English words saying what it means.
-3. Earlier turns scroll away on their own so the replies have the whole screen. Swipe to move the `▶` highlight, tap to zoom into one. Read it aloud. If you'd rather say something else, just say it in English as usual and the romaji appears instead.
+3. Earlier turns scroll away on their own so the replies have the whole screen. Swipe to move the `▶` highlight along the replies. Read one aloud. If you'd rather say something else, just say it in English as usual and the romaji appears instead.
 
 ```
 JP: Would you like it hot or iced?

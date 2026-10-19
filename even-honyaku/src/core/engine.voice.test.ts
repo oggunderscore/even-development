@@ -142,13 +142,14 @@ describe('Engine: predictive mode', () => {
     t.engine.close()
   })
 
-  it('a "chose" from the glasses ends the turn and is remembered for context', async () => {
+  it('a reply the wearer read aloud ends the turn and is remembered as context for the next suggestions', async () => {
     const fetchMock = llm()
     vi.stubGlobal('fetch', fetchMock)
     const t = setup()
     t.h().onFinal(QUESTION, 'listen', { start: 0, end: 2 })
     await vi.waitFor(() => expect(t.types()).toContain('predictions'))
-    t.engine.handle({ type: 'chose', option: OPTIONS.options[0]! })
+    t.h().onFinal('ホットでお願いします', 'listen', { start: 5, end: 7 })
+    await vi.waitFor(() => expect(t.types()).toContain('self'))
     t.h().onFinal('ミルクは入れますか。', 'listen', { start: 8, end: 10 })
     await vi.waitFor(() => expect(t.of('predictions')).toHaveLength(2))
     const second = fetchMock.mock.calls.map((c) => JSON.parse(String(c[1].body))).filter((b) => b.messages[0].content.includes('reply assistant'))[1]
@@ -220,32 +221,12 @@ describe('Engine: robustness', () => {
     engine.close()
   })
 
-  it('zooming a reply and then reading it aloud records one wearer turn, not two', async () => {
+  it('two replies actually read aloud are two history entries', async () => {
     const fetchMock = llm()
     vi.stubGlobal('fetch', fetchMock)
     const t = setup()
     t.h().onFinal(QUESTION, 'listen', { start: 0, end: 2 })
     await vi.waitFor(() => expect(t.types()).toContain('predictions'))
-    t.engine.handle({ type: 'chose', option: OPTIONS.options[0]! }) // tap to zoom
-    t.h().onFinal('ホットでお願いします', 'listen', { start: 5, end: 7 }) // …then reads it
-    await vi.waitFor(() => expect(t.types()).toContain('self'))
-    t.h().onFinal('ミルクは入れますか。', 'listen', { start: 9, end: 11 })
-    await vi.waitFor(() => expect(t.of('predictions')).toHaveLength(2))
-    const second = fetchMock.mock.calls.map((c) => JSON.parse(String(c[1].body))).filter((b) => b.messages[0].content.includes('reply assistant'))[1]
-    expect(second.messages[1].content.match(/wearer said: Hot, please/g)).toHaveLength(1)
-    t.engine.close()
-  })
-
-  it('two replies actually read aloud are two history entries; a tap followed by a different pick is one', async () => {
-    const fetchMock = llm()
-    vi.stubGlobal('fetch', fetchMock)
-    const t = setup()
-    t.h().onFinal(QUESTION, 'listen', { start: 0, end: 2 })
-    await vi.waitFor(() => expect(t.types()).toContain('predictions'))
-    // a tap, then a different tap: one intended reply (the last)
-    t.engine.handle({ type: 'chose', option: OPTIONS.options[0]! })
-    t.engine.handle({ type: 'chose', option: OPTIONS.options[1]! })
-    // then the wearer really reads it, and afterwards really reads another thing
     t.h().onFinal('アイスでお願いします', 'listen', { start: 5, end: 7 })
     await vi.waitFor(() => expect(t.of('self')).toHaveLength(1))
     t.h().onFinal('ホットでお願いします', 'listen', { start: 8, end: 10 })

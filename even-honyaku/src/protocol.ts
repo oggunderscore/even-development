@@ -84,8 +84,6 @@ export type ClientMsg =
   | { type: 'end' }
   /** Dev aid: skip STT and translate typed text; direction is detected from the script. */
   | { type: 'text'; text: string }
-  /** The wearer picked a suggested reply on the glasses, so it counts as said (for the conversation history). */
-  | { type: 'chose'; option: ReplyOption }
 
 export interface Translation {
   id: number

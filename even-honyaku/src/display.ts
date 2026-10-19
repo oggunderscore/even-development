@@ -3,7 +3,8 @@
 //
 //   standard    header y=0 h=32 · body y=32 h=216 (translation feed, captures input) · footer y=248 h=40
 //   predictive  header y=0 h=32 · body y=32 h=256 (the other person's turn + suggested replies, captures input)
-//   menu        header · body y=32 h=64 (the last two rows that were on screen) · list y=100 h=188 (captures input)
+//   menu        the current screen, dimmed and non-capturing, with a small centred list box on top (captures input);
+//               the rows of text behind the box are blanked because a list has no fill and the text would show through
 //
 // Romaji is plain ASCII so it always renders. Kana/kanji are only drawn when the user turns that on.
 
@@ -17,9 +18,9 @@ import {
   type waitForEvenAppBridge,
 } from '@evenrealities/even_hub_sdk'
 import { Feed, wrapLine } from './feed'
-import type { MenuItem } from './menu'
+import { type MenuItem, overlayGeometry } from './menu'
 import { PredictiveView } from './predictive'
-import type { AppMode, Direction, Prediction, ReplyOption, Translation } from './protocol'
+import type { AppMode, Direction, Prediction, Translation } from './protocol'
 
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>
 
@@ -33,7 +34,12 @@ const LIVE_MIN_MS = 350
 /** A one-off message (an error, a menu note) stays in the header this long. */
 const FLASH_MS = 5000
 
-const FOOTER = 'swipe: scroll   2x tap: menu'
+const FOOTER = 'tap: pause/resume   2x tap: menu'
+const HINT_BASE = 'tap: pause/resume  2x tap: menu'
+/** Height of one text row on the glasses font (about 28 px), for working out which rows sit behind the menu box. */
+const ROW_PX = 28
+/** Dimmer text behind the menu box so the box reads as the foreground. */
+const DIM = 2
 const FOOTER_SETUP = 'Even app > Honyaku > Settings'
 
 export type UiState = 'idle' | 'listening' | 'talking' | 'processing' | 'offline'
@@ -87,7 +93,7 @@ export class Display {
 
   // ── page construction ───────────────────────────────────────────────────────
 
-  private text(id: number, name: string, y: number, height: number, content: string, capture: boolean, padding: number) {
+  private text(id: number, name: string, y: number, height: number, content: string, capture: boolean, padding: number, over?: { z: number; dim?: boolean }) {
     this.sent.set(id, content)
     return new TextContainerProperty({
       containerID: id,
@@ -96,46 +102,42 @@ export class Display {
       paddingLength: padding,
       content,
       isEventCapture: capture ? 1 : 0,
+      // zOrderIndex is all-or-nothing per page: when the menu overlay is up, every container carries one.
+      ...(over ? { zOrderIndex: over.z, ...(over.dim ? { textColor: DIM } : {}) } : {}),
     })
   }
 
   /** The containers for a layout, filled with what should be showing right now. */
   private page(layout: Layout) {
     this.sent.clear()
-    if (layout === 'standard') {
-      return {
-        containerTotalNum: 3,
-        textObject: [
-          this.text(ID_HEADER, 'header', 0, 32, this.headerText(layout), false, 2),
-          this.text(ID_BODY, 'body', 32, 216, this.bodyText(layout), true, 4),
-          this.text(ID_FOOTER, 'footer', 248, 40, this.setup ? FOOTER_SETUP : FOOTER, false, 2),
-        ],
-      }
-    }
-    if (layout === 'predictive') {
-      return {
-        containerTotalNum: 2,
-        textObject: [
-          this.text(ID_HEADER, 'header', 0, 32, this.headerText(layout), false, 2),
-          this.text(ID_BODY, 'body', 32, 256, this.bodyText(layout), true, 2),
-        ],
-      }
-    }
+    const menu = layout === 'menu'
+    const base: Layout = menu ? this.modeLayout : layout
+    const z = (n: number, dim = false) => (menu ? { z: n, dim } : undefined)
+    const header = this.text(ID_HEADER, 'header', 0, 32, this.headerText(layout), false, 2, z(1))
+    const textObject =
+      base === 'standard'
+        ? [
+            header,
+            this.text(ID_BODY, 'body', 32, 216, this.bodyText(layout), !menu, 4, z(2, true)),
+            this.text(ID_FOOTER, 'footer', 248, 40, this.setup ? FOOTER_SETUP : FOOTER, false, 2, z(3, true)),
+          ]
+        : [header, this.text(ID_BODY, 'body', 32, 256, this.bodyText(layout), !menu, 2, z(2, true))]
+    if (!menu) return { containerTotalNum: textObject.length, textObject }
+
     const items = this.menu ?? []
+    const box = overlayGeometry(items)
     return {
-      containerTotalNum: 3,
-      textObject: [
-        this.text(ID_HEADER, 'header', 0, 32, this.headerText(layout), false, 2),
-        this.text(ID_BODY, 'body', 32, 64, this.bodyText(layout), false, 4),
-      ],
+      containerTotalNum: textObject.length + 1,
+      textObject,
       listObject: [
         new ListContainerProperty({
           containerID: ID_MENU,
           containerName: 'menu',
-          xPosition: 0, yPosition: 100, width: 576, height: 188,
+          xPosition: box.x, yPosition: box.y, width: box.width, height: box.height,
           borderWidth: 1, borderColor: 13, borderRadius: 4, paddingLength: 4,
           isEventCapture: 1,
-          itemContainer: new ListItemContainerProperty({ itemCount: items.length, itemWidth: 556, isItemSelectBorderEn: 1, itemName: items.map((i) => i.label) }),
+          zOrderIndex: 10,
+          itemContainer: new ListItemContainerProperty({ itemCount: items.length, itemWidth: box.itemWidth, isItemSelectBorderEn: 1, itemName: items.map((i) => i.label) }),
         }),
       ],
     }
@@ -277,53 +279,46 @@ export class Display {
     this.renderBody()
   }
 
-  /** Tap (Predictive only): zoom into the highlighted reply. Returns it the first time, so the app can log it as chosen. */
-  tap(): ReplyOption | undefined {
-    if (this.mode !== 'predictive' || this.setup || this.layout === 'menu') return undefined
-    const r = this.view.tap()
-    if (r.changed) {
-      this.renderHeader()
-      this.renderBody()
-    }
-    return r.chose
-  }
-
   // ── text ────────────────────────────────────────────────────────────────────
 
   private headerText(layout: Layout = this.layout): string {
     if (this.setup) return 'EN<>JP   x setup needed'
     if (layout === 'menu') return 'MENU   2x tap: close'
     if (layout === 'predictive') {
-      const hint = this.flash || this.view.hint()
+      const viewHint = this.view.hint()
+      const hint = this.flash || (viewHint ? `${viewHint}  2x tap: menu` : HINT_BASE)
       return wrapLine(`${STATE_LABEL[this.state]}   ${hint}`.trimEnd())[0] ?? ''
     }
     const where = this.feed.cleared ? '  [cleared]' : ''
     return `EN<>JP   ${STATE_LABEL[this.state]}${where}`
   }
 
-  private standardRows(): string {
+  /** The rows the body would show in the current mode (also used, blanked in places, behind the menu box). */
+  private baseRows(): string[] {
+    if (this.setup) return ['Please set up Honyaku in the', 'Even Realities app.', '', 'Error: Missing API keys', ...this.setup.map((m) => `- ${m}`)]
+    if (this.mode === 'predictive') {
+      if (this.state === 'idle' && !this.view.hasContent) return ['Paused - not listening.', 'Tap to resume.']
+      return this.view.rows()
+    }
     const rows = this.feed.visible()
-    if (rows.length) return rows.join('\n')
-    if (this.feed.cleared) return ' ' // a blank view, but the container stays valid
+    if (rows.length) return rows
+    if (this.feed.cleared) return [' '] // a blank view, but the container stays valid
     return this.state === 'idle'
-      ? 'Paused - not listening.\nDouble tap > Resume listening.'
-      : 'Listening for English and Japanese.\nJapanese -> English shows here.\nEnglish -> romaji shows here.'
+      ? ['Paused - not listening.', 'Tap to resume.']
+      : ['Listening for English and Japanese.', 'Japanese -> English shows here.', 'English -> romaji shows here.']
   }
 
   private bodyText(layout: Layout = this.layout): string {
-    if (this.setup) {
-      return ['Please set up Honyaku in the', 'Even Realities app.', '', 'Error: Missing API keys', ...this.setup.map((m) => `- ${m}`)].join('\n')
-    }
-    if (layout === 'menu') {
-      // What was on screen, trimmed to the couple of rows that fit above the menu.
-      const rows = (this.mode === 'predictive' ? this.view.rows() : this.feed.visible()).slice(0, 2)
-      return rows.length ? rows.join('\n') : ' '
-    }
-    if (layout === 'predictive') {
-      if (this.state === 'idle' && !this.view.hasContent) return 'Paused - not listening.\nDouble tap > Resume listening.'
-      return this.view.rows().join('\n')
-    }
-    return this.standardRows()
+    const rows = this.baseRows()
+    if (layout !== 'menu') return rows.join('\n')
+    // The menu box is a list with no fill, so any text behind it would show through: blank those rows.
+    const box = overlayGeometry(this.menu ?? [])
+    const pad = this.mode === 'predictive' ? 2 : 4
+    const shown = rows.map((row, i) => {
+      const top = 32 + pad + i * ROW_PX
+      return top + ROW_PX > box.y && top < box.y + box.height ? '' : row
+    })
+    return shown.some((r) => r.trim()) ? shown.join('\n') : ' '
   }
 
   // ── rendering ───────────────────────────────────────────────────────────────
