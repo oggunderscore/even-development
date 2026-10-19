@@ -6,7 +6,7 @@ Source: https://hub.evenrealities.com/docs/get-started/quickstart/install-node
 
 > **Last updated:** 2026-06-08
 
-Even Hub tooling runs on **Node.js**. Run `node -v`: if it reports **20.x or 22+**, jump to [Install Even Hub tooling](https://hub.evenrealities.com/docs/get-started/quickstart/install-tools). Otherwise, start here.
+Even Hub tooling runs on **Node.js**. Run `node -v`: if it reports **20.x or 22+**, jump to [Install Even Hub tooling](/docs/get-started/quickstart/install-tools). Otherwise, start here.
 
 > **Target version:** **Node 20 LTS** or **22+**. The SDK declares `engines.node = "^20.0.0 || >=22.0.0"`. **Node 18 is not supported.**
 
@@ -37,9 +37,6 @@ curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
 
-<details>
-
-**Prefer a version manager? (fnm / nvm / winget)**
 A version manager lets you switch Node versions per project and avoids global-permission headaches.
 
 **macOS / Linux - fnm or nvm**
@@ -68,8 +65,6 @@ fnm install 22
 fnm use 22
 ```
 
-</details>
-
 ## Verify
 
 ```bash
@@ -86,7 +81,7 @@ echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
 exec zsh
 ```
 
-**Windows - shimmed `node.exe`.** Version managers (fnm/nvm-windows) expose `node` through a **shim**. This matters later: Windows Defender may block the shimmed `node.exe` inbound without prompting - see [Hardware → Network & Firewall Setup](https://hub.evenrealities.com/docs/get-started/quickstart/hardware#network-firewall-setup).
+**Windows - shimmed `node.exe`.** Version managers (fnm/nvm-windows) expose `node` through a **shim**. This matters later: Windows Defender may block the shimmed `node.exe` inbound without prompting - see [Hardware → Network & Firewall Setup](/docs/get-started/quickstart/hardware#network-firewall-setup).
 
 **Linux/macOS - `EACCES` on global installs.** If `npm install -g` fails with `EACCES`, **do not** `sudo npm`. Use a version manager (which installs into your home dir), or set a user-owned npm prefix:
 
@@ -102,4 +97,3 @@ npx @evenrealities/evenhub-cli qr --url "http://<your-lan-ip>:5173"
 ```
 
 Handy on locked-down machines. A global install is faster for repeated use.
-

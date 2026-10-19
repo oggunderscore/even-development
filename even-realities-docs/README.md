@@ -2,7 +2,7 @@
 
 Local markdown mirror of [hub.evenrealities.com/docs](https://hub.evenrealities.com/docs/get-started/overview), the official Even Hub developer documentation for the **Even G2 smart glasses**.
 
-- **Snapshot date:** 2026-06-15
+- **Snapshot date:** 2026-10-16 (re-synced with `resync.py`; the two `ai-tooling/` pages could not be re-fetched and still hold the 2026-06 copy)
 - **Site "Last updated" dates:** ranged 2026-06-04 to 2026-06-11 at snapshot time (each page below carries its own date)
 - **Purpose:** offline/local reference so any project in this repo has full context on the Even Hub platform without re-fetching the site each time
 - **Re-sync:** re-run the fetch if the live docs change meaningfully (check `reference/cli.md` and `reference/versioning.md` first - CLI/SDK versions are the fastest-moving numbers)
