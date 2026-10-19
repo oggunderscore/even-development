@@ -37,6 +37,21 @@ describe('classifyInput', () => {
   })
 })
 
+describe('a double tap is recognised wherever the firmware reports it', () => {
+  it('on the system event, the text event, the list event, or both parts at once', () => {
+    expect(classifyInput(ev({ sysEvent: { eventType: T.DOUBLE_CLICK_EVENT } }))).toBe('double_click')
+    expect(classifyInput(ev({ textEvent: { eventType: T.DOUBLE_CLICK_EVENT } }))).toBe('double_click')
+    expect(classifyInput(ev({ listEvent: { eventType: T.DOUBLE_CLICK_EVENT } }))).toBe('double_click')
+    // a sys part with no type (a protobuf-omitted 0) next to a text part that says double tap
+    expect(classifyInput(ev({ sysEvent: { eventSource: 1 }, textEvent: { eventType: T.DOUBLE_CLICK_EVENT } }))).toBe('double_click')
+    expect(classifyInput(ev({ sysEvent: { eventType: T.DOUBLE_CLICK_EVENT, eventSource: 1 }, textEvent: { eventType: T.DOUBLE_CLICK_EVENT } }))).toBe('double_click')
+  })
+  it('a plain tap or a swipe next to an untyped part is still not a double tap', () => {
+    expect(classifyInput(ev({ sysEvent: { eventSource: 1 }, textEvent: {} }))).toBe('click')
+    expect(classifyInput(ev({ sysEvent: { eventSource: 1 }, textEvent: { eventType: T.SCROLL_TOP_EVENT } }))).toBe('scroll_up')
+  })
+})
+
 describe('menuClick', () => {
   it('reads the picked item id from the OS contextual menu', () => {
     expect(menuClick(ev({ menuItemClickEvent: { itemID: 3 } }))).toBe(3)

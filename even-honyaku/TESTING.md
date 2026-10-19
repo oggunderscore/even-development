@@ -1,6 +1,6 @@
 # Testing the prototype on real G2 glasses
 
-Release candidate 1.1.3 (Predictive Conversation Mode + voice filter): **builds, typechecks and passes unit tests; the menu, the Predictive screen and the Settings list were driven in the Even simulator (0.9.5) with a faked network, and the phone UI was checked in a headless browser. None of it has run on real glasses or with a real voice yet.** Items in sections 3 and 4 are still unverified on a device.
+Release candidate 1.1.4 (Predictive Conversation Mode + voice filter): **builds, typechecks and passes unit tests; the menu, the Predictive screen and the Settings list were driven in the Even simulator (0.9.5) with a faked network, and the phone UI was checked in a headless browser. None of it has run on real glasses or with a real voice yet.** Items in sections 3 and 4 are still unverified on a device.
 
 ## 1. Run it on your own machine (phone + computer on the same Wi-Fi)
 
@@ -19,7 +19,7 @@ Optional first: `npm run simulator` (needs a desktop).
 - **? CONTROLS** (top of the app) opens the controls guide; Esc or CLOSE dismisses it.
 - The app starts **paused**. **Tap** the glasses (or press the phone's *Resume listening* button) → header says **listening**; tap again to pause. Have someone speak Japanese → English appears; speak English → romaji appears.
 - Phone: **hold** the big button and speak English → release → romaji (forced English, ignores language detection).
-- Glasses: **tap** = pause/resume listening; **double tap** = the system exit confirmation (*No* must leave everything working); **tap then long press** = the glasses' own menu with our items (Pause / Resume · Mode · Replies · Options · Voice filter · Kana); swipe up/down = scroll the feed one translation pair at a time (up pushes the top pair off until the view is empty and the header says `[cleared]`, down brings one back). Long press is unused. Swipe up = `SCROLL_TOP_EVENT` per the docs; if it feels backwards on the glasses, swap the two in `src/input.ts`.
+- Glasses: **tap** = pause/resume listening; **double tap** = the system exit confirmation (*No* must leave everything working; if it ever does not appear, the glasses show "Could not open the exit dialog. Double tap again."); **tap then long press** = the glasses' own menu with our items (Pause / Resume · Mode · Replies · Options · Voice filter · Kana); swipe up/down = scroll the feed one translation pair at a time (up pushes the top pair off until the view is empty and the header says `[cleared]`, down brings one back). Long press is unused. Swipe up = `SCROLL_TOP_EVENT` per the docs; if it feels backwards on the glasses, swap the two in `src/input.ts`.
 - No mic handy? Use the text box on the phone UI.
 
 ## 2b. Predictive mode and the voice filter — a test script

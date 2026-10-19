@@ -47,6 +47,10 @@ function fromType(type: OsEventTypeList | undefined): GlassesInput {
 }
 
 export function classifyInput(event: EvenHubEvent): GlassesInput {
+  // A double tap may be reported on the system event, the capturing container's event, or both, and one part can carry
+  // no type at all (protobuf omits zero). Whichever part says "double tap" wins, so the exit never depends on which one.
+  if ([event.sysEvent, event.textEvent, event.listEvent].some((part) => part?.eventType === OsEventTypeList.DOUBLE_CLICK_EVENT)) return 'double_click'
+
   const sys = event.sysEvent
   if (sys?.eventType !== undefined) return fromType(sys.eventType)
 

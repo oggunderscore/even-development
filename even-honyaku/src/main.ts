@@ -4,8 +4,7 @@ import { analyze } from './core/voice'
 import { Segmenter } from './core/vad'
 import { Display, type UiState } from './display'
 import { Enrollment, REASON_TEXT } from './enroll'
-import { requestExit } from './exit'
-import { classifyInput, menuClick } from './input'
+import { createGlassesEventHandler } from './glasses-events'
 import { type MenuState, itemForId, menuItems, menuPick } from './menu'
 import { toBytes } from './pcm'
 import { summarize } from './core/probes'
@@ -563,13 +562,8 @@ async function deleteVoice() {
 
 // The event subscription is created once and never removed: the app must keep reacting to the glasses for as long
 // as it is alive, including after the exit dialog was answered "No" or the phone has been in the background.
-let lastScrollAt = 0
-/** A single tap waits this long for a possible second tap, so a double tap (exit) never also toggles listening. */
-const SINGLE_TAP_MS = 350
-let tapTimer: ReturnType<typeof setTimeout> | undefined
-let lastExitAt = 0
-/** The OS told us the app is closing (or its capture is gone); recover on the next sign of life. */
-let suspended = false
+/** The Even bridge as soon as the app has it: double tap must work even if the rest of start-up is slow or fails. */
+let eventBridge: Bridge | null = null
 
 const menuState = (s: Settings = settings): MenuState => ({
   hasLlm: hasLlm(s),
@@ -603,6 +597,11 @@ async function initGlasses() {
     ui.addError('Even bridge not found. Open Honyaku from the Even app. Typed text still works; mic and glasses are off')
     return
   }
+  // Listen to the glasses right away, before the storage reads, page creation and engine start below. Those can be slow or
+  // fail, and a double tap (the exit) must reach shutDownPageContainer(1) regardless. The subscription is never removed.
+  eventBridge = found
+  found.onEvenHubEvent(onGlassesEvent)
+
   // The bridge's store outlives the WebView's localStorage; prefer it (and re-seed it from localStorage).
   const stored = await loadSettingsFromBridge(found)
   const storedVoice = await loadVoiceFromBridge(found)
@@ -625,11 +624,21 @@ async function initGlasses() {
   await session.connect()
   if (hasKeys(settings)) ui.showView('feed')
   refreshSetup()
-  bridge.onEvenHubEvent(onGlassesEvent)
   watchLiveness()
   syncState()
   void startAmbient() // no-op until the socket is up; onConnection(true) covers that case
 }
+
+/** Gestures and menu picks (see glasses-events.ts, where the double tap → shutDownPageContainer(1) wiring is tested). */
+const handleGlassesInput = createGlassesEventHandler({
+  bridge: () => eventBridge,
+  toggleListening: () => void toggleListening(),
+  scroll: (direction) => display.scroll(direction),
+  menuPick: (itemID) => void onMenuPick(itemID),
+  resumeCapture: () => void resumeCapture(),
+  haltCapture: () => void haltCapture(),
+  note: (text) => display.note(text),
+})
 
 function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0]>[0]) {
   if (event.audioEvent) {
@@ -643,65 +652,7 @@ function onGlassesEvent(event: Parameters<Parameters<Bridge['onEvenHubEvent']>[0
     }
     return
   }
-
-  const pick = menuClick(event)
-  if (pick !== null) {
-    void onMenuPick(pick)
-    return
-  }
-
-  const input = classifyInput(event)
-
-  // Any sign of life after the OS closed our session (e.g. the exit dialog was answered "No") brings capture back.
-  const wasSuspended = suspended
-  if (suspended && input !== 'exit' && input !== 'unknown' && input !== 'long_press_release') {
-    suspended = false
-    if (input !== 'long_press') void resumeCapture()
-  }
-
-  switch (input) {
-    case 'double_click':
-      // The home page's double tap is the exit: the system confirmation dialog (store requirement).
-      clearTimeout(tapTimer) // the first tap of this double tap must not also toggle listening
-      void exit()
-      break
-    case 'exit':
-      // The app is closing. Stop streaming, but stay subscribed in case it isn't (the user can still get back in).
-      suspended = true
-      void haltCapture()
-      break
-    case 'abnormal_exit':
-    case 'foreground':
-      // Capture stops when the WebView is suspended and Deepgram's sockets drop; rebuild both.
-      void resumeCapture()
-      break
-    case 'scroll_up':
-    case 'scroll_down': {
-      const now = Date.now()
-      if (now - lastScrollAt > 300) {
-        lastScrollAt = now
-        display.scroll(input === 'scroll_up' ? 'up' : 'down')
-      }
-      break
-    }
-    case 'click':
-      // Pause / resume listening. Wait briefly in case this is the first half of a double tap. (A tap that merely woke
-      // the app after the exit dialog was answered "No" has already re-armed capture; it should not also pause it.)
-      if (wasSuspended) break
-      clearTimeout(tapTimer)
-      tapTimer = setTimeout(() => void toggleListening(), SINGLE_TAP_MS)
-      break
-    default:
-      break // long press is deliberately unused
-  }
-}
-
-/** Double tap → the system exit confirmation. Nothing is torn down: the user may answer "No" (see exit.ts). */
-async function exit() {
-  const now = Date.now()
-  if (now - lastExitAt < 1000) return // one dialog per double tap
-  lastExitAt = now
-  await requestExit(bridge)
+  handleGlassesInput(event)
 }
 
 /**
