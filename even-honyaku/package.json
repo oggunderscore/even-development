@@ -1,7 +1,7 @@
 {
   "name": "even-honyaku",
   "private": true,
-  "version": "1.1.7",
+  "version": "1.1.8",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
@@ -12,7 +12,8 @@
     "pack": "npm run build && evenhub pack app.json dist -o even-honyaku.ehpk --sdk-ver 0.0.16",
     "test": "vitest run",
     "typecheck": "tsc",
-    "dict:manifest": "node scripts/dict-manifest.mjs"
+    "dict:manifest": "node scripts/dict-manifest.mjs",
+    "test:live": "vitest run src/live.test.ts"
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "0.0.16",

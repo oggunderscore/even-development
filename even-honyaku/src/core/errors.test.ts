@@ -10,6 +10,7 @@ describe('httpError', () => {
     expect(httpError('openrouter', 504)).toMatchObject({ kind: 'TIME' })
     expect(httpError('anthropic', 529)).toMatchObject({ kind: 'SVC' })
     expect(httpError('google', 400)).toMatchObject({ kind: 'UNK' })
+    expect(httpError('openrouter', 401, '{"error":{"code":401}}').message).toBe('openrouter 401') // no repeated status
   })
 })
 

@@ -7,7 +7,7 @@
 import type { Direction, Provider, Translation } from '../../src/protocol'
 import { hasJapanese, stripMacrons } from './lang'
 import { HonyakuError, httpError } from './errors'
-import { ANTHROPIC_DEFAULT_MODEL, OPENROUTER_DEFAULT_MODEL } from './models'
+import { ANTHROPIC_DEFAULT_MODEL, ANTHROPIC_MODELS, OPENROUTER_DEFAULT_MODEL, OPENROUTER_MODELS, findModel } from './models'
 import { RomajiNotInstalledError, romanize } from './romaji'
 
 export { OPENROUTER_DEFAULT_MODEL, stripMacrons }
@@ -210,7 +210,12 @@ async function completeOpenRouter(system: string, userContent: string, cfg: Tran
   const key = cfg.openrouterKey
   if (!key) throw new HonyakuError('AUTH', 'openrouter key missing')
 
-  const send = (fast: boolean) =>
+  const model = cfg.openrouterModel || OPENROUTER_DEFAULT_MODEL
+  const known = findModel(OPENROUTER_MODELS, model)
+  const maxTokens = opts.maxTokens ?? 200
+  // `tuned`: the speed options. Without them a model may think before answering (seconds) and that thinking counts
+  // against max_tokens, so the plain fallback allows more room.
+  const send = (tuned: boolean) =>
     fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       signal: opts.signal,
@@ -220,12 +225,17 @@ async function completeOpenRouter(system: string, userContent: string, cfg: Tran
         'X-Title': 'Honyaku', // shows up in OpenRouter's usage dashboard
       },
       body: JSON.stringify({
-        model: cfg.openrouterModel || OPENROUTER_DEFAULT_MODEL,
-        temperature: 0,
-        max_tokens: opts.maxTokens ?? 200,
+        model,
+        max_tokens: tuned ? maxTokens : maxTokens * 4,
         stream: !!opts.onText,
-        // Answer from whichever provider of this model responds fastest, instead of the cheapest or the most loaded.
-        ...(fast ? { provider: { sort: 'latency' } } : {}),
+        ...(tuned
+          ? {
+              ...(known?.noTemperature ? {} : { temperature: 0 }),
+              // Answer from whichever provider of this model responds fastest, instead of the cheapest or the most loaded.
+              provider: { sort: 'latency' },
+              ...(known?.thinkOff ? { reasoning: known.thinkOff === 'enabled' ? { enabled: false } : { effort: 'none' } } : {}),
+            }
+          : {}),
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: userContent },
@@ -234,7 +244,7 @@ async function completeOpenRouter(system: string, userContent: string, cfg: Tran
     })
 
   let res = await send(true)
-  // If routing options were the problem, the plain request still works.
+  // If one of the options was the problem, the plain request still works.
   if (res.status === 400 || res.status === 422) res = await send(false)
   if (!res.ok) throw httpError('openrouter', res.status, await res.text().catch(() => ''))
 
@@ -268,25 +278,40 @@ async function completeAnthropic(system: string, userContent: string, cfg: Trans
   const key = cfg.anthropicKey
   if (!key) throw new HonyakuError('AUTH', 'anthropic key missing')
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    signal: opts.signal,
-    headers: {
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-      // Required for calls made straight from a browser/WebView; the key is the user's own.
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: cfg.anthropicModel || ANTHROPIC_DEFAULT_MODEL,
-      max_tokens: opts.maxTokens ?? 200,
-      temperature: 0,
-      stream: !!opts.onText,
-      system,
-      messages: [{ role: 'user', content: userContent }],
-    }),
-  })
+  const model = cfg.anthropicModel || ANTHROPIC_DEFAULT_MODEL
+  const known = findModel(ANTHROPIC_MODELS, model)
+  const maxTokens = opts.maxTokens ?? 200
+  const send = (tuned: boolean) =>
+    fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: opts.signal,
+      headers: {
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+        // Required for calls made straight from a browser/WebView; the key is the user's own.
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model,
+        // Haiku 5.5 and Sonnet 5.5 think by default and the thinking counts against max_tokens, so the plain fallback has room.
+        max_tokens: tuned ? maxTokens : maxTokens * 4,
+        stream: !!opts.onText,
+        system,
+        messages: [{ role: 'user', content: userContent }],
+        // No `temperature`: these models answer 400 to any value but the default.
+        ...(tuned && known?.thinkOff
+          ? {
+              // Haiku accepts `disabled`; Sonnet 5.5 rejects it and takes `between_tools` instead. Effort low trims the rest.
+              thinking: { type: model === 'claude-haiku-5-5' ? 'disabled' : 'between_tools' },
+              output_config: { effort: 'low' },
+            }
+          : {}),
+      }),
+    })
+
+  let res = await send(true)
+  if (res.status === 400 || res.status === 422) res = await send(false)
   if (!res.ok) throw httpError('anthropic', res.status, await res.text().catch(() => ''))
 
   if (opts.onText) {

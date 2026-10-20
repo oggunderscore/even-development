@@ -2,7 +2,7 @@
 // mirrored to the browser's localStorage) and is only ever sent to Deepgram and the translation provider the user
 // picked — straight from the phone.
 
-import { LEGACY_OPENROUTER_DEFAULT_MODEL } from './core/models'
+import { LEGACY_OPENROUTER_DEFAULT_MODEL, currentModelId } from './core/models'
 import type { ApiKeys, AppMode, JpLevel, Provider, ReplyStyle, UserConfig, VoiceProfile } from './protocol'
 
 export interface Settings {
@@ -69,7 +69,7 @@ export function parseSettings(raw: string | null | undefined): Settings | null {
       googleKey: str('googleKey'),
       openrouterKey: str('openrouterKey'),
       anthropicKey: str('anthropicKey'),
-      openrouterModel: str('openrouterModel') || (migrate && str('openrouterKey') ? LEGACY_OPENROUTER_DEFAULT_MODEL : ''),
+      openrouterModel: currentModelId(str('openrouterModel') || (migrate && str('openrouterKey') ? LEGACY_OPENROUTER_DEFAULT_MODEL : '')),
       anthropicModel: str('anthropicModel'),
       schema: 2,
       mode: pick(o['mode'], ['standard', 'predictive'], d.mode),

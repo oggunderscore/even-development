@@ -3,7 +3,7 @@
 // so text from the network or from a key field can never inject markup.
 
 import { keyProblem } from './core/config'
-import { ANTHROPIC_DEFAULT_MODEL, ANTHROPIC_MODELS, type ModelChoice, OPENROUTER_DEFAULT_MODEL, OPENROUTER_MODELS, costText, findModel, modelLabel, priceText } from './core/models'
+import { ANTHROPIC_DEFAULT_MODEL, ANTHROPIC_MODELS, type ModelChoice, OPENROUTER_DEFAULT_MODEL, OPENROUTER_MODELS, costText, findModel } from './core/models'
 import { profileQuality, seedCount } from './core/voice'
 import type { Prompt } from './enroll'
 import type { AppMode, Direction, JpLevel, Prediction, Provider, ReplyOption, ReplyStyle, ServerMsg, Speaker, TestScope, Translation, VoiceProfile } from './protocol'
@@ -405,8 +405,6 @@ export class PhoneUi {
     for (const id of KEY_FIELDS) $(id).classList.remove('invalid')
     this.fillModels('set-model', 'model-note', OPENROUTER_MODELS, OPENROUTER_DEFAULT_MODEL, s.openrouterModel)
     this.fillModels('set-anthropic-model', 'anthropic-model-note', ANTHROPIC_MODELS, ANTHROPIC_DEFAULT_MODEL, s.anthropicModel)
-    this.fillCompare('compare-openrouter-list', OPENROUTER_MODELS)
-    this.fillCompare('compare-anthropic-list', ANTHROPIC_MODELS)
     this.setProvider(s.provider)
     this.syncPrefs(s)
   }
@@ -418,29 +416,11 @@ export class PhoneUi {
   private fillModels(selectId: string, noteId: string, list: ModelChoice[], defaultId: string, saved: string) {
     const select = $<HTMLSelectElement>(selectId)
     select.replaceChildren()
-    list.forEach((m, i) => select.append(this.option(m.id, modelLabel(m, i + 1))))
+    list.forEach((m) => select.append(this.option(m.id, m.label)))
     const current = saved || defaultId
     if (!findModel(list, current)) select.append(this.option(current, `Custom: ${current}`))
     select.value = current
     this.showModelNote(selectId, noteId, list)
-  }
-
-  /** The "compare models" panel: every model, best first, with its price, rough cost and why it ranks where it does. */
-  private fillCompare(listId: string, list: ModelChoice[]) {
-    $(listId).replaceChildren(
-      ...list.map((m, i) => {
-        const li = document.createElement('li')
-        const head = document.createElement('b')
-        head.textContent = `${m.name}${i === 0 ? ' ★ recommended' : ''}`
-        const price = document.createElement('span')
-        price.className = 'price'
-        price.textContent = `${priceText(m)} per 1M tokens`
-        const note = document.createElement('span')
-        note.textContent = `${m.note} ${costText(m)}.`
-        li.append(head, price, note)
-        return li
-      }),
-    )
   }
 
   private option(value: string, label: string): HTMLOptionElement {
@@ -452,7 +432,7 @@ export class PhoneUi {
 
   private showModelNote(selectId: string, noteId: string, list: ModelChoice[]) {
     const m = findModel(list, $<HTMLSelectElement>(selectId).value)
-    $(noteId).textContent = m ? `${priceText(m)} per 1M tokens: ${costText(m)}. ${m.note}` : 'A model you set earlier. It is kept as it is.'
+    $(noteId).textContent = m ? `${m.note} ${costText(m)}.` : 'A model you set earlier. It is kept as it is.'
   }
 
   /**

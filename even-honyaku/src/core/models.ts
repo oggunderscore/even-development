@@ -1,57 +1,66 @@
-// The models Honyaku offers, in order of recommendation. Both jobs it gives a model are short and latency-sensitive:
-// translating a phrase into English/romaji (or the reverse), and suggesting a few replies in Predictive mode. So the list
-// favours models that
-//   - answer fast and don't "think" first (a reasoning pass adds seconds a live conversation can't afford),
-//   - follow a strict output format reliably (replies are plain labelled lines, and anything unreadable is a coded error),
-//   - write natural Japanese, with price as the tiebreaker: a phrase costs a fraction of a cent on all of them.
+// The models Honyaku offers. Users get three simple choices per provider, not a comparison: the fastest, the best-sounding
+// (quality) and the cheapest. Both jobs it gives a model are short and latency-sensitive: translating a phrase into
+// English/romaji (or the reverse), and suggesting a few replies in Predictive mode.
 //
-// The ranking is an editorial judgement (Japanese quality for the money), NOT a benchmark we ran. Prices are the OpenRouter
-// catalog's list prices on 2026-10-19 in US$ per 1M tokens and will drift; the key check after choosing a model proves it
-// answers, so a model that is retired or renamed shows an error instead of failing in the middle of a conversation.
+// Only models that can be run WITHOUT a reasoning pass are considered: a model that must think first (Gemini 3.5 Flash
+// Lite, GLM 5.3 Flash, Muse Spark, Gemini 3.7/3.8 Flash...) adds seconds that cannot be switched off. The picks that
+// think by default are asked not to (`thinkOff`), which is where most of the response time goes.
+//
+// The picks are an editorial judgement from the OpenRouter catalog (list prices and reasoning support, 2026-10-19), NOT a
+// benchmark we ran: OpenRouter publishes no latency figures and nobody has measured Japanese quality here. `npm run
+// test:live` (see TESTING.md) runs a real conversation against the listed models with your own keys and writes the
+// response times and outputs to a report, which is how to re-decide these picks. Prices are US$ per 1M tokens and drift;
+// the key check after choosing a model proves it answers, so a retired model shows an error instead of failing mid-talk.
+
+export type ModelPick = 'quality' | 'speed' | 'value'
 
 export interface ModelChoice {
   id: string
   name: string
+  /** What the dropdown shows: the pick, then the model. Short, because a phone's closed select can't wrap. */
+  label: string
   /** US$ per 1M input tokens. */
   inPer1M: number
   /** US$ per 1M output tokens. */
   outPer1M: number
-  /** One line: why it is where it is in the ranking. */
+  /** Which of the three it is the pick for. */
+  picks: ModelPick[]
+  /** One short line shown under the dropdown. */
   note: string
+  /** The model rejects or ignores `temperature` (the newest Claude and GPT models). Default: accepted. */
+  noTemperature?: true
+  /**
+   * The model reasons by default but can be told not to, which is where the seconds go. `effort`: OpenRouter's
+   * `reasoning: {effort: 'none'}`; `enabled`: `reasoning: {enabled: false}`; direct Claude has its own thinking switch.
+   */
+  thinkOff?: 'effort' | 'enabled'
 }
 
-/** OpenRouter model ids, best first. The first entry is the default. */
+/** OpenRouter models, in the order shown. The first entry is the default. */
 export const OPENROUTER_MODELS: ModelChoice[] = [
-  { id: 'anthropic/claude-haiku-5.5', name: 'Claude Haiku 5.5', inPer1M: 0.1, outPer1M: 0.5, note: 'Best-sounding Japanese and the most reliable replies, at nearly the lowest price. Noticeably slower than Gemini 2.5 Flash Lite.' },
-  { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', inPer1M: 0.1, outPer1M: 0.4, note: 'Fastest of these and cheap, with very good Japanese. The pick if replies feel slow.' },
-  { id: 'qwen/qwen3-235b-a22b-2507', name: 'Qwen3 235B', inPer1M: 0.09, outPer1M: 0.55, note: 'Strong multilingual model, very low price; a little slower.' },
-  { id: 'openai/gpt-4o-mini', name: 'GPT-4o mini', inPer1M: 0.15, outPer1M: 0.6, note: 'Dependable and consistent; solid, slightly plainer Japanese.' },
-  { id: 'google/gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', inPer1M: 0.25, outPer1M: 1.5, note: 'Newer Gemini: a step up in quality for a few times the cost.' },
-  { id: 'deepseek/deepseek-v3.2', name: 'DeepSeek V3.2', inPer1M: 0.28, outPer1M: 0.42, note: 'Good quality and cheap output, but response time varies.' },
-  { id: 'openai/gpt-4.1-mini', name: 'GPT-4.1 mini', inPer1M: 0.4, outPer1M: 1.6, note: 'Higher-quality GPT; costs more for a small gain.' },
-  { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B', inPer1M: 0.1, outPer1M: 0.32, note: 'Cheapest decent fallback; its Japanese is the weakest of these.' },
+  { id: 'anthropic/claude-haiku-5.5', name: 'Claude Haiku 5.5', label: 'Best quality: Claude Haiku 5.5', inPer1M: 0.1, outPer1M: 0.5, picks: ['quality'], noTemperature: true, thinkOff: 'effort', note: 'The most natural Japanese and the most dependable replies.' },
+  { id: 'google/gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', label: 'Fastest: Gemini 3.1 Flash Lite', inPer1M: 0.25, outPer1M: 1.5, picks: ['speed'], thinkOff: 'effort', note: 'Built for low latency, with very good Japanese.' },
+  { id: 'qwen/qwen3.7-flash', name: 'Qwen3.7 Flash', label: 'Lowest cost: Qwen3.7 Flash', inPer1M: 0.03, outPer1M: 0.13, picks: ['value'], thinkOff: 'enabled', note: 'The cheapest here by a wide margin, with solid multilingual skills.' },
 ]
 
-/** Claude model ids for the direct Anthropic provider, best first. The first entry is the default. */
+/** Claude models for the direct Anthropic provider, in the order shown. The first entry is the default. */
 export const ANTHROPIC_MODELS: ModelChoice[] = [
-  { id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', inPer1M: 0.1, outPer1M: 0.5, note: 'Fast and very cheap, with excellent Japanese. Talking to Anthropic directly skips a hop, so it is quicker than Haiku through OpenRouter.' },
-  { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', inPer1M: 2, outPer1M: 10, note: 'Most polished wording, at about 20 times the cost of Haiku.' },
+  { id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', label: 'Fastest & cheapest: Haiku 5.5', inPer1M: 0.1, outPer1M: 0.5, picks: ['speed', 'value'], noTemperature: true, thinkOff: 'effort', note: 'Fast and very cheap, with excellent Japanese.' },
+  { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', label: 'Best quality: Sonnet 5.5', inPer1M: 2, outPer1M: 10, picks: ['quality'], noTemperature: true, thinkOff: 'effort', note: 'The most polished wording, but about 20 times the cost and slower.' },
 ]
+
+/** Models that have been withdrawn, and what replaces them. A saved choice is moved over when settings load. */
+export const RETIRED_MODELS: Record<string, string> = {
+  // Retired by OpenRouter on 2026-10-20.
+  'google/gemini-2.5-flash-lite': 'google/gemini-3.1-flash-lite',
+}
+
+export const currentModelId = (id: string): string => RETIRED_MODELS[id] ?? id
 
 export const OPENROUTER_DEFAULT_MODEL = OPENROUTER_MODELS[0]!.id
 /** What versions before the dropdown used when no model was chosen. People already set up keep it (see settings.ts). */
-export const LEGACY_OPENROUTER_DEFAULT_MODEL = 'google/gemini-2.5-flash-lite'
+export const LEGACY_OPENROUTER_DEFAULT_MODEL = 'google/gemini-2.5-flash-lite' // retired: see RETIRED_MODELS
 export const ANTHROPIC_DEFAULT_MODEL = ANTHROPIC_MODELS[0]!.id
-
-const money = (n: number) => `$${n < 1 ? n.toFixed(2) : n.toFixed(n % 1 ? 2 : 0)}`
-
-/** What the dropdown shows. Short on purpose: a phone's closed select can't wrap, so prices live in the compare panel. */
-export function modelLabel(m: ModelChoice, rank: number): string {
-  return `${rank}. ${m.name}${rank === 1 ? ' ★' : ''}`
-}
-
-/** "$0.10 in / $0.50 out" per 1M tokens. */
-export const priceText = (m: ModelChoice): string => `${money(m.inPer1M)} in / ${money(m.outPer1M)} out`
 
 /**
  * Rough cost of 1,000 translated phrases: each is about 350 input tokens (the instructions plus a little context) and 100

@@ -77,7 +77,7 @@ export function httpError(service: string, status: number, body = ''): HonyakuEr
   const kind: ErrorKind =
     status === 401 || status === 403 ? 'AUTH' : status === 402 || status === 429 ? 'RATE' : status === 404 ? 'MODEL' : status === 408 || status === 504 ? 'TIME' : status >= 500 ? 'SVC' : 'UNK'
   const tag = upstreamTag(body)
-  return new HonyakuError(kind, `${service} ${status}${tag ? ` ${tag}` : ''}`)
+  return new HonyakuError(kind, `${service} ${status}${tag && tag !== String(status) ? ` ${tag}` : ''}`)
 }
 
 /** Turn anything thrown into the code, message and detail. */

@@ -294,7 +294,3 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); ou
 .key-status[data-state='bad']::before { content: '✗'; }
 .field input.invalid { border-color: #ff7a7a !important; }
 
-.compare { list-style: none; display: grid; gap: 12px; padding: 0 !important; }
-.compare li { display: grid; gap: 2px; color: var(--dim); font-size: 12px; }
-.compare b { color: var(--bright); font-weight: 500; }
-.compare .price { color: var(--accent-dim); }

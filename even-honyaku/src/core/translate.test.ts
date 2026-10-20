@@ -140,6 +140,67 @@ describe('translate via OpenRouter (mocked fetch)', () => {
   })
 })
 
+describe('request tuning per model (mocked fetch)', () => {
+  const ok = (content: string) => new Response(JSON.stringify({ choices: [{ message: { content } }], content: [{ type: 'text', text: content }] }), { status: 200 })
+  afterEach(() => vi.unstubAllGlobals())
+  const body = (mock: ReturnType<typeof vi.fn>, call = 0) => JSON.parse(mock.mock.calls[call]![1].body)
+  const or = (model: string): TranslateConfig => ({ provider: 'openrouter', openrouterKey: 'k', openrouterModel: model })
+
+  it('Claude Haiku via OpenRouter: reasoning off, lowest-latency routing, and no temperature (it rejects one)', async () => {
+    const f = vi.fn().mockImplementation(() => Promise.resolve(ok('JA: はい\nROMAJI: hai')))
+    vi.stubGlobal('fetch', f)
+    await translate('speak', 'yes', [], 0, or('anthropic/claude-haiku-5.5'))
+    expect(body(f)).toMatchObject({ reasoning: { effort: 'none' }, provider: { sort: 'latency' } })
+    expect(body(f)).not.toHaveProperty('temperature')
+  })
+
+  it('Qwen3.7 Flash is switched to no reasoning with the enabled flag instead', async () => {
+    const f = vi.fn().mockImplementation(() => Promise.resolve(ok('JA: はい\nROMAJI: hai')))
+    vi.stubGlobal('fetch', f)
+    await translate('speak', 'yes', [], 0, or('qwen/qwen3.7-flash'))
+    expect(body(f)).toMatchObject({ reasoning: { enabled: false }, temperature: 0 })
+  })
+
+  it('a model that is not on the list (set earlier) gets temperature 0 and no reasoning option', async () => {
+    const f = vi.fn().mockImplementation(() => Promise.resolve(ok('JA: はい\nROMAJI: hai')))
+    vi.stubGlobal('fetch', f)
+    await translate('speak', 'yes', [], 0, or('qwen/qwen3-235b-a22b-2507'))
+    expect(body(f)).toMatchObject({ temperature: 0 })
+    expect(body(f)).not.toHaveProperty('reasoning')
+  })
+
+  it('if the provider refuses the options the plain request is sent, with room for any thinking', async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('{}', { status: 400 }))
+      .mockImplementation(() => Promise.resolve(ok('JA: はい\nROMAJI: hai')))
+    vi.stubGlobal('fetch', f)
+    await translate('speak', 'yes', [], 0, or('anthropic/claude-haiku-5.5'))
+    const first = body(f, 0)
+    const plain = body(f, 1)
+    for (const k of ['reasoning', 'provider', 'temperature']) expect(plain).not.toHaveProperty(k)
+    expect(plain.max_tokens).toBe(first.max_tokens * 4)
+  })
+
+  it('direct Claude: Haiku 5.5 has thinking disabled and low effort, Sonnet 5.5 uses between_tools, neither gets temperature', async () => {
+    const f = vi.fn().mockImplementation(() => Promise.resolve(ok('JA: はい\nROMAJI: hai')))
+    vi.stubGlobal('fetch', f)
+    await translate('speak', 'yes', [], 0, { provider: 'anthropic', anthropicKey: 'k' })
+    await translate('speak', 'yes', [], 0, { provider: 'anthropic', anthropicKey: 'k', anthropicModel: 'claude-sonnet-5-5' })
+    expect(body(f, 0)).toMatchObject({ model: 'claude-haiku-5-5', thinking: { type: 'disabled' }, output_config: { effort: 'low' } })
+    expect(body(f, 1)).toMatchObject({ thinking: { type: 'between_tools' }, output_config: { effort: 'low' } })
+    for (const i of [0, 1]) expect(body(f, i)).not.toHaveProperty('temperature')
+  })
+
+  it('direct Claude falls back to a plain request if the thinking options are refused', async () => {
+    const f = vi.fn().mockResolvedValueOnce(new Response('{}', { status: 400 })).mockImplementation(() => Promise.resolve(ok('JA: はい\nROMAJI: hai')))
+    vi.stubGlobal('fetch', f)
+    await translate('speak', 'yes', [], 0, { provider: 'anthropic', anthropicKey: 'k' })
+    expect(body(f, 1)).not.toHaveProperty('thinking')
+    expect(body(f, 1).max_tokens).toBe(body(f, 0).max_tokens * 4)
+  })
+})
+
 describe('translate via Google Cloud Translation (mocked fetch)', () => {
   const reply = (translatedText: string) =>
     new Response(JSON.stringify({ data: { translations: [{ translatedText }] } }), { status: 200 })

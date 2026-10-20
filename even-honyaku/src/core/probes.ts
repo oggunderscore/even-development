@@ -144,5 +144,5 @@ export function summarize(results: TestResult[]): { ok: boolean; text: string; n
   const sample = results.find((r) => r.service === 'translate')
   if (!sample) return { ok: true, text: results[0]?.detail ?? 'ok' }
   const secs = sample.ms === undefined ? '' : ` in ${(sample.ms / 1000).toFixed(1)}s`
-  return { ok: true, text: `Key accepted · test translation worked${secs}${(sample.ms ?? 0) > SLOW_MS ? ' · slow for live use, a faster model is listed above' : ''}` }
+  return { ok: true, text: `Key accepted · test translation worked${secs}${(sample.ms ?? 0) > SLOW_MS ? ' · slow for live use, choose the Fastest model in Settings' : ''}` }
 }

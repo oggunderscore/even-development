@@ -59,8 +59,10 @@ describe('settings', () => {
 
   it('someone already set up before the model dropdown keeps the model they were using; new installs get the new default', () => {
     const legacy = (o: object) => parseSettings(JSON.stringify(o))!
-    // saved by an older version: an OpenRouter key and no model chosen meant Gemini 2.5 Flash Lite
-    expect(legacy({ provider: 'openrouter', openrouterKey: 'or-key-12345' }).openrouterModel).toBe('google/gemini-2.5-flash-lite')
+    // saved by an older version: an OpenRouter key and no model chosen meant Gemini 2.5 Flash Lite, which OpenRouter retires
+    // on 2026-10-20, so it becomes its successor
+    expect(legacy({ provider: 'openrouter', openrouterKey: 'or-key-12345' }).openrouterModel).toBe('google/gemini-3.1-flash-lite')
+    expect(legacy({ schema: 2, provider: 'openrouter', openrouterKey: 'or-key-12345', openrouterModel: 'google/gemini-2.5-flash-lite' }).openrouterModel).toBe('google/gemini-3.1-flash-lite')
     // an older save with a model they typed keeps that model
     expect(legacy({ provider: 'openrouter', openrouterKey: 'or-key-12345', openrouterModel: 'qwen/qwen3.7-flash' }).openrouterModel).toBe('qwen/qwen3.7-flash')
     // an older save that never set up OpenRouter has nothing to preserve

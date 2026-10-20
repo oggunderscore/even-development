@@ -14,6 +14,9 @@ You bring your own Deepgram and translation (Google, OpenRouter or Claude) keys;
 
 ## Release notes (English, 1 to 3 lines each)
 
+**1.1.8**
+- The model list is now three simple choices: Best quality, Fastest, or Lowest cost. Models are asked not to "think" first, which makes replies noticeably quicker, and a model that was retired is replaced automatically.
+
 **1.1.7**
 - Predictive replies arrive faster: the first reply appears while the rest are still being written, and the wait after they stop talking is shorter.
 - Errors now show a short code and a plain sentence instead of technical text. Settings has a Copy error details button if you need help.
@@ -29,7 +32,7 @@ You bring your own Deepgram and translation (Google, OpenRouter or Claude) keys;
 - Double tap now reliably opens the exit confirmation, even right after the app starts.
 
 **1.1.3**
-- Pick the translation model from a ranked list with prices. Settings save themselves and your API keys are checked as you enter them.
+- Pick the translation model from a short list. Settings save themselves and your API keys are checked as you enter them.
 
 **1.1.0 to 1.1.2 (first of this series)**
 - New Predictive replies: after the other person speaks, Honyaku suggests short romaji replies you can read aloud.

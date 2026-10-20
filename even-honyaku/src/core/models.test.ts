@@ -1,16 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { ANTHROPIC_DEFAULT_MODEL, ANTHROPIC_MODELS, OPENROUTER_DEFAULT_MODEL, OPENROUTER_MODELS, LEGACY_OPENROUTER_DEFAULT_MODEL, activeModel, costPer1000Phrases, costText, findModel, modelLabel, priceText } from './models'
+import {
+  ANTHROPIC_DEFAULT_MODEL,
+  ANTHROPIC_MODELS,
+  LEGACY_OPENROUTER_DEFAULT_MODEL,
+  OPENROUTER_DEFAULT_MODEL,
+  OPENROUTER_MODELS,
+  RETIRED_MODELS,
+  activeModel,
+  costPer1000Phrases,
+  costText,
+  currentModelId,
+  findModel,
+} from './models'
 
-describe('model lists', () => {
-  it('offer 5 to 10 OpenRouter models, with unique ids and sane prices', () => {
-    expect(OPENROUTER_MODELS.length).toBeGreaterThanOrEqual(5)
-    expect(OPENROUTER_MODELS.length).toBeLessThanOrEqual(10)
-    expect(new Set(OPENROUTER_MODELS.map((m) => m.id)).size).toBe(OPENROUTER_MODELS.length)
-    for (const m of [...OPENROUTER_MODELS, ...ANTHROPIC_MODELS]) {
-      expect(m.inPer1M).toBeGreaterThan(0)
-      expect(m.outPer1M).toBeGreaterThan(0)
-      expect(m.note.length).toBeGreaterThan(10)
-    }
+describe('model lists: three simple picks', () => {
+  it('OpenRouter offers exactly three models with unique ids, one for speed, one for quality, one for cost', () => {
+    expect(OPENROUTER_MODELS).toHaveLength(3)
+    expect(new Set(OPENROUTER_MODELS.map((m) => m.id)).size).toBe(3)
+    expect(OPENROUTER_MODELS.flatMap((m) => m.picks).sort()).toEqual(['quality', 'speed', 'value'])
+  })
+
+  it('the direct Claude provider covers all three picks with its two models', () => {
+    expect(ANTHROPIC_MODELS.flatMap((m) => m.picks).sort()).toEqual(['quality', 'speed', 'value'])
   })
 
   it('OpenRouter ids look like provider/model, Anthropic ids are bare model names', () => {
@@ -18,38 +29,43 @@ describe('model lists', () => {
     for (const m of ANTHROPIC_MODELS) expect(m.id).toMatch(/^claude-[\w-]+$/)
   })
 
-  it('the first entry is the default, and cheap: every listed model costs a fraction of a cent per phrase', () => {
+  it('the first entry is the default; the quality pick leads', () => {
     expect(OPENROUTER_DEFAULT_MODEL).toBe(OPENROUTER_MODELS[0]!.id)
+    expect(OPENROUTER_MODELS[0]!.picks).toEqual(['quality'])
     expect(ANTHROPIC_DEFAULT_MODEL).toBe(ANTHROPIC_MODELS[0]!.id)
-    for (const m of OPENROUTER_MODELS) expect(costPer1000Phrases(m)).toBeLessThan(1) // under $1 per 1,000 phrases
   })
 
-  it('the recommended default is among the cheapest: nothing in the top three costs more than 2.5x the cheapest', () => {
-    const cheapest = Math.min(...OPENROUTER_MODELS.map(costPer1000Phrases))
-    for (const m of OPENROUTER_MODELS.slice(0, 3)) expect(costPer1000Phrases(m)).toBeLessThanOrEqual(cheapest * 2.5)
-  })
-})
-
-describe('labels', () => {
-  it('shows rank and name, marks only the first as the recommended pick, and is short enough for a phone\'s closed select', () => {
-    expect(modelLabel(OPENROUTER_MODELS[0]!, 1)).toBe('1. Claude Haiku 5.5 ★')
-    expect(modelLabel(OPENROUTER_MODELS[3]!, 4)).toBe('4. GPT-4o mini')
-    for (const [i, m] of OPENROUTER_MODELS.entries()) expect(modelLabel(m, i + 1).length).toBeLessThanOrEqual(30)
+  it('the cost pick really is the cheapest, and every OpenRouter model costs a fraction of a dollar per 1,000 phrases', () => {
+    const cheapest = [...OPENROUTER_MODELS].sort((a, b) => costPer1000Phrases(a) - costPer1000Phrases(b))[0]!
+    expect(cheapest.picks).toContain('value')
+    for (const m of OPENROUTER_MODELS) expect(costPer1000Phrases(m)).toBeLessThan(1)
   })
 
-  it('prices read as in / out per 1M tokens', () => {
-    expect(priceText(OPENROUTER_MODELS[0]!)).toBe('$0.10 in / $0.50 out')
-    expect(priceText(ANTHROPIC_MODELS[1]!)).toBe('$2 in / $10 out')
+  it('labels say which pick it is, and fit a phone\'s closed select', () => {
+    expect(OPENROUTER_MODELS.map((m) => m.label)).toEqual(['Best quality: Claude Haiku 5.5', 'Fastest: Gemini 3.1 Flash Lite', 'Lowest cost: Qwen3.7 Flash'])
+    for (const m of [...OPENROUTER_MODELS, ...ANTHROPIC_MODELS]) {
+      expect(m.label.length).toBeLessThanOrEqual(31)
+      expect(m.note.length).toBeGreaterThan(10)
+    }
+  })
+
+  it('the newest Claude models are never sent sampling parameters they reject', () => {
+    expect(findModel(OPENROUTER_MODELS, 'anthropic/claude-haiku-5.5')?.noTemperature).toBe(true)
+    for (const m of ANTHROPIC_MODELS) expect(m.noTemperature).toBe(true)
   })
 
   it('cost text is honest about being an estimate', () => {
     expect(costText(OPENROUTER_MODELS[0]!)).toMatch(/^about \$0\.0\d+ per 1,000 phrases/)
-    expect(costText(ANTHROPIC_MODELS[1]!)).toMatch(/\$[\d.]+ per 1,000 phrases/)
+    expect(costText(OPENROUTER_MODELS[2]!)).toMatch(/^about \$0\.0\d+ per 1,000 phrases/)
   })
+})
 
-  it('findModel looks an id up and returns undefined for one that is not listed (a custom value)', () => {
-    expect(findModel(OPENROUTER_MODELS, 'openai/gpt-4o-mini')?.name).toBe('GPT-4o mini')
-    expect(findModel(OPENROUTER_MODELS, 'someone/else')).toBeUndefined()
+describe('retired models', () => {
+  it('a retired model is not listed and a saved choice of it moves to its listed replacement', () => {
+    expect(findModel(OPENROUTER_MODELS, LEGACY_OPENROUTER_DEFAULT_MODEL)).toBeUndefined()
+    expect(currentModelId(LEGACY_OPENROUTER_DEFAULT_MODEL)).toBe('google/gemini-3.1-flash-lite')
+    for (const replacement of Object.values(RETIRED_MODELS)) expect(findModel(OPENROUTER_MODELS, replacement)).toBeDefined()
+    expect(currentModelId('openai/gpt-4o-mini')).toBe('openai/gpt-4o-mini')
   })
 })
 
@@ -59,9 +75,5 @@ describe('activeModel', () => {
     expect(activeModel('openrouter', {})).toBe(OPENROUTER_DEFAULT_MODEL)
     expect(activeModel('anthropic', { anthropicModel: '' })).toBe(ANTHROPIC_DEFAULT_MODEL)
     expect(activeModel('google', { openrouterModel: 'x/y' })).toBeUndefined()
-  })
-
-  it('the model older versions used by default is still one of the listed options', () => {
-    expect(findModel(OPENROUTER_MODELS, LEGACY_OPENROUTER_DEFAULT_MODEL)).toBeDefined()
   })
 })
