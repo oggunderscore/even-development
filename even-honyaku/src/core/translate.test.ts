@@ -116,7 +116,7 @@ describe('translate via OpenRouter (mocked fetch)', () => {
     const err = await translate('speak', 'hi', [], 0, cfg).catch((e: unknown) => e)
     expect(err).toMatchObject({ kind: 'RATE', message: 'openrouter 402 insufficient_quota' })
 
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: 'upstream down', code: 502 } }))))
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ error: { message: 'upstream down', code: 502 } })))))
     await expect(translate('speak', 'hi', [], 0, cfg)).rejects.toMatchObject({ kind: 'SVC', message: 'openrouter body error 502' })
 
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 401 })))
@@ -127,77 +127,106 @@ describe('translate via OpenRouter (mocked fetch)', () => {
     await expect(translate('speak', 'hi', [], 0, { provider: 'openrouter' })).rejects.toMatchObject({ kind: 'AUTH' })
   })
 
-  it('a reply that takes too long is a TIME failure', async () => {
+  it('a call that gets no answer for 3 seconds is retried once, then fails as TIME', async () => {
     vi.useFakeTimers()
     try {
-      vi.stubGlobal('fetch', vi.fn().mockImplementation((_u: string, init: RequestInit) => new Promise((_r, rej) => init.signal!.addEventListener('abort', () => rej(new DOMException('x', 'AbortError'))))))
+      const f = vi.fn().mockImplementation((_u: string, init: RequestInit) => new Promise((_r, rej) => init.signal!.addEventListener('abort', () => rej(new DOMException('x', 'AbortError')))))
+      vi.stubGlobal('fetch', f)
       const run = translate('speak', 'hi', [], 0, cfg).catch((e: unknown) => e)
-      await vi.advanceTimersByTimeAsync(21_000)
+      await vi.advanceTimersByTimeAsync(2900)
+      expect(f).toHaveBeenCalledTimes(1) // still within the first 3 seconds
+      await vi.advanceTimersByTimeAsync(200)
+      expect(f).toHaveBeenCalledTimes(2) // retried
+      await vi.advanceTimersByTimeAsync(2900)
       expect(await run).toMatchObject({ kind: 'TIME' })
+      expect(f).toHaveBeenCalledTimes(2) // and only once
     } finally {
       vi.useRealTimers()
     }
   })
-})
 
-describe('request tuning per model (mocked fetch)', () => {
-  const ok = (content: string) => new Response(JSON.stringify({ choices: [{ message: { content } }], content: [{ type: 'text', text: content }] }), { status: 200 })
-  afterEach(() => vi.unstubAllGlobals())
-  const body = (mock: ReturnType<typeof vi.fn>, call = 0) => JSON.parse(mock.mock.calls[call]![1].body)
-  const or = (model: string): TranslateConfig => ({ provider: 'openrouter', openrouterKey: 'k', openrouterModel: model })
-
-  it('Claude Haiku via OpenRouter: reasoning off, lowest-latency routing, and no temperature (it rejects one)', async () => {
-    const f = vi.fn().mockImplementation(() => Promise.resolve(ok('JA: はい\nROMAJI: hai')))
-    vi.stubGlobal('fetch', f)
-    await translate('speak', 'yes', [], 0, or('anthropic/claude-haiku-5.5'))
-    expect(body(f)).toMatchObject({ reasoning: { effort: 'none' }, provider: { sort: 'latency' } })
-    expect(body(f)).not.toHaveProperty('temperature')
+  it('the retry can succeed: the first attempt is quiet, the second answers', async () => {
+    vi.useFakeTimers()
+    try {
+      let n = 0
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((_u: string, init: RequestInit) =>
+          ++n === 1 ? new Promise((_r, rej) => init.signal!.addEventListener('abort', () => rej(new DOMException('x', 'AbortError')))) : Promise.resolve(reply('JA: はい\nROMAJI: hai')),
+        ),
+      )
+      const run = translate('speak', 'yes', [], 0, cfg)
+      await vi.advanceTimersByTimeAsync(3100)
+      expect(await run).toMatchObject({ japanese: 'はい', romaji: 'hai' })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
-  it('Qwen3.7 Flash is switched to no reasoning with the enabled flag instead', async () => {
-    const f = vi.fn().mockImplementation(() => Promise.resolve(ok('JA: はい\nROMAJI: hai')))
-    vi.stubGlobal('fetch', f)
-    await translate('speak', 'yes', [], 0, or('qwen/qwen3.7-flash'))
-    expect(body(f)).toMatchObject({ reasoning: { enabled: false }, temperature: 0 })
+  it('network and server failures are retried once; a rejected key, a rate limit or a bad model are not', async () => {
+    const calls = async (first: () => Promise<Response>) => {
+      const f = vi.fn().mockImplementationOnce(first).mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: 'JA: はい\nROMAJI: hai' } }] }))))
+      vi.stubGlobal('fetch', f)
+      await translate('speak', 'yes', [], 0, cfg).catch(() => undefined)
+      return f.mock.calls.length
+    }
+    expect(await calls(() => Promise.reject(new TypeError('Failed to fetch')))).toBe(2)
+    expect(await calls(() => Promise.resolve(new Response('{}', { status: 503 })))).toBe(2)
+    expect(await calls(() => Promise.resolve(new Response('{}', { status: 401 })))).toBe(1)
+    expect(await calls(() => Promise.resolve(new Response('{}', { status: 429 })))).toBe(1)
+    expect(await calls(() => Promise.resolve(new Response('{}', { status: 404 })))).toBe(1)
   })
 
-  it('a model that is not on the list (set earlier) gets temperature 0 and no reasoning option', async () => {
-    const f = vi.fn().mockImplementation(() => Promise.resolve(ok('JA: はい\nROMAJI: hai')))
-    vi.stubGlobal('fetch', f)
-    await translate('speak', 'yes', [], 0, or('qwen/qwen3-235b-a22b-2507'))
-    expect(body(f)).toMatchObject({ temperature: 0 })
-    expect(body(f)).not.toHaveProperty('reasoning')
+  it('a stream is only given up on when it goes quiet: a slow but steady one completes, a stalled one is retried', async () => {
+    vi.useFakeTimers()
+    try {
+      const enc = new TextEncoder()
+      const sse = (parts: string[], stallAfter?: number, signal?: AbortSignal | null) => {
+        let i = 0
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start: (c) => signal?.addEventListener('abort', () => c.error(new DOMException('x', 'AbortError'))),
+            pull: async (c) => {
+              if (stallAfter !== undefined && i >= stallAfter) return new Promise<void>(() => {})
+              if (i >= parts.length) return c.close()
+              await new Promise((r) => setTimeout(r, 2500)) // each piece takes 2.5 s: the whole answer 10 s
+              c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: parts[i++] } }] })}\n\n`))
+            },
+          }),
+        )
+      }
+      const parts = ['single\n', 'Thanks ', '| arigatou', '\n']
+      vi.stubGlobal('fetch', vi.fn().mockImplementation((_u: string, init: RequestInit) => Promise.resolve(sse(parts, undefined, init.signal))))
+      const steady = complete('s', 'u', cfg, { onText: () => {} })
+      await vi.advanceTimersByTimeAsync(11_000)
+      expect(await steady).toBe('single\nThanks | arigatou\n') // took 10 s, never silent for 3
+
+      let n = 0
+      const f = vi.fn().mockImplementation((_u: string, init: RequestInit) => Promise.resolve(++n === 1 ? sse(parts, 1, init.signal) : sse(parts, undefined, init.signal)))
+      vi.stubGlobal('fetch', f)
+      const stalled = complete('s', 'u', cfg, { onText: () => {} })
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(await stalled).toBe('single\nThanks | arigatou\n')
+      expect(f).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
-  it('if the provider refuses the options the plain request is sent, with room for any thinking', async () => {
-    const f = vi
-      .fn()
-      .mockResolvedValueOnce(new Response('{}', { status: 400 }))
-      .mockImplementation(() => Promise.resolve(ok('JA: はい\nROMAJI: hai')))
-    vi.stubGlobal('fetch', f)
-    await translate('speak', 'yes', [], 0, or('anthropic/claude-haiku-5.5'))
-    const first = body(f, 0)
-    const plain = body(f, 1)
-    for (const k of ['reasoning', 'provider', 'temperature']) expect(plain).not.toHaveProperty(k)
-    expect(plain.max_tokens).toBe(first.max_tokens * 4)
-  })
-
-  it('direct Claude: Haiku 5.5 has thinking disabled and low effort, Sonnet 5.5 uses between_tools, neither gets temperature', async () => {
-    const f = vi.fn().mockImplementation(() => Promise.resolve(ok('JA: はい\nROMAJI: hai')))
-    vi.stubGlobal('fetch', f)
-    await translate('speak', 'yes', [], 0, { provider: 'anthropic', anthropicKey: 'k' })
-    await translate('speak', 'yes', [], 0, { provider: 'anthropic', anthropicKey: 'k', anthropicModel: 'claude-sonnet-5-5' })
-    expect(body(f, 0)).toMatchObject({ model: 'claude-haiku-5-5', thinking: { type: 'disabled' }, output_config: { effort: 'low' } })
-    expect(body(f, 1)).toMatchObject({ thinking: { type: 'between_tools' }, output_config: { effort: 'low' } })
-    for (const i of [0, 1]) expect(body(f, i)).not.toHaveProperty('temperature')
-  })
-
-  it('direct Claude falls back to a plain request if the thinking options are refused', async () => {
-    const f = vi.fn().mockResolvedValueOnce(new Response('{}', { status: 400 })).mockImplementation(() => Promise.resolve(ok('JA: はい\nROMAJI: hai')))
-    vi.stubGlobal('fetch', f)
-    await translate('speak', 'yes', [], 0, { provider: 'anthropic', anthropicKey: 'k' })
-    expect(body(f, 1)).not.toHaveProperty('thinking')
-    expect(body(f, 1).max_tokens).toBe(body(f, 0).max_tokens * 4)
+  it('the key check allows a slower first request and does not retry', async () => {
+    vi.useFakeTimers()
+    try {
+      const f = vi.fn().mockImplementation((_u: string, init: RequestInit) => new Promise((_r, rej) => init.signal!.addEventListener('abort', () => rej(new DOMException('x', 'AbortError')))))
+      vi.stubGlobal('fetch', f)
+      const run = translate('speak', 'hi', [], 0, cfg, { timeoutMs: 10_000, retries: 0 }).catch((e: unknown) => e)
+      await vi.advanceTimersByTimeAsync(9000)
+      expect(f).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1500)
+      expect(await run).toMatchObject({ kind: 'TIME' })
+      expect(f).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -276,10 +305,10 @@ describe('translate via Anthropic (mocked fetch)', () => {
     expect(await complete('s', 'u', cfg, { onText: (t) => seen.push(t) })).toBe('single\nYes | hai\n')
     expect(seen).toEqual(['single\nYes ', 'single\nYes | hai\n'])
 
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse([{ type: 'content_block_delta', delta: { text: 'x' } }, { type: 'message_delta', delta: { stop_reason: 'refusal' } }])))
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(sse([{ type: 'content_block_delta', delta: { text: 'x' } }, { type: 'message_delta', delta: { stop_reason: 'refusal' } }]))))
     await expect(complete('s', 'u', cfg, { onText: () => {} })).rejects.toMatchObject({ kind: 'DECL' })
 
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse([{ type: 'error', error: { type: 'overloaded_error', message: 'secret text' } }])))
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(sse([{ type: 'error', error: { type: 'overloaded_error', message: 'secret text' } }]))))
     await expect(complete('s', 'u', cfg, { onText: () => {} })).rejects.toMatchObject({ kind: 'SVC', message: 'anthropic stream overloaded_error' })
   })
 })

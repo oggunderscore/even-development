@@ -195,6 +195,38 @@ describe('Display: predictive screen', () => {
     expect(f.lastText(1)).not.toContain('translate')
   })
 
+  it('"thinking..." never stays up: with no word from the engine the screen gives up after 9 seconds', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    d.addTranslation(hear(1, 'Hot or iced?'), true)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(f.lastText(2)).toMatch(/thinking/)
+    await vi.advanceTimersByTimeAsync(8500)
+    expect(f.lastText(2)).toMatch(/thinking/) // still within the two 3 s attempts and the margin
+    await vi.advanceTimersByTimeAsync(600)
+    expect(f.lastText(2)).not.toMatch(/thinking/)
+    expect(f.lastText(2)).toContain('Replies: too slow (R-TIME)')
+  })
+
+  it('suggestions, a failure, a skipped turn or the wearer answering all stop the wait at once', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    d.addTranslation(hear(1, 'Hot or iced?'), true)
+    d.predictions(1, choice)
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(f.lastText(2)).toContain('Hot, please') // the watchdog did not fire over real suggestions
+    expect(f.lastText(2)).not.toContain('R-TIME')
+
+    d.addTranslation(hear(2, 'Yes.'), true)
+    d.predictionSkipped(2) // a bare acknowledgement: nothing to suggest
+    await vi.advanceTimersByTimeAsync(100)
+    expect(f.lastText(2)).not.toMatch(/thinking/)
+
+    d.addTranslation(hear(3, 'Anything else?'), true)
+    d.predictionFailed('Replies: busy or out of credit (R-RATE)')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(f.lastText(2)).not.toMatch(/thinking/)
+    expect(f.lastText(2)).toContain('R-RATE')
+  })
+
   it('paused with nothing to show says how to resume', async () => {
     d.setState('idle')
     await flush()

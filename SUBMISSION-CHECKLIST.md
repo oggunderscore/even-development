@@ -189,7 +189,10 @@ Needs SDK 0.0.14+ / Even App 2.2.9+ (older apps: items silently absent; the CLI 
 - **Icon**: legible; drawn in the portal's 24 × 24 editor; **1-bit** (no greys), every lit pixel inside a **2 × 2 block**
   (thinnest stroke 2 px, ~12 × 12 detail budget). **Foreground and background both supplied**, both **monochrome/greyscale**
   (colour is rejected).
-- **Screenshots** must match the device: capture them with the simulator's screenshot function (`GET /api/screenshot/glasses`).
+- **Screenshots** must match the device: capture them with the simulator's screenshot function (`GET /api/screenshot/glasses`;
+  exactly **576 x 288 RGBA PNG**, uploaded unmodified; converting to RGB fuses the text and background). With no keys or
+  hardware, serve the production build on :5173 with a harness that fakes the network and drive `npm run simulator`
+  (`even-honyaku/scripts/screenshots/`, `even-honyaku/store-assets/README.md`).
 - No impersonation of existing apps, no unauthorised brand logos, no keyword stuffing in name or description.
 - **Release notes**: 1–3 lines per locale, what changed **for the user** (name the symptom for hotfixes: "Fix occasional
   blank screen after returning from lock"). First version: say what the app does, not "initial release".

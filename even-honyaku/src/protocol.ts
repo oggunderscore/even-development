@@ -136,6 +136,8 @@ export type ServerMsg =
   | ({ type: 'final' } & Translation)
   /** Suggested replies for the other person's last turn (`turnId` = the id of the `final` they answer). */
   | { type: 'predictions'; turnId: number; prediction: Prediction; partial?: boolean; ms?: number }
+  /** The turn needs no reply (a bare "はい"): stop showing "thinking...". */
+  | { type: 'no_predictions'; turnId: number }
   /** The wearer's own speech was recognised and kept out of the conversation. `option` = which suggestion they read, from the suggestions for `turnId`. */
   | { type: 'self'; text: string; option?: ReplyOption; optionIndex?: number; turnId?: number }
   /** Voice-filter verdict for one utterance (feeds the tuning panel; nothing is stored). */

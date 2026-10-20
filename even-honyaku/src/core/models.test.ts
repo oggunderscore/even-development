@@ -29,9 +29,10 @@ describe('model lists: three simple picks', () => {
     for (const m of ANTHROPIC_MODELS) expect(m.id).toMatch(/^claude-[\w-]+$/)
   })
 
-  it('the first entry is the default; the quality pick leads', () => {
+  it('the first entry is the default, and on OpenRouter it is the fast one (a live conversation cannot wait)', () => {
     expect(OPENROUTER_DEFAULT_MODEL).toBe(OPENROUTER_MODELS[0]!.id)
-    expect(OPENROUTER_MODELS[0]!.picks).toEqual(['quality'])
+    expect(OPENROUTER_DEFAULT_MODEL).toBe('google/gemini-3.1-flash-lite')
+    expect(OPENROUTER_MODELS[0]!.picks).toEqual(['speed'])
     expect(ANTHROPIC_DEFAULT_MODEL).toBe(ANTHROPIC_MODELS[0]!.id)
   })
 
@@ -42,7 +43,7 @@ describe('model lists: three simple picks', () => {
   })
 
   it('labels say which pick it is, and fit a phone\'s closed select', () => {
-    expect(OPENROUTER_MODELS.map((m) => m.label)).toEqual(['Best quality: Claude Haiku 5.5', 'Fastest: Gemini 3.1 Flash Lite', 'Lowest cost: Qwen3.7 Flash'])
+    expect(OPENROUTER_MODELS.map((m) => m.label)).toEqual(['Fastest: Gemini 3.1 Flash Lite', 'Best quality: Claude Haiku 5.5', 'Lowest cost: Qwen3.7 Flash'])
     for (const m of [...OPENROUTER_MODELS, ...ANTHROPIC_MODELS]) {
       expect(m.label.length).toBeLessThanOrEqual(31)
       expect(m.note.length).toBeGreaterThan(10)
@@ -55,7 +56,7 @@ describe('model lists: three simple picks', () => {
   })
 
   it('cost text is honest about being an estimate', () => {
-    expect(costText(OPENROUTER_MODELS[0]!)).toMatch(/^about \$0\.0\d+ per 1,000 phrases/)
+    expect(costText(OPENROUTER_MODELS[1]!)).toMatch(/^about \$0\.0\d+ per 1,000 phrases/)
     expect(costText(OPENROUTER_MODELS[2]!)).toMatch(/^about \$0\.0\d+ per 1,000 phrases/)
   })
 })

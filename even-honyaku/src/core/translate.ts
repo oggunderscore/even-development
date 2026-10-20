@@ -58,6 +58,9 @@ export interface TranslateConfig {
 export interface TranslateOptions {
   /** Ask for (and wait for) the romaji of Japanese the other person said. Off in Predictive mode, which doesn't show it. */
   romaji?: boolean
+  /** Passed to the model call: see CompleteOptions. */
+  timeoutMs?: number
+  retries?: number
 }
 
 export async function translate(
@@ -77,7 +80,7 @@ export async function translate(
     .join('\n')
   const userContent = `${context ? `Recent turns:\n${context}\n\n` : ''}${text}`
 
-  const fields = parseLabeled(await complete(systemFor(dir, withRomaji), userContent, cfg, { maxTokens: dir === 'speak' || withRomaji ? 220 : 130 }))
+  const fields = parseLabeled(await complete(systemFor(dir, withRomaji), userContent, cfg, { maxTokens: dir === 'speak' || withRomaji ? 220 : 130, timeoutMs: opts.timeoutMs, retries: opts.retries }))
   const romaji = stripMacrons(fields['romaji'] ?? '').trim()
   if (dir === 'speak') {
     if (!fields['ja']) throw new HonyakuError('FORM', 'no JA line')
@@ -143,29 +146,62 @@ async function translateWithGoogle(dir: Direction, text: string, id: number, cfg
 
 // ── LLM providers: OpenRouter (OpenAI-compatible chat completions) and Anthropic ──
 
-/** A reply that takes longer than this is no use in a live conversation; the user sees "too slow" and carries on. */
-const LLM_TIMEOUT_MS = 20_000
+/**
+ * A call that gets no answer for this long is abandoned and tried once more. "No answer" means no response at all, or, for
+ * a streamed reply, nothing new arriving: a model that is thinking, or a connection that has gone quiet, must not leave
+ * the wearer waiting on a live conversation. A steady stream is never cut off.
+ */
+export const LLM_TIMEOUT_MS = 3000
+/** How many times a call that timed out (or hit a network or 5xx failure) is tried again. */
+export const LLM_RETRIES = 1
 
 export interface CompleteOptions {
   signal?: AbortSignal
   maxTokens?: number
   /** Streams the answer: called with everything received so far each time more arrives. */
   onText?: (soFar: string) => void
+  /** Silence allowed before giving up on an attempt (ms). Default LLM_TIMEOUT_MS; the key check allows more for a cold connection. */
+  timeoutMs?: number
+  /** Extra attempts after a timeout, network or server failure. Default LLM_RETRIES. */
+  retries?: number
 }
 
 /** One LLM call on whichever LLM provider the user chose (OpenRouter or Claude). Returns the full text. */
 export async function complete(system: string, userContent: string, cfg: TranslateConfig, opts: CompleteOptions = {}): Promise<string> {
   if (cfg.provider === 'google') throw new HonyakuError('UNK', 'google cannot generate text')
-  const timeout = new AbortController()
-  const timer = setTimeout(() => timeout.abort(), LLM_TIMEOUT_MS)
-  const onCallerAbort = () => timeout.abort()
+  const retries = opts.retries ?? LLM_RETRIES
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await attemptOnce(system, userContent, cfg, opts)
+    } catch (err) {
+      const transient = err instanceof HonyakuError && (err.kind === 'TIME' || err.kind === 'NET' || err.kind === 'SVC')
+      if (opts.signal?.aborted || !transient || attempt >= retries) throw err
+    }
+  }
+}
+
+async function attemptOnce(system: string, userContent: string, cfg: TranslateConfig, opts: CompleteOptions): Promise<string> {
+  const limit = opts.timeoutMs ?? LLM_TIMEOUT_MS
+  const ctl = new AbortController()
+  let timedOut = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const arm = () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      timedOut = true
+      ctl.abort()
+    }, limit)
+  }
+  const onCallerAbort = () => ctl.abort()
   opts.signal?.addEventListener('abort', onCallerAbort)
+  arm()
   try {
-    const run = { ...opts, signal: timeout.signal }
+    const run: CompleteOptions = { ...opts, signal: ctl.signal, onText: opts.onText ? (soFar) => (arm(), opts.onText!(soFar)) : undefined }
     return await (cfg.provider === 'anthropic' ? completeAnthropic(system, userContent, cfg, run) : completeOpenRouter(system, userContent, cfg, run))
   } catch (err) {
-    // Our own timeout looks like any other abort; tell it apart from the caller cancelling.
-    if (timeout.signal.aborted && !opts.signal?.aborted) throw new HonyakuError('TIME', 'timeout')
+    // Our own timer looks like any other abort; tell it apart from the caller cancelling.
+    if (timedOut && !opts.signal?.aborted) throw new HonyakuError('TIME', `no answer within ${limit} ms`)
+    if (err instanceof TypeError) throw new HonyakuError('NET', 'fetch failed')
     throw err
   } finally {
     clearTimeout(timer)

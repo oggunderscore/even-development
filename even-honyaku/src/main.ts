@@ -31,7 +31,7 @@ import { downloadRomajiDictionary, romajiDictionaryInstalled, romajiDictionaryVo
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>
 type GlassesDisplay = Pick<
   Display,
-  'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll' | 'setSetup' | 'predictions' | 'predictionFailed' | 'self' | 'flashMessage' | 'setMode' | 'setKana' | 'configure'
+  'setState' | 'setLive' | 'addTranslation' | 'note' | 'scroll' | 'setSetup' | 'predictions' | 'predictionFailed' | 'predictionSkipped' | 'self' | 'flashMessage' | 'setMode' | 'setKana' | 'configure'
 >
 
 // The phone UI + engine are set up BEFORE we wait for the Even bridge, so they work (and the
@@ -46,6 +46,7 @@ const noDisplay: GlassesDisplay = {
   setSetup() {},
   predictions() {},
   predictionFailed() {},
+  predictionSkipped() {},
   self() {},
   flashMessage() {},
   setMode: () => Promise.resolve(),
@@ -500,6 +501,9 @@ function handleServerMessage(msg: ServerMsg) {
       ui.addTranslation(t)
       break
     }
+    case 'no_predictions':
+      display.predictionSkipped(msg.turnId)
+      break
     case 'predictions':
       display.predictions(msg.turnId, msg.prediction)
       ui.addPredictions(msg.turnId, msg.prediction, msg.ms, !msg.partial)

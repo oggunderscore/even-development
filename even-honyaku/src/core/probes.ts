@@ -10,6 +10,8 @@ import { translate } from './translate'
 import { RomajiNotInstalledError, loadRomajiDictionary } from './romaji'
 
 const TIMEOUT_MS = 8000
+/** The key check's sample translation may be the first request on a cold connection, so it gets longer than a live phrase. */
+const CHECK_TIMEOUT_MS = 10_000
 /** A test phrase slower than this will feel laggy in conversation. */
 export const SLOW_MS = 2500
 
@@ -112,7 +114,7 @@ export async function testConfig(cfg: ResolvedConfig, scope: TestScope = 'transl
     const model = activeModel(cfg.translate.provider, cfg.translate)
     const t0 = Date.now()
     try {
-      const t = await translate('speak', 'How much is this?', [], 0, cfg.translate)
+      const t = await translate('speak', 'How much is this?', [], 0, cfg.translate, { timeoutMs: CHECK_TIMEOUT_MS, retries: 0 })
       const ms = Date.now() - t0
       results.push({ service: 'translate', ok: true, detail: `"How much is this?" → ${t.romaji} (${(ms / 1000).toFixed(1)}s)`, ms })
     } catch (err) {

@@ -114,6 +114,8 @@ describe('Engine: predictive mode', () => {
     await vi.waitFor(() => expect(t.types()).toContain('final'))
     await new Promise((r) => setTimeout(r, 80))
     expect(t.types()).not.toContain('predictions')
+    // the screen is told, so it does not wait on "thinking..." for a reply that is never coming
+    expect(t.types()).toContain('no_predictions')
     t.engine.close()
   })
 
@@ -277,7 +279,7 @@ describe('Engine: robustness', () => {
     await vi.waitFor(() => expect(t.of('error')).toHaveLength(1))
     const err = t.of('error')[0]!
     expect(err.message).toBe('Replies: busy or out of credit (R-RATE)')
-    expect(err.detail).toBe('openrouter 429 rate_limit_exceeded model=anthropic/claude-haiku-5.5')
+    expect(err.detail).toBe('openrouter 429 rate_limit_exceeded model=google/gemini-3.1-flash-lite')
     expect(JSON.stringify(err)).not.toContain('ホット')
     t.engine.close()
   })

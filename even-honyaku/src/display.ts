@@ -31,6 +31,9 @@ const ID_FOOTER = 3
 
 /** Live interim text changes many times a second; the glasses link is a slow BLE pipe, so don't flood it. */
 const LIVE_MIN_MS = 350
+/** How long "thinking..." may stay up with no word from the engine: two 3 s attempts plus a margin. */
+const THINK_GIVE_UP_MS = 9000
+const THINK_GIVE_UP_TEXT = 'Replies: too slow (R-TIME)'
 /** A one-off message (an error, a menu note) stays in the header this long. */
 const FLASH_MS = 5000
 
@@ -66,6 +69,7 @@ export class Display {
   /** Last content sent per container, so unchanged text never costs a BLE write. */
   private sent = new Map<number, string>()
   private bodyTimer: ReturnType<typeof setTimeout> | undefined
+  private thinkTimer: ReturnType<typeof setTimeout> | undefined
   private lastBodyAt = 0
   /** A page rebuild in flight; text updates wait for it. */
   private rebuilding: Promise<unknown> = Promise.resolve()
@@ -217,23 +221,52 @@ export class Display {
   addTranslation(t: Translation, predictionExpected = false) {
     this.feed.add(formatEntry(t, this.kana))
     this.view.heard(t, predictionExpected)
+    if (predictionExpected) this.watchForReplies()
     this.renderHeader()
     this.renderBody()
   }
 
+  /**
+   * Safety net: "thinking..." must never stay on the glasses. The engine times a model call out after 3 s and retries once,
+   * and reports any failure or skipped turn, but if that message is ever lost the screen gives up by itself.
+   */
+  private watchForReplies() {
+    clearTimeout(this.thinkTimer)
+    this.thinkTimer = setTimeout(() => {
+      this.thinkTimer = undefined
+      this.view.failed(THINK_GIVE_UP_TEXT)
+      this.renderBody()
+    }, THINK_GIVE_UP_MS)
+  }
+
+  private stopWatching() {
+    clearTimeout(this.thinkTimer)
+    this.thinkTimer = undefined
+  }
+
+  /** The turn needs no reply. */
+  predictionSkipped(turnId: number) {
+    this.stopWatching()
+    this.view.skipped(turnId)
+    this.renderBody()
+  }
+
   predictions(turnId: number, prediction: Prediction) {
+    this.stopWatching()
     this.view.predictions(turnId, prediction)
     this.renderHeader()
     this.renderBody()
   }
 
   predictionFailed(message: string) {
+    this.stopWatching()
     this.view.failed(message)
     this.renderBody()
   }
 
   /** The wearer's own speech was filtered out; if they were reading a suggestion, mark which. */
   self(optionIndex?: number, turnId?: number) {
+    this.stopWatching()
     // If it can't be matched to this turn's options it is still the wearer replying: close the turn either way.
     if (optionIndex === undefined || !this.view.said(optionIndex, turnId)) this.view.selfSpoke()
     this.renderHeader()

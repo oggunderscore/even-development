@@ -160,7 +160,8 @@ export function repliesText(style: number, replies: NonNullable<Exchange['replie
 
 // ── the fake network ─────────────────────────────────────────────────────────
 
-export type Flaw = 'rate_limit' | 'garbage' | 'html_502' | 'cut_stream'
+/** `hang`: no answer at all (until aborted). `stall`: the stream starts, then goes quiet without ending. */
+export type Flaw = 'rate_limit' | 'garbage' | 'html_502' | 'cut_stream' | 'hang' | 'stall'
 
 export interface FakeNetworkOptions {
   provider: 'openrouter' | 'anthropic'
@@ -178,12 +179,19 @@ export interface FakeNetwork {
 
 const enc = new TextEncoder()
 
-function streamOf(text: string, chunk: number, cutAfter?: number): Response {
+const aborted = () => new DOMException('The operation was aborted.', 'AbortError')
+
+function streamOf(text: string, chunk: number, signal: AbortSignal | null | undefined, cutAfter?: number, stallAfter?: number): Response {
   const bytes = enc.encode(text)
   let at = 0
   const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      // A real fetch ends its body stream when the request is aborted.
+      signal?.addEventListener('abort', () => controller.error(aborted()))
+    },
     pull(controller) {
       if (cutAfter !== undefined && at >= cutAfter) return controller.error(new TypeError('network connection lost'))
+      if (stallAfter !== undefined && at >= stallAfter) return new Promise<void>(() => {}) // silence: never another byte
       if (at >= bytes.length) return controller.close()
       controller.enqueue(bytes.slice(at, at + chunk))
       at += chunk
@@ -227,6 +235,9 @@ export function fakeNetwork(script: Exchange[], opts: FakeNetworkOptions): FakeN
 
     const flaw = opts.flaws?.[kind]?.[n]
     if (flaw === 'rate_limit') return new Response('{"error":{"type":"rate_limit_error","message":"slow down, user said ホットですか"}}', { status: 429 })
+    if (flaw === 'hang') {
+      return new Promise<Response>((_resolve, reject) => init.signal?.addEventListener('abort', () => reject(aborted())))
+    }
     if (flaw === 'html_502') return new Response('<html><body>502 Bad Gateway</body></html>', { status: 502 })
 
     let text: string
@@ -250,7 +261,7 @@ export function fakeNetwork(script: Exchange[], opts: FakeNetworkOptions): FakeN
 
     if (!body['stream']) return plain(opts.provider, text)
     const wire = sse(opts.provider, text)
-    return streamOf(wire, chunk, flaw === 'cut_stream' ? Math.floor(wire.length * 0.55) : undefined)
+    return streamOf(wire, chunk, init.signal, flaw === 'cut_stream' ? Math.floor(wire.length * 0.55) : undefined, flaw === 'stall' ? Math.floor(wire.length * 0.55) : undefined)
   }
   return { fetch: fetchImpl, calls }
 }

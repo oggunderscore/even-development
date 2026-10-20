@@ -173,6 +173,12 @@ export class PredictiveView {
     }
   }
 
+  /** The engine decided this turn needs no reply (an acknowledgement): stop waiting for one. */
+  skipped(turnId: number) {
+    const t = this.turns.find((x) => x.lastId === turnId) ?? this.live
+    if (t && !t.prediction) t.thinking = false
+  }
+
   failed(message: string) {
     const t = this.live
     if (t) {

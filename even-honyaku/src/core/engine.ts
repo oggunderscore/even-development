@@ -419,6 +419,7 @@ export class Engine {
     const heard = turn.texts.join(' ')
     if (isBackchannel(heard)) {
       this.turn = null
+      this.emit({ type: 'no_predictions', turnId: turn.lastId }) // the screen is waiting for suggestions that will never come
       return
     }
     this.predicting?.abort()

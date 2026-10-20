@@ -36,10 +36,10 @@ export interface ModelChoice {
   thinkOff?: 'effort' | 'enabled'
 }
 
-/** OpenRouter models, in the order shown. The first entry is the default. */
+/** OpenRouter models, in the order shown. The first entry is the default: a live conversation needs the fast one. */
 export const OPENROUTER_MODELS: ModelChoice[] = [
-  { id: 'anthropic/claude-haiku-5.5', name: 'Claude Haiku 5.5', label: 'Best quality: Claude Haiku 5.5', inPer1M: 0.1, outPer1M: 0.5, picks: ['quality'], noTemperature: true, thinkOff: 'effort', note: 'The most natural Japanese and the most dependable replies.' },
   { id: 'google/gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', label: 'Fastest: Gemini 3.1 Flash Lite', inPer1M: 0.25, outPer1M: 1.5, picks: ['speed'], thinkOff: 'effort', note: 'Built for low latency, with very good Japanese.' },
+  { id: 'anthropic/claude-haiku-5.5', name: 'Claude Haiku 5.5', label: 'Best quality: Claude Haiku 5.5', inPer1M: 0.1, outPer1M: 0.5, picks: ['quality'], noTemperature: true, thinkOff: 'effort', note: 'The most natural Japanese and the most dependable replies.' },
   { id: 'qwen/qwen3.7-flash', name: 'Qwen3.7 Flash', label: 'Lowest cost: Qwen3.7 Flash', inPer1M: 0.03, outPer1M: 0.13, picks: ['value'], thinkOff: 'enabled', note: 'The cheapest here by a wide margin, with solid multilingual skills.' },
 ]
 

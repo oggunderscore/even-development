@@ -20,13 +20,19 @@ const PREDICT = { enabled: true, style: 'polite', level: 'beginner', maxOptions:
 /** Anything that would mean a parser, JSON or provider detail reached a person. */
 const LEAK = /[{}[\]"|*`]|ROMAJI|\bJA:|\bEN:|\bsingle\b|\bchoice\b|JSON|position \d|Expected|undefined|openrouter|anthropic|\b(?:4|5)\d\d\b/i
 
-function start(network: FakeNetworkOptions, config: Partial<UserConfig> = {}) {
-  vi.useFakeTimers({ toFake: ['Date'] }) // only the clock: a pause between exchanges is a jump in time, not a wait
+/**
+ * `fakeTime`: also fake setTimeout, so a model that goes quiet costs simulated seconds, not real ones. Otherwise only the
+ * clock is faked: a pause between exchanges is a jump in time, not a wait.
+ */
+function start(network: FakeNetworkOptions, config: Partial<UserConfig> = {}, fakeTime = false) {
+  vi.useFakeTimers({ toFake: fakeTime ? ['Date', 'setTimeout', 'clearTimeout'] : ['Date'] })
   const net = fakeNetwork(CONVERSATION, network)
   vi.stubGlobal('fetch', vi.fn(net.fetch))
   const out: ServerMsg[] = []
+  /** When (on the possibly faked clock) each message in `out` was emitted. */
+  const times: number[] = []
   let stt!: SttHandlers
-  const engine = new Engine((m) => out.push(m), {
+  const engine = new Engine((m) => (out.push(m), times.push(Date.now())), {
     turnGapMs: 20,
     createStt: (_m, h) => {
       stt = h
@@ -44,17 +50,21 @@ function start(network: FakeNetworkOptions, config: Partial<UserConfig> = {}) {
     stt.onFinal(text, dir, { start: clock, end: clock + 2 })
     clock += 4
   }
-  /** Wait until nothing new has been emitted for a moment. */
+  /** Wait until nothing new has been emitted for a moment (a quiet spell longer than two timed-out attempts, with fake time). */
   const settle = async () => {
+    const quiet = fakeTime ? 7500 : 60
     for (let i = 0; i < 100; i++) {
       const n = out.length
-      await new Promise((r) => setTimeout(r, 60))
+      if (fakeTime) await vi.advanceTimersByTimeAsync(quiet)
+      else await new Promise((r) => setTimeout(r, quiet))
       if (out.length === n) return
     }
   }
+  /** Where each exchange ended in `out`, to look at what the glasses showed at those moments. */
+  const boundaries: number[] = []
   const finalPredictions = () => out.filter((m): m is Extract<ServerMsg, { type: 'predictions' }> => m.type === 'predictions' && !m.partial)
   const of = <T extends ServerMsg['type']>(t: T) => out.filter((m) => m.type === t) as Extract<ServerMsg, { type: T }>[]
-  return { engine, net, out, say, settle, of, finalPredictions }
+  return { engine, net, out, times, say, settle, of, finalPredictions, boundaries }
 }
 
 type Run = ReturnType<typeof start>
@@ -79,6 +89,7 @@ async function play(run: Run, script: Exchange[] = CONVERSATION) {
       run.say(ex.wearer.free, 'speak')
       await run.settle()
     }
+    run.boundaries.push(run.out.length)
     shown.push({ finals, predictions })
   }
   return shown
@@ -150,12 +161,20 @@ function expectGlassesScreensFit(run: Run) {
     expect(rows.length).toBeLessThanOrEqual(BODY_ROWS)
     for (const row of rows) expect(row).not.toMatch(/[{}[\]"|*`]/)
   }
-  for (const m of run.out) {
+  const error = new Set(run.out.flatMap((m, i) => (m.type === 'error' && m.ref?.startsWith('R-') ? [i] : [])))
+  for (const [i, m] of run.out.entries()) {
     if (m.type === 'final') view.heard(m, m.dir === 'listen' && !m.unsure)
     else if (m.type === 'predictions') view.predictions(m.turnId, m.prediction)
+    else if (m.type === 'no_predictions') view.skipped(m.turnId)
     else if (m.type === 'self') view.said(m.optionIndex ?? -1, m.turnId)
-    else continue
+    else if (error.has(i)) view.failed((m as Extract<ServerMsg, { type: 'error' }>).message)
+    else {
+      if (run.boundaries.includes(i + 1)) expect(view.rows().join('\n'), 'still thinking when the exchange ended').not.toMatch(/thinking/)
+      continue
+    }
     check()
+    // When an exchange is over the glasses must not be left waiting for suggestions.
+    if (run.boundaries.includes(i + 1)) expect(view.rows().join('\n'), 'still thinking when the exchange ended').not.toMatch(/thinking/)
   }
 }
 
@@ -208,7 +227,9 @@ describe('the same conversation with things going wrong', () => {
   it('rate limits, a bad gateway, a dropped connection and an unusable answer: coded generic errors, and the talk carries on', async () => {
     const run = start({
       provider: 'openrouter',
-      flaws: { replies: { 1: 'rate_limit', 3: 'html_502', 5: 'cut_stream' }, translate: { 4: 'garbage' } },
+      // A rate limit is not retried. A 502 or a dropped connection is retried once, so it takes two in a row to give up; a
+      // single one (call 9) recovers by itself.
+      flaws: { replies: { 1: 'rate_limit', 3: 'html_502', 4: 'html_502', 6: 'cut_stream', 7: 'cut_stream', 9: 'html_502' }, translate: { 4: 'garbage' } },
     })
     await play(run)
 
@@ -219,7 +240,7 @@ describe('the same conversation with things going wrong', () => {
       expect(e.message).not.toMatch(LEAK)
       expect(e.detail).not.toMatch(/ホット|slow down|Bad Gateway|oops|sorry/) // nothing the model or provider said
     }
-    expect(errors.find((e) => e.ref === 'R-RATE')!.detail).toBe('openrouter 429 rate_limit_error model=anthropic/claude-haiku-5.5')
+    expect(errors.find((e) => e.ref === 'R-RATE')!.detail).toBe('openrouter 429 rate_limit_error model=google/gemini-3.1-flash-lite')
 
     // Everything that did not fail still arrived, including the last exchange after every failure.
     const wanted = CONVERSATION.filter((e) => e.replies).length
@@ -243,6 +264,64 @@ describe('the same conversation with things going wrong', () => {
     run.say('お会計をお願いします。', 'listen')
     await run.settle()
     expect(run.of('final').at(-1)!.japanese).toBe('お会計をお願いします。')
+    run.engine.close()
+  })
+})
+
+describe('when the model goes quiet (3 seconds, then one retry)', () => {
+  it('a call that hangs is retried once and the conversation never waits more than about 7 seconds', async () => {
+    const run = start(
+      {
+        provider: 'openrouter',
+        // reply calls: 1 hangs once (the retry, call 2, answers); 4 and 5 are both attempts of one turn and both hang;
+        // 7 stalls mid-stream (the retry answers). Translation call 0 hangs once.
+        flaws: { replies: { 1: 'hang', 4: 'hang', 5: 'hang', 7: 'stall' }, translate: { 0: 'hang' } },
+      },
+      {},
+      true,
+    )
+    await play(run)
+
+    // Exactly one reply set was given up on, and the wearer was told with a code, not left on "thinking...".
+    expect(run.of('error').map((e) => e.ref)).toEqual(['R-TIME'])
+    expect(run.of('error')[0]!.message).toBe('Replies: too slow (R-TIME)')
+    const wanted = CONVERSATION.filter((e) => e.replies).length
+    expect(run.finalPredictions()).toHaveLength(wanted - 1)
+    // Every phrase was still translated (the hung translation was retried).
+    expect(run.of('final').filter((m) => m.dir === 'listen')).toHaveLength(CONVERSATION.flatMap((e) => e.other).length)
+    expectGlassesScreensFit(run)
+
+    // The retries really happened.
+    const replyCalls = run.net.calls.filter((c) => c.kind === 'replies').length
+    expect(replyCalls).toBe(wanted + 3) // one extra attempt each for the hang that recovered, the stall that recovered, and the turn given up on
+    run.engine.close()
+  })
+
+  it('a reply stream that starts and then stalls is abandoned after 3 seconds of silence and asked for again', async () => {
+    const run = start({ provider: 'openrouter', flaws: { replies: { 0: 'stall' } } }, {}, true)
+    run.say(CONVERSATION[1]!.other[0]!, 'listen')
+    await run.settle()
+    expect(run.of('error')).toEqual([]) // the retry answered
+    expect(run.finalPredictions()).toHaveLength(1)
+    run.engine.close()
+  })
+
+  it('all attempts quiet: one coded error, and the next phrase works', async () => {
+    const run = start({ provider: 'openrouter', flaws: { replies: { 0: 'hang', 1: 'hang' } } }, {}, true)
+    const said = Date.now()
+    run.say(CONVERSATION[1]!.other[0]!, 'listen')
+    await run.settle()
+    expect(run.of('error').map((e) => e.ref)).toEqual(['R-TIME'])
+    // two attempts of 3 seconds each (plus the short pause before asking): the wearer is never left waiting longer than that
+    const waited = run.times[run.out.findIndex((m) => m.type === 'error')]! - said
+    expect(waited).toBeGreaterThanOrEqual(6000)
+    expect(waited).toBeLessThan(6500)
+    expect(run.finalPredictions()).toHaveLength(0)
+    vi.setSystemTime(Date.now() + 12_000)
+    run.say(CONVERSATION[2]!.other[0]!, 'listen')
+    await run.settle()
+    expect(run.finalPredictions()).toHaveLength(1)
+    expect(run.finalPredictions()[0]!.prediction.options[0]!.romaji).toBe('hotto de onegaishimasu')
     run.engine.close()
   })
 })
