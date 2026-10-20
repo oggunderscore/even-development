@@ -2,7 +2,8 @@
 // mirrored to the browser's localStorage) and is only ever sent to Deepgram and the translation provider the user
 // picked — straight from the phone.
 
-import type { ApiKeys, Provider, UserConfig } from './protocol'
+import { LEGACY_OPENROUTER_DEFAULT_MODEL, currentModelId } from './core/models'
+import type { ApiKeys, AppMode, JpLevel, Provider, ReplyStyle, UserConfig, VoiceProfile } from './protocol'
 
 export interface Settings {
   deepgramKey: string
@@ -11,6 +12,20 @@ export interface Settings {
   openrouterKey: string
   anthropicKey: string
   openrouterModel: string
+  anthropicModel: string
+  /** 2 = saved by a version with the model dropdown. Older saves with no model chosen keep what they were using. */
+  schema: number
+  /** Standard translation feed, or Predictive Conversation Mode (suggested replies). */
+  mode: AppMode
+  replyStyle: ReplyStyle
+  jpLevel: JpLevel
+  maxOptions: 2 | 3
+  /** Keep the wearer's own voice out of the conversation. */
+  voiceFilter: boolean
+  /** 0..1 — how readily a voice is called the wearer's. */
+  voiceStrictness: number
+  /** Also draw kana/kanji on the glasses (romaji is always drawn). */
+  glassesKana: boolean
 }
 
 export const STORAGE_KEY = 'honyaku.settings.v1'
@@ -22,9 +37,22 @@ export const defaultSettings = (): Settings => ({
   openrouterKey: '',
   anthropicKey: '',
   openrouterModel: '',
+  anthropicModel: '',
+  schema: 2,
+  mode: 'standard',
+  replyStyle: 'polite',
+  jpLevel: 'beginner',
+  maxOptions: 3,
+  voiceFilter: true,
+  voiceStrictness: 0.5,
+  glassesKana: false,
 })
 
 const PROVIDERS: Provider[] = ['google', 'openrouter', 'anthropic']
+
+function pick<T extends string>(v: unknown, allowed: readonly T[], fallback: T): T {
+  return allowed.includes(v as T) ? (v as T) : fallback
+}
 
 /** Parse stored JSON defensively: unknown fields (e.g. from older versions) are dropped, wrong types fall back. */
 export function parseSettings(raw: string | null | undefined): Settings | null {
@@ -32,6 +60,8 @@ export function parseSettings(raw: string | null | undefined): Settings | null {
   try {
     const o = JSON.parse(raw) as Record<string, unknown>
     const d = defaultSettings()
+    // Before the dropdown, no model chosen meant a fixed default; someone already set up must not be switched without notice.
+    const migrate = o['schema'] !== 2
     const str = (k: keyof Settings) => (typeof o[k] === 'string' ? (o[k] as string) : '')
     return {
       deepgramKey: str('deepgramKey'),
@@ -39,7 +69,16 @@ export function parseSettings(raw: string | null | undefined): Settings | null {
       googleKey: str('googleKey'),
       openrouterKey: str('openrouterKey'),
       anthropicKey: str('anthropicKey'),
-      openrouterModel: str('openrouterModel'),
+      openrouterModel: currentModelId(str('openrouterModel') || (migrate && str('openrouterKey') ? LEGACY_OPENROUTER_DEFAULT_MODEL : '')),
+      anthropicModel: str('anthropicModel'),
+      schema: 2,
+      mode: pick(o['mode'], ['standard', 'predictive'], d.mode),
+      replyStyle: pick(o['replyStyle'], ['polite', 'casual'], d.replyStyle),
+      jpLevel: pick(o['jpLevel'], ['beginner', 'intermediate', 'advanced'], d.jpLevel),
+      maxOptions: o['maxOptions'] === 2 ? 2 : 3,
+      voiceFilter: typeof o['voiceFilter'] === 'boolean' ? o['voiceFilter'] : d.voiceFilter,
+      voiceStrictness: typeof o['voiceStrictness'] === 'number' && Number.isFinite(o['voiceStrictness']) ? Math.min(1, Math.max(0, o['voiceStrictness'])) : d.voiceStrictness,
+      glassesKana: typeof o['glassesKana'] === 'boolean' ? o['glassesKana'] : d.glassesKana,
     }
   } catch {
     return null
@@ -47,13 +86,20 @@ export function parseSettings(raw: string | null | undefined): Settings | null {
 }
 
 /** What the engine needs — empty keys are omitted so "no key" can never be mistaken for a key. */
-export function toUserConfig(s: Settings): UserConfig {
+export function toUserConfig(s: Settings, profile: VoiceProfile | null = null): UserConfig {
   const keys: ApiKeys = {}
   if (s.deepgramKey.trim()) keys.deepgram = s.deepgramKey.trim()
   if (s.googleKey.trim()) keys.google = s.googleKey.trim()
   if (s.openrouterKey.trim()) keys.openrouter = s.openrouterKey.trim()
   if (s.anthropicKey.trim()) keys.anthropic = s.anthropicKey.trim()
-  return { keys, provider: s.provider, openrouterModel: s.openrouterModel.trim() || undefined }
+  return {
+    keys,
+    provider: s.provider,
+    openrouterModel: s.openrouterModel.trim() || undefined,
+    anthropicModel: s.anthropicModel.trim() || undefined,
+    predict: { enabled: s.mode === 'predictive', style: s.replyStyle, level: s.jpLevel, maxOptions: s.maxOptions },
+    voice: { filter: s.voiceFilter, strictness: s.voiceStrictness, profile },
+  }
 }
 
 const keyFor = (s: Settings, p: Provider) => (p === 'google' ? s.googleKey : p === 'openrouter' ? s.openrouterKey : s.anthropicKey).trim()

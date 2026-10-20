@@ -92,7 +92,8 @@ describe('Engine', () => {
       }
       expect(handlersList.length).toBe(6) // 1 original + 5 reopenings
       handlersList.at(-1)!.onClose()
-      expect(out.some((m) => m.type === 'error' && /keeps disconnecting/.test(m.message))).toBe(true)
+      const err = out.find((m) => m.type === 'error')
+      expect(err).toMatchObject({ ref: 'S-NET', message: 'Speech: no connection (S-NET)', detail: expect.stringContaining('reconnect limit') })
       engine.close()
     } finally {
       vi.useRealTimers()

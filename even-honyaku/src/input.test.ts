@@ -1,7 +1,7 @@
 import type { EvenHubEvent } from '@evenrealities/even_hub_sdk'
 import { OsEventTypeList as T } from '@evenrealities/even_hub_sdk'
 import { describe, expect, it } from 'vitest'
-import { classifyInput } from './input'
+import { classifyInput, menuClick } from './input'
 
 const ev = (e: Record<string, unknown>) => e as unknown as EvenHubEvent
 
@@ -34,5 +34,31 @@ describe('classifyInput', () => {
     expect(classifyInput(ev({ sysEvent: { eventType: T.IMU_DATA_REPORT } }))).toBe('unknown')
     expect(classifyInput(ev({ sysEvent: { imuData: { x: 1 } } }))).toBe('unknown')
     expect(classifyInput(ev({}))).toBe('unknown')
+  })
+})
+
+describe('a double tap is recognised wherever the firmware reports it', () => {
+  it('on the system event, the text event, the list event, or both parts at once', () => {
+    expect(classifyInput(ev({ sysEvent: { eventType: T.DOUBLE_CLICK_EVENT } }))).toBe('double_click')
+    expect(classifyInput(ev({ textEvent: { eventType: T.DOUBLE_CLICK_EVENT } }))).toBe('double_click')
+    expect(classifyInput(ev({ listEvent: { eventType: T.DOUBLE_CLICK_EVENT } }))).toBe('double_click')
+    // a sys part with no type (a protobuf-omitted 0) next to a text part that says double tap
+    expect(classifyInput(ev({ sysEvent: { eventSource: 1 }, textEvent: { eventType: T.DOUBLE_CLICK_EVENT } }))).toBe('double_click')
+    expect(classifyInput(ev({ sysEvent: { eventType: T.DOUBLE_CLICK_EVENT, eventSource: 1 }, textEvent: { eventType: T.DOUBLE_CLICK_EVENT } }))).toBe('double_click')
+  })
+  it('a plain tap or a swipe next to an untyped part is still not a double tap', () => {
+    expect(classifyInput(ev({ sysEvent: { eventSource: 1 }, textEvent: {} }))).toBe('click')
+    expect(classifyInput(ev({ sysEvent: { eventSource: 1 }, textEvent: { eventType: T.SCROLL_TOP_EVENT } }))).toBe('scroll_up')
+  })
+})
+
+describe('menuClick', () => {
+  it('reads the picked item id from the OS contextual menu', () => {
+    expect(menuClick(ev({ menuItemClickEvent: { itemID: 3 } }))).toBe(3)
+  })
+  it('is null for every other event', () => {
+    expect(menuClick(ev({ menuItemClickEvent: {} }))).toBeNull()
+    expect(menuClick(ev({ textEvent: {} }))).toBeNull()
+    expect(menuClick(ev({ sysEvent: { eventType: T.DOUBLE_CLICK_EVENT } }))).toBeNull()
   })
 })

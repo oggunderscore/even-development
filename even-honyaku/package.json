@@ -1,23 +1,23 @@
 {
   "name": "even-honyaku",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.1.9",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/copy-dict.mjs",
     "dev": "vite --host 0.0.0.0 --port 5173",
-    "prebuild": "node scripts/copy-dict.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "simulator": "evenhub-simulator http://localhost:5173",
     "qr": "evenhub qr --http --port 5173",
     "pack": "npm run build && evenhub pack app.json dist -o even-honyaku.ehpk --sdk-ver 0.0.16",
     "test": "vitest run",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "dict:manifest": "node scripts/dict-manifest.mjs",
+    "test:live": "vitest run src/live.test.ts"
   },
   "dependencies": {
-    "@evenrealities/even_hub_sdk": "^0.0.16",
-    "kuromoji": "^0.1.2",
+    "@evenrealities/even_hub_sdk": "0.0.16",
+    "kuromoji": "0.1.2",
     "wanakana": "^5.3.1"
   },
   "devDependencies": {

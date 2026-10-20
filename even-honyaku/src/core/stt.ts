@@ -6,6 +6,7 @@
 //                           audio, arbitrated with a bias towards Japanese (see arbiter.ts). A single multilingual
 //                           stream tended to start Japanese phrases as English text, so we pay for two streams.
 
+import { HonyakuError } from './errors'
 import type { Direction, StreamMode } from '../protocol'
 import { Arbiter } from './arbiter'
 import { hasJapanese } from './lang'
@@ -18,10 +19,13 @@ export interface Heard {
   end: number
 }
 
+/** Where in the stream (seconds from when it opened) a final was spoken — lets the voice filter find the audio. */
+export type Range = { start: number; end: number }
+
 /** What the engine sees, regardless of how many Deepgram sockets are behind it. */
 export interface SttHandlers {
   onPartial(text: string, dir: Direction): void
-  onFinal(text: string, dir: Direction): void
+  onFinal(text: string, dir: Direction, range?: Range): void
   onError(err: Error): void
   /** The stream died on its own (not via abort()/finish()) and should be reopened. */
   onClose(): void
@@ -78,7 +82,7 @@ class DeepgramStream implements Stt {
     } catch (err) {
       // e.g. a key containing characters that aren't legal in a subprotocol
       queueMicrotask(() => {
-        handlers.onError(new Error(`[${lang}] cannot open Deepgram stream: the key is not valid`))
+        handlers.onError(new HonyakuError('AUTH', `deepgram ${lang} key not usable`))
         this.resolveClosed()
         handlers.onClose()
       })
@@ -101,8 +105,7 @@ class DeepgramStream implements Stt {
     }
     ws.onerror = () => {
       // Browsers hide the HTTP status; a socket that never opened almost always means a rejected key.
-      const hint = this.isOpen ? 'connection error' : 'could not connect — check the Deepgram API key and network'
-      handlers.onError(new Error(`[${lang}] ${hint}`))
+      handlers.onError(this.isOpen ? new HonyakuError('NET', `deepgram ${lang} connection error`) : new HonyakuError('AUTH', `deepgram ${lang} never opened`))
     }
     ws.onclose = () => {
       clearInterval(this.keepAlive)
@@ -169,7 +172,7 @@ class DualStt implements Stt {
   private dead = false
 
   constructor(apiKey: string, handlers: SttHandlers) {
-    this.arbiter = new Arbiter((text, dir) => handlers.onFinal(text, dir))
+    this.arbiter = new Arbiter((text, dir, heard) => handlers.onFinal(text, dir, { start: heard.start, end: heard.end }))
     const closeBoth = () => {
       if (this.dead) return
       this.dead = true
@@ -228,7 +231,7 @@ export function createStt(mode: StreamMode, handlers: SttHandlers, { deepgramKey
   if (mode === 'talk') {
     return new DeepgramStream('en', 400, deepgramKey, {
       onPartial: (text) => handlers.onPartial(text, 'speak'),
-      onFinal: (text) => handlers.onFinal(text, 'speak'),
+      onFinal: (text, heard) => handlers.onFinal(text, 'speak', { start: heard.start, end: heard.end }),
       onError: handlers.onError,
       onClose: handlers.onClose,
     })

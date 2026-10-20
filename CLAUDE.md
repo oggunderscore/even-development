@@ -2,13 +2,17 @@
 
 This folder (`Desktop/Even/`) is a platform workspace for building apps on the **Even Realities G2 smart glasses**. All projects follow the `even-` naming prefix. Each subfolder is its own project (some are git submodules, some standalone) — treat them as siblings, not a monorepo.
 
+## Shipping to Even Hub: read this first
+
+**[`SUBMISSION-CHECKLIST.md`](SUBMISSION-CHECKLIST.md)** holds every requirement that decides whether a build is approved (manifest, permissions, network/CORS, secrets, packaging and the ~10 MB size cap, display limits, gestures, the exit contract, the contextual menu, lifecycle and the 5-minute locked-phone test, first run, store assets, privacy, release notes) plus the reviewer rejections we have received. Read it before starting an app and before every submission. Copy `even-honyaku/src/compliance.test.ts` into a new project so the machine-checkable rules run with `npm test`. **A version number can be uploaded only once: every resubmission needs a new patch version.**
+
 ## Naming Convention
 
 **All projects are prefixed with `even-`** (e.g. `even-stands`, `even-toolkit`, `even-pilot`). This applies to all projects in this workspace.
 
 ## First stop: local docs mirror
 
-**[`even-realities-docs/`](even-realities-docs/README.md)** is a full local markdown mirror of the official Even Hub developer docs (hub.evenrealities.com/docs), re-synced 2026-10-16 (`resync.py`). Read it for anything platform-related — SDK APIs, display/container limits, manifest schema, CLI, simulator, packaging, submission/QA rules, networking/CORS, background lifecycle, etc. Don't guess at platform constraints; check there first since the answers are specific and often counter-intuitive (e.g. no CSS/DOM, fixed container limits, network whitelist ≠ CORS bypass).
+**[`even-realities-docs/`](even-realities-docs/README.md)** is a full local markdown mirror of the official Even Hub developer docs (hub.evenrealities.com/docs), synced 2026-10-16; it has no resync script and lacks `build/contextual-menu` and `reference/changelog` (read those live at hub.evenrealities.com/docs). Read it for anything platform-related — SDK APIs, display/container limits, manifest schema, CLI, simulator, packaging, submission/QA rules, networking/CORS, background lifecycle, etc. Don't guess at platform constraints; check there first since the answers are specific and often counter-intuitive (e.g. no CSS/DOM, fixed container limits, network whitelist ≠ CORS bypass).
 
 Quick facts (full detail in the docs mirror):
 
@@ -16,7 +20,7 @@ Quick facts (full detail in the docs mirror):
 - **UI model:** absolute-pixel **containers** (text/list/image) — no HTML/CSS/DOM on the glasses themselves. Max 4 image + 8 other containers per page; exactly **one** container has `isEventCapture: 1`.
 - **Bridge:** `@evenrealities/even_hub_sdk` exposes `EvenAppBridge` inside a WebView hosted by the Even Realities phone app. `waitForEvenAppBridge()` must be awaited before any other call.
 - **Current platform versions (2026-10-16):** `edition: "202601"`, SDK `@evenrealities/even_hub_sdk` 0.0.16 (Even App floor 2.2.10; long press needs SDK 0.0.14+ / App 2.2.9+), CLI `@evenrealities/evenhub-cli` 0.1.14, simulator `@evenrealities/evenhub-simulator` 0.9.5. Individual projects pin their own versions.
-- **Root-page exit:** double-tap must call `bridge.shutDownPageContainer(1)` (system exit dialog). Mode `0` or a custom exit UI on the root page is auto-rejected in QA review.
+- **Root-page exit:** double-tap must call `bridge.shutDownPageContainer(1)` (system exit dialog), directly. Mode `0`, a custom exit UI, or an in-app menu on double tap is rejected in review (it happened). Put app actions in the OS contextual menu (tap then long press) instead.
 - **Testing ladder:** Simulator (no hardware) → Local Testing (QR sideload + HMR) → Private Testing (real `.ehpk` on your glasses) → Beta Testing (reviewer-parity, required before submission — 5-minute locked-phone test).
 - **Packaging:** `evenhub pack app.json dist -o myapp.ehpk`. Once a version is Released it's immutable — fix-forward only.
 

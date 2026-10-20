@@ -2,11 +2,17 @@
 // (the user's own API keys, with a Test button). All DOM is built with textContent — no innerHTML —
 // so text from the network or from a key field can never inject markup.
 
-import type { Direction, Provider, Translation } from './protocol'
-import { type Settings, normalizeSettings, setupSteps } from './settings'
+import { keyProblem } from './core/config'
+import { ANTHROPIC_DEFAULT_MODEL, ANTHROPIC_MODELS, type ModelChoice, OPENROUTER_DEFAULT_MODEL, OPENROUTER_MODELS, costText, findModel } from './core/models'
+import { profileQuality, seedCount } from './core/voice'
+import type { Prompt } from './enroll'
+import type { AppMode, Direction, JpLevel, Prediction, Provider, ReplyOption, ReplyStyle, ServerMsg, Speaker, TestScope, Translation, VoiceProfile } from './protocol'
+import { PROVIDER_NAME } from './core/probes'
+import type { Settings } from './settings'
 
 export type Phase = 'idle' | 'paused' | 'listening' | 'talking' | 'processing'
-export type View = 'feed' | 'settings'
+export type View = 'feed' | 'voice' | 'settings'
+export type LabState = 'idle' | 'enroll' | 'test'
 
 export interface PhoneUiHandlers {
   onHoldStart(): void
@@ -14,8 +20,22 @@ export interface PhoneUiHandlers {
   /** Pause / resume always-on listening. */
   onToggleListen(): void
   onTyped(text: string): void
-  /** Settings form submitted. `test` = also run the connection test afterwards. */
-  onSave(settings: Settings, opts: { test: boolean }): void
+  /** Something in the settings form changed (a key a moment after typing stops, a provider or model at once). Saved by the app. */
+  onChange(settings: Settings): void
+  /** A key field is being edited: whatever was shown about its old value is out of date. */
+  onEditing(scope: TestScope): void
+  /** The romaji dictionary download failed and the user asked to try again. */
+  onDictionaryRetry(): void
+  /** The text for "Copy error details" (see diagnostics.ts). */
+  onDiagnostics(): string
+  /** A conversation / voice-filter preference changed; applies immediately (no SAVE). */
+  onPrefs(patch: Partial<Settings>): void
+  onEnroll(): void
+  onEnrollSkip(): void
+  /** Stop a running enrollment or live test. */
+  onLabStop(): void
+  onVoiceTest(): void
+  onVoiceDelete(): void
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
@@ -35,8 +55,19 @@ const PROVIDER_HINT: Record<Provider, string> = {
   anthropic: 'Claude directly · best tone and context · pay per token',
 }
 
-const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const MAX_ENTRIES = 80
+
+/** How long after the last keystroke a key is saved and checked. A paste, or leaving the field, doesn't wait. */
+const COMMIT_DELAY_MS = 1200
+/** While typing, a key shorter than this isn't judged yet (the full check runs when typing stops). */
+const MIN_JUDGE_LEN = 8
+const KEY_FIELDS = ['set-deepgram', 'set-google', 'set-openrouter', 'set-anthropic']
+const FIELD_NAME: Record<string, 'deepgram' | 'google' | 'openrouter' | 'anthropic'> = {
+  'set-deepgram': 'deepgram',
+  'set-google': 'google',
+  'set-openrouter': 'openrouter',
+  'set-anthropic': 'anthropic',
+}
 
 const pad = (n: number) => String(n).padStart(2, '0')
 const clock = () => {
@@ -54,13 +85,17 @@ export class PhoneUi {
   private view: View = 'feed'
   private base: Settings
   private provider: Provider = 'google'
-  private spinnerTimer: ReturnType<typeof setInterval> | undefined
+  private commitTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(private readonly handlers: PhoneUiHandlers, initial: Settings) {
     this.base = initial
     this.wireHold()
     this.wireTabs()
     this.wireSettings()
+    this.wireGuide()
+    this.wireDiagnostics()
+    this.wirePrefs()
+    this.wireVoice()
     this.listenBtn.addEventListener('click', () => handlers.onToggleListen())
     $('open-settings').addEventListener('click', () => this.showView('settings'))
 
@@ -101,7 +136,7 @@ export class PhoneUi {
   showView(view: View) {
     if (view === this.view) return
     this.view = view
-    for (const v of ['feed', 'settings'] as const) {
+    for (const v of ['feed', 'voice', 'settings'] as const) {
       const on = v === view
       $(`view-${v}`).classList.toggle('active', on)
       $(`tab-${v}`).setAttribute('aria-selected', String(on))
@@ -134,6 +169,7 @@ export class PhoneUi {
 
   private wireTabs() {
     $('tab-feed').addEventListener('click', () => this.showView('feed'))
+    $('tab-voice').addEventListener('click', () => this.showView('voice'))
     $('tab-settings').addEventListener('click', () => this.showView('settings'))
   }
 
@@ -160,17 +196,73 @@ export class PhoneUi {
 
   addTranslation(t: Translation) {
     this.setLive(t.dir, '')
-    const el = this.entry(t.dir, t.dir === 'speak' ? 'EN → JP' : 'JP → EN')
+    const el = this.entry(t.dir, t.dir === 'speak' ? 'EN → JP' : t.heardEnglish ? 'THEM · ENGLISH' : 'JP → EN')
+    if (t.unsure) el.classList.add('unsure')
     const big = el.querySelector('.big')!
     const sub = el.querySelector('.sub') as HTMLElement
     if (t.dir === 'speak') {
       // The wearer reads the romaji aloud; the rest is for reference.
       big.textContent = t.romaji
       sub.append(this.span(t.english), ' · ', this.span(t.japanese))
+    } else if (t.heardEnglish) {
+      big.textContent = t.english
+      sub.remove()
     } else {
       big.textContent = t.english
       sub.append(this.span(t.japanese), ' · ', this.bold(t.romaji))
     }
+    this.append(el)
+    this.scroll()
+  }
+
+  /**
+   * The suggested replies, under the translation they answer. While the model is still writing, the same entry is
+   * updated as each option arrives (`done` false); `ms` is how long the model took to get that far.
+   */
+  addPredictions(turnId: number, p: Prediction, ms?: number, done = true) {
+    const key = String(turnId)
+    let el = [...this.log.querySelectorAll<HTMLElement>('.entry.reply')].reverse().find((e) => e.dataset['turn'] === key)
+    const fresh = !el
+    if (!el) {
+      el = this.entry('reply', '')
+      el.dataset['turn'] = key
+      el.dataset['clock'] = clock()
+      el.querySelector('.big')?.remove()
+      el.querySelector('.sub')?.remove()
+    }
+    const said = new Set([...el.querySelectorAll<HTMLElement>('.opt.said')].map((r) => r.dataset['romaji']))
+    el.querySelectorAll('.opt').forEach((r) => r.remove())
+    const title = `${p.kind === 'choice' ? 'REPLY · PICK ONE' : 'REPLY'}${done && ms !== undefined ? ` · ${(ms / 1000).toFixed(1)}s` : ''}`
+    const meta = el.querySelector('.entry-meta')
+    if (meta) meta.textContent = `${el.dataset['clock']}  ${title}`
+    p.options.forEach((o, i) => {
+      const row = document.createElement('div')
+      row.className = 'opt'
+      if (said.has(o.romaji)) row.classList.add('said')
+      row.dataset['romaji'] = o.romaji
+      const n = this.span(p.options.length > 1 ? String(i + 1) : '›')
+      n.className = 'n'
+      const gloss = this.span(o.gloss)
+      gloss.className = 'gloss'
+      const rom = this.span(o.romaji)
+      rom.className = 'rom'
+      row.append(n, gloss, rom)
+      el.append(row)
+    })
+    if (fresh) this.append(el)
+    this.scroll()
+  }
+
+  /** The wearer's own Japanese was recognised and left out of the conversation. */
+  addSelf(text: string, option?: ReplyOption) {
+    this.setLive('listen', '')
+    if (option) {
+      const rows = [...this.log.querySelectorAll<HTMLElement>('.entry.reply .opt')].reverse()
+      rows.find((r) => r.dataset['romaji'] === option.romaji)?.classList.add('said')
+    }
+    const el = this.entry('self', option ? 'YOU · READ A REPLY' : 'YOU · JAPANESE (IGNORED)')
+    el.querySelector('.big')!.textContent = text
+    el.querySelector('.sub')!.remove()
     this.append(el)
     this.scroll()
   }
@@ -241,17 +333,32 @@ export class PhoneUi {
     }
 
     this.wireHelp()
-    this.wireSeg('seg-provider', (v) => this.setProvider(v as Provider))
-    // Live checklist: tick steps off as the user pastes keys.
-    for (const id of ['set-deepgram', 'set-google', 'set-openrouter', 'set-anthropic']) {
-      $<HTMLInputElement>(id).addEventListener('input', () => this.renderSetup())
+    this.wireSeg('seg-provider', (v) => {
+      this.setProvider(v as Provider)
+      this.commit()
+    })
+    // Keys save themselves a moment after typing stops (or at once when the field loses focus), and get checked.
+    for (const id of KEY_FIELDS) {
+      const input = $<HTMLInputElement>(id)
+      input.addEventListener('input', (e) => {
+        const scope = this.scopeOf(id)
+        if (scope) this.handlers.onEditing(scope)
+        this.showFormatProblem(id, true)
+        clearTimeout(this.commitTimer)
+        // A paste is a whole key at once: save and check it now. Typing waits until you pause, so half a key isn't saved.
+        if ((e as InputEvent).inputType === 'insertFromPaste') this.commit()
+        else this.commitTimer = setTimeout(() => this.commit(), COMMIT_DELAY_MS)
+      })
+      input.addEventListener('change', () => this.commit())
     }
-
+    $('dict-retry').addEventListener('click', () => this.handlers.onDictionaryRetry())
+    $('set-model').addEventListener('change', () => this.commitModel())
+    $('set-anthropic-model').addEventListener('change', () => this.commitModel())
+    // No Save button: pressing Enter in a field just commits it.
     $<HTMLFormElement>('settings').addEventListener('submit', (e) => {
       e.preventDefault()
-      this.submit(true)
+      this.commit()
     })
-    $('btn-save').addEventListener('click', () => this.submit(false))
   }
 
   private wireSeg(id: string, onPick: (value: string) => void) {
@@ -273,7 +380,6 @@ export class PhoneUi {
     for (const row of document.querySelectorAll<HTMLElement>('.reveal-row[data-provider]')) {
       row.classList.toggle('open', row.dataset['provider'] === p)
     }
-    this.renderSetup()
   }
 
   /** "? HOW TO GET ONE" toggles the step-by-step panel under a key field. */
@@ -284,24 +390,9 @@ export class PhoneUi {
         const open = !panel.classList.contains('open')
         panel.classList.toggle('open', open)
         btn.setAttribute('aria-expanded', String(open))
-        btn.textContent = open ? '× HIDE' : '? HOW TO GET ONE'
+        btn.textContent = open ? '× HIDE' : (btn.dataset['closedText'] ?? '? HOW TO GET ONE')
       })
     }
-  }
-
-  /** The SETUP card: a ✓ / ○ checklist from what's currently in the form, and a done state. */
-  private renderSetup() {
-    const steps = setupSteps(normalizeSettings(this.readSettings()))
-    for (const step of steps) {
-      document.querySelector(`.steps [data-step="${step.id}"]`)?.classList.toggle('done', step.done)
-    }
-    const done = steps.every((s) => s.done)
-    const card = $('setup-card')
-    card.dataset['done'] = String(done)
-    $('setup-title').textContent = done ? 'SETUP COMPLETE' : 'SETUP'
-    $('setup-lead').textContent = done
-      ? 'All set. Tap SAVE & TEST to check the keys, then head to FEED.'
-      : 'Two keys and you are done. They are your own accounts, so usage is billed to you.'
   }
 
   /** Fill the form from stored settings. */
@@ -311,74 +402,341 @@ export class PhoneUi {
     $<HTMLInputElement>('set-google').value = s.googleKey
     $<HTMLInputElement>('set-openrouter').value = s.openrouterKey
     $<HTMLInputElement>('set-anthropic').value = s.anthropicKey
-    $<HTMLInputElement>('set-model').value = s.openrouterModel
+    for (const id of KEY_FIELDS) $(id).classList.remove('invalid')
+    this.fillModels('set-model', 'model-note', OPENROUTER_MODELS, OPENROUTER_DEFAULT_MODEL, s.openrouterModel)
+    this.fillModels('set-anthropic-model', 'anthropic-model-note', ANTHROPIC_MODELS, ANTHROPIC_DEFAULT_MODEL, s.anthropicModel)
     this.setProvider(s.provider)
-    this.renderSetup()
+    this.syncPrefs(s)
   }
 
+  /**
+   * Fill a model dropdown, best first. A model saved earlier that isn't on the list (an older version let you type any
+   * id) stays selectable as "Custom", so upgrading never silently changes it.
+   */
+  private fillModels(selectId: string, noteId: string, list: ModelChoice[], defaultId: string, saved: string) {
+    const select = $<HTMLSelectElement>(selectId)
+    select.replaceChildren()
+    list.forEach((m) => select.append(this.option(m.id, m.label)))
+    const current = saved || defaultId
+    if (!findModel(list, current)) select.append(this.option(current, `Custom: ${current}`))
+    select.value = current
+    this.showModelNote(selectId, noteId, list)
+  }
+
+  private option(value: string, label: string): HTMLOptionElement {
+    const o = document.createElement('option')
+    o.value = value
+    o.textContent = label
+    return o
+  }
+
+  private showModelNote(selectId: string, noteId: string, list: ModelChoice[]) {
+    const m = findModel(list, $<HTMLSelectElement>(selectId).value)
+    $(noteId).textContent = m ? `${m.note} ${costText(m)}.` : 'A model you set earlier. It is kept as it is.'
+  }
+
+  /**
+   * Show changed preferences (mode, style, …) without touching the key fields: the user may have pasted a key they
+   * haven't saved yet, and changing a preference must not wipe it.
+   */
+  setPrefs(s: Settings) {
+    this.base = { ...this.base, mode: s.mode, replyStyle: s.replyStyle, jpLevel: s.jpLevel, maxOptions: s.maxOptions, voiceFilter: s.voiceFilter, voiceStrictness: s.voiceStrictness, glassesKana: s.glassesKana }
+    this.syncPrefs(s)
+  }
+
+  private syncPrefs(s: Settings) {
+    this.setSeg('seg-mode', s.mode)
+    this.setSeg('seg-style', s.replyStyle)
+    this.setSeg('seg-level', s.jpLevel)
+    this.setSeg('seg-options', String(s.maxOptions))
+    this.setSeg('seg-kana', s.glassesKana ? 'kana' : 'romaji')
+    this.setSeg('seg-filter', s.voiceFilter ? 'on' : 'off')
+    $<HTMLInputElement>('set-strict').value = String(Math.round(s.voiceStrictness * 100))
+    $('strict-val').textContent = `${Math.round(s.voiceStrictness * 100)}%`
+  }
+
+  /** The form's current values. A key that can't be real (wrong characters or length) is left out: the saved one stays. */
   readSettings(): Settings {
-    const v = (id: string) => $<HTMLInputElement>(id).value.trim()
-    const key = (id: string) => v(id).replace(/\s+/g, '') // pasted keys often carry a stray line break
+    const text = (id: string) => $<HTMLInputElement>(id).value.replace(/\s+/g, '') // pasted keys often carry a stray line break
+    const key = (id: string, name: 'deepgram' | 'google' | 'openrouter' | 'anthropic', saved: string) => {
+      const v = text(id)
+      return keyProblem(name, v) ? saved : v
+    }
+    const modelOf = (id: string, saved: string, defaultId: string) => {
+      const v = $<HTMLSelectElement>(id).value
+      return v === defaultId && saved === '' ? '' : v // untouched default stays "default"
+    }
     return {
       ...this.base,
-      deepgramKey: key('set-deepgram'),
+      deepgramKey: key('set-deepgram', 'deepgram', this.base.deepgramKey),
       provider: this.provider,
-      googleKey: key('set-google'),
-      openrouterKey: key('set-openrouter'),
-      anthropicKey: key('set-anthropic'),
-      openrouterModel: v('set-model'),
+      googleKey: key('set-google', 'google', this.base.googleKey),
+      openrouterKey: key('set-openrouter', 'openrouter', this.base.openrouterKey),
+      anthropicKey: key('set-anthropic', 'anthropic', this.base.anthropicKey),
+      openrouterModel: modelOf('set-model', this.base.openrouterModel, OPENROUTER_DEFAULT_MODEL),
+      anthropicModel: modelOf('set-anthropic-model', this.base.anthropicModel, ANTHROPIC_DEFAULT_MODEL),
     }
   }
 
-  private submit(test: boolean) {
-    this.handlers.onSave(this.readSettings(), { test })
+  /** Mark a key field red, with the reason under it, as soon as what was typed can't be a key. Empty is fine (no key). */
+  private showFormatProblem(id: string, typing = false) {
+    const name = FIELD_NAME[id]!
+    const input = $<HTMLInputElement>(id)
+    const value = input.value.replace(/\s+/g, '')
+    // Mid-typing a short key is just unfinished; only judge it once it is long enough to have a real problem.
+    const problem = typing && value.length < MIN_JUDGE_LEN ? null : keyProblem(name, value)
+    input.classList.toggle('invalid', problem !== null)
+    const scope = this.scopeOf(id)
+    if (problem && scope) this.setKeyStatus(scope, 'bad', `That doesn't look like a ${name === 'deepgram' ? 'Deepgram' : PROVIDER_NAME[name]} key (unexpected characters or length), so it was not saved.`)
   }
 
-  // ── test results ───────────────────────────────────────────────────────────
-
-  /** Spinner row while the test runs. */
-  showTesting() {
-    this.stopSpinner()
-    const box = $('results')
-    box.replaceChildren()
-    const row = this.resultRow('pending', '', 'working', 'connecting and checking keys')
-    box.append(row)
-    const mark = row.querySelector('.mark')!
-    let i = 0
-    this.spinnerTimer = setInterval(() => (mark.textContent = SPINNER[i++ % SPINNER.length]!), 80)
-    box.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  /** Which status line a key field reports to: Deepgram's, or the translation one when it is the selected provider's key. */
+  private scopeOf(id: string): TestScope | null {
+    const name = FIELD_NAME[id]!
+    return name === 'deepgram' ? 'stt' : name === this.provider ? 'translate' : null
   }
 
-  showResults(results: { service: string; ok: boolean; detail: string }[]) {
-    this.stopSpinner()
-    const box = $('results')
-    box.replaceChildren()
-    results.forEach((r, i) => {
-      const row = this.resultRow(r.ok ? 'ok' : 'fail', r.ok ? '✓' : '✗', r.service.toUpperCase(), r.detail)
-      row.style.animationDelay = `${i * 90}ms`
-      box.append(row)
+  /** Save what is in the form now. */
+  private commit() {
+    clearTimeout(this.commitTimer)
+    for (const id of KEY_FIELDS) this.showFormatProblem(id)
+    const next = this.readSettings()
+    this.base = next
+    this.handlers.onChange(next)
+  }
+
+  private commitModel() {
+    this.showModelNote('set-model', 'model-note', OPENROUTER_MODELS)
+    this.showModelNote('set-anthropic-model', 'anthropic-model-note', ANTHROPIC_MODELS)
+    this.commit()
+  }
+
+  /** Show the app's provider choice (it switches provider itself when only one provider has a key). */
+  showProvider(p: Provider) {
+    this.base = { ...this.base, provider: p }
+    this.setProvider(p)
+  }
+
+  /**
+   * The romaji dictionary (Google Translate only): `downloading` shows a progress bar (0..1), `failed` offers a retry,
+   * `ready` confirms, `idle` hides it.
+   */
+  setDictStatus(state: 'idle' | 'downloading' | 'ready' | 'failed', text = '', fraction = 0) {
+    const el = $('status-dict')
+    el.dataset['state'] = state === 'downloading' ? 'checking' : state === 'failed' ? 'bad' : state === 'ready' ? 'ok' : 'idle'
+    el.textContent = state === 'idle' ? '' : text
+    $('dict-meter').hidden = state !== 'downloading'
+    ;($('dict-meter').firstElementChild as HTMLElement).style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`
+    $('dict-retry').hidden = state !== 'failed'
+  }
+
+  /** The result of a key check, under the field it belongs to. `checking` shows while the answer is on its way. */
+  setKeyStatus(scope: TestScope, state: 'idle' | 'checking' | 'ok' | 'bad', text = '') {
+    const el = $(scope === 'stt' ? 'status-stt' : 'status-translate')
+    el.dataset['state'] = state
+    el.textContent = state === 'idle' ? '' : text
+  }
+
+  // ── controls guide ─────────────────────────────────────────────────────────
+
+  private wireDiagnostics() {
+    const button = $('copy-diag')
+    const status = $('diag-status')
+    const box = $<HTMLTextAreaElement>('diag-text')
+    button.addEventListener('click', () => {
+      const text = this.handlers.onDiagnostics()
+      box.value = text
+      void (async () => {
+        try {
+          await navigator.clipboard.writeText(text)
+          box.hidden = true
+          status.textContent = 'Copied. Paste it into your message to the developer.'
+        } catch {
+          // No clipboard access in this WebView: show the text so it can be selected by hand.
+          box.hidden = false
+          box.select()
+          status.textContent = 'Select all of this text, copy it and send it to the developer.'
+        }
+      })()
     })
-    box.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }
 
-  private stopSpinner() {
-    clearInterval(this.spinnerTimer)
-    this.spinnerTimer = undefined
+  private wireGuide() {
+    const dialog = $('guide')
+    const open = $('open-guide')
+    const close = $('close-guide')
+    const focusables = () => [...dialog.querySelectorAll<HTMLElement>('button, [href], input, select, [tabindex]:not([tabindex="-1"])')]
+    const hide = () => {
+      dialog.hidden = true
+      open.setAttribute('aria-expanded', 'false')
+      open.focus()
+    }
+    open.addEventListener('click', () => {
+      dialog.hidden = false
+      open.setAttribute('aria-expanded', 'true')
+      close.focus()
+    })
+    close.addEventListener('click', hide)
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) hide() // a tap on the dimmed area
+    })
+    document.addEventListener('keydown', (e) => {
+      if (dialog.hidden) return
+      if (e.key === 'Escape') return hide()
+      if (e.key !== 'Tab') return
+      const items = focusables()
+      const first = items[0]
+      const last = items.at(-1)
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last?.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first?.focus()
+      }
+    })
   }
 
-  private resultRow(kind: string, mark: string, service: string, detail: string): HTMLElement {
+  // ── conversation preferences ───────────────────────────────────────────────
+
+  private wirePrefs() {
+    const pick = (id: string, apply: (v: string) => Partial<Settings>) =>
+      this.wireSeg(id, (v) => {
+        this.setSeg(id, v)
+        this.handlers.onPrefs(apply(v))
+      })
+    pick('seg-mode', (v) => ({ mode: v as AppMode }))
+    pick('seg-style', (v) => ({ replyStyle: v as ReplyStyle }))
+    pick('seg-level', (v) => ({ jpLevel: v as JpLevel }))
+    pick('seg-options', (v) => ({ maxOptions: v === '2' ? 2 : 3 }))
+    pick('seg-kana', (v) => ({ glassesKana: v === 'kana' }))
+    pick('seg-filter', (v) => ({ voiceFilter: v === 'on' }))
+
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const slider = $<HTMLInputElement>('set-strict')
+    slider.addEventListener('input', () => {
+      $('strict-val').textContent = `${slider.value}%`
+      clearTimeout(timer)
+      timer = setTimeout(() => this.handlers.onPrefs({ voiceStrictness: Number(slider.value) / 100 }), 250)
+    })
+  }
+
+  // ── voice profile / live test ──────────────────────────────────────────────
+
+  private labState: LabState = 'idle'
+  private hasProfile = false
+  private readonly verdictLog: HTMLElement[] = []
+
+  private wireVoice() {
+    $('btn-enroll').addEventListener('click', () => this.handlers.onEnroll())
+    $('btn-enroll-skip').addEventListener('click', () => this.handlers.onEnrollSkip())
+    $('btn-lab-stop').addEventListener('click', () => this.handlers.onLabStop())
+    $('btn-voice-delete').addEventListener('click', () => this.handlers.onVoiceDelete())
+    $('btn-voice-test').addEventListener('click', () => (this.labState === 'test' ? this.handlers.onLabStop() : this.handlers.onVoiceTest()))
+    this.setLabState('idle')
+  }
+
+  /** The voice profile summary and the buttons that depend on whether one exists. */
+  setVoiceProfile(p: VoiceProfile | null) {
+    this.hasProfile = p !== null && seedCount(p) > 0
+    const status = $('voice-status')
+    if (!p || !this.hasProfile) {
+      status.textContent =
+        'No voice profile yet. Honyaku can still skip a reply it suggested when you read it aloud, but it cannot recognise your voice otherwise. Recording takes about a minute.'
+    } else {
+      const q = profileQuality(p)
+      const learned = p.en.adapt.length + p.ja.adapt.length
+      status.textContent = `Profile: ${q.label.toUpperCase()} · ${p.en.seed.length} English + ${p.ja.seed.length} Japanese samples${learned ? ` · ${learned} learned while you use it` : ''}.`
+    }
+    this.setLabState(this.labState)
+  }
+
+  setLabState(state: LabState) {
+    this.labState = state
+    const idle = state === 'idle'
+    $('enroll').hidden = state !== 'enroll'
+    $('btn-enroll').hidden = state === 'enroll'
+    ;($('btn-enroll') as HTMLButtonElement).disabled = state === 'test'
+    $('btn-enroll').textContent = this.hasProfile ? 'RE-RECORD MY VOICE' : 'RECORD MY VOICE'
+    $('btn-enroll-skip').hidden = state !== 'enroll'
+    $('btn-lab-stop').hidden = state !== 'enroll'
+    $('btn-voice-delete').hidden = !idle || !this.hasProfile
+    ;($('btn-voice-test') as HTMLButtonElement).disabled = state === 'enroll'
+    $('btn-voice-test').textContent = state === 'test' ? 'STOP TEST' : 'START TEST'
+    if (state === 'test') $('test-out').replaceChildren(this.testIdle('speak now — each phrase gets a verdict here'))
+    if (state === 'idle' && !$('test-out').querySelector('.test-verdict')) $('test-out').replaceChildren(this.testIdle('no test running'))
+    if (state === 'idle') this.setLabLevel(-90, false)
+    if (state !== 'idle') this.setLabMessage('', '')
+  }
+
+  private testIdle(text: string) {
+    const s = this.span(text)
+    s.className = 'test-idle'
+    return s
+  }
+
+  /** The prompt to read next (null = finished). */
+  setEnrollStep(prompt: Prompt | null, index: number, total: number) {
+    $('enroll-count').textContent = prompt ? `SENTENCE ${index + 1} OF ${total}` : 'DONE'
+    $('enroll-lang').textContent = !prompt ? '' : prompt.lang === 'en' ? 'ENGLISH' : 'JAPANESE · READ IT AS YOU WOULD SAY IT'
+    $('enroll-text').textContent = prompt?.text ?? ''
+    $('enroll-text').lang = prompt?.lang ?? 'en'
+    $('enroll-romaji').textContent = prompt?.romaji ?? ''
+    $('enroll-meaning').textContent = prompt?.meaning ?? ''
+    this.setLabMessage(prompt ? 'Read the sentence, then pause.' : '', '')
+  }
+
+  setLabLevel(db: number, speaking: boolean) {
+    const bar = $('enroll-bar')
+    bar.classList.toggle('speaking', speaking)
+    ;(bar.firstElementChild as HTMLElement).style.width = `${Math.round(Math.min(1, Math.max(0, (db + 70) / 50)) * 100)}%`
+  }
+
+  setLabMessage(text: string, kind: 'ok' | 'warn' | '') {
+    const el = $('lab-msg')
+    el.textContent = text
+    el.className = `lab-msg ${kind}`.trim()
+  }
+
+  /** The live test's verdict for one phrase. */
+  setTestResult(who: Speaker, voice: number | null, level: number | null, hasProfile: boolean) {
+    const out = $('test-out')
+    out.replaceChildren()
+    const v = this.span(who === 'wearer' ? 'YOU' : who === 'other' ? 'SOMEONE ELSE' : 'NOT SURE')
+    v.className = `test-verdict ${who}`
+    out.append(v)
+    if (!hasProfile) {
+      out.append(this.testIdle('Record your voice profile first to get voice and level scores.'))
+      return
+    }
+    out.append(this.scoreBar('VOICE', voice), this.scoreBar('LEVEL', level))
+  }
+
+  private scoreBar(label: string, value: number | null): HTMLElement {
     const row = document.createElement('div')
-    row.className = `result ${kind}`
-    const m = document.createElement('span')
-    m.className = 'mark'
-    m.textContent = mark
-    const s = document.createElement('span')
-    s.className = 'svc'
-    s.textContent = service
-    const d = document.createElement('span')
-    d.className = 'detail'
-    d.textContent = detail
-    row.append(m, s, d)
+    row.className = 'score-bar'
+    const bar = document.createElement('div')
+    bar.className = 'meter'
+    const fill = document.createElement('i')
+    fill.style.width = `${Math.round((value ?? 0) * 100)}%`
+    bar.append(fill)
+    row.append(this.span(label), bar, this.span(value === null ? '—' : `${Math.round(value * 100)}`))
     return row
+  }
+
+  /** One line of the rolling verdict log (what the filter decided for each recognised phrase). */
+  showVoiceScore(m: Extract<ServerMsg, { type: 'voice_score' }>) {
+    const pct = (x: number | null) => (x === null ? '–' : String(Math.round(x * 100)))
+    const row = document.createElement('div')
+    row.className = 'row'
+    const who = this.span(m.who === 'wearer' ? 'YOU' : m.who === 'other' ? 'THEM' : '?')
+    who.className = `who ${m.who}`
+    const txt = this.span(`${m.text}  [v${pct(m.voice)} l${pct(m.level)} e${Math.round(m.echo * 100)}]`)
+    txt.className = 'txt'
+    row.append(who, txt)
+    const log = $('voice-log')
+    log.prepend(row)
+    this.verdictLog.unshift(row)
+    while (this.verdictLog.length > 8) this.verdictLog.pop()?.remove()
   }
 }

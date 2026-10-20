@@ -3,7 +3,7 @@
 // Kept as a small class so the rest of the app only deals with `startStream` / `sendAudio` / `onMessage`.
 
 import { Engine } from './core/engine'
-import type { ClientMsg, ServerMsg, StreamMode, UserConfig } from './protocol'
+import type { ClientMsg, ServerMsg, StreamMode, TestScope, UserConfig } from './protocol'
 
 export interface SessionHandlers {
   onMessage(msg: ServerMsg): void
@@ -19,6 +19,11 @@ export class Session {
 
   constructor(private readonly handlers: SessionHandlers) {}
 
+  /** The engine has a live speech stream (false once it has given up reconnecting). */
+  get isStreaming(): boolean {
+    return this.engine?.streaming ?? false
+  }
+
   get isOpen(): boolean {
     return this.engine !== null
   }
@@ -31,6 +36,11 @@ export class Session {
     engine.handle({ type: 'config', config: this.handlers.getConfig() })
     this.handlers.onConnection(true)
     return Promise.resolve()
+  }
+
+  /** Hand the running engine new preferences (mode, voiceprint…) without restarting its streams. */
+  reconfigure() {
+    this.engine?.handle({ type: 'config', config: this.handlers.getConfig() })
   }
 
   /** Stop the engine so the next connect() picks up changed settings. */
@@ -63,10 +73,10 @@ export class Session {
     this.sendJson({ type: 'text', text })
   }
 
-  /** Check the keys in use and run a sample translation. */
-  async test(): Promise<void> {
+  /** Check the Deepgram key (`stt`) or the provider key + chosen model (`translate`); the answer carries `id`. */
+  async test(scope: TestScope, id: number): Promise<void> {
     await this.connect()
-    this.sendJson({ type: 'test' })
+    this.sendJson({ type: 'test', scope, id })
   }
 
   private sendJson(msg: ClientMsg) {

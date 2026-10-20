@@ -45,7 +45,7 @@ export class Arbiter {
   private pending: { heard: Heard; timer: ReturnType<typeof setTimeout> }[] = []
 
   constructor(
-    private readonly emit: (text: string, dir: Direction) => void,
+    private readonly emit: (text: string, dir: Direction, heard: Heard) => void,
     private readonly opts: ArbiterOptions = DEFAULT_ARBITER,
   ) {}
 
@@ -60,7 +60,7 @@ export class Arbiter {
       clearTimeout(p.timer)
       return false
     })
-    this.emit(h.text, 'listen')
+    this.emit(h.text, 'listen', h)
   }
 
   /** A final from the English model. */
@@ -70,7 +70,7 @@ export class Arbiter {
       heard: h,
       timer: setTimeout(() => {
         this.pending = this.pending.filter((p) => p !== entry)
-        if (!this.isClaimed(h)) this.emit(h.text, 'speak')
+        if (!this.isClaimed(h)) this.emit(h.text, 'speak', h)
       }, this.opts.graceMs),
     }
     this.pending.push(entry)
@@ -82,7 +82,7 @@ export class Arbiter {
     this.pending = []
     for (const p of held) {
       clearTimeout(p.timer)
-      if (!this.isClaimed(p.heard)) this.emit(p.heard.text, 'speak')
+      if (!this.isClaimed(p.heard)) this.emit(p.heard.text, 'speak', p.heard)
     }
   }
 

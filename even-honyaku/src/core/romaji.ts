@@ -3,13 +3,20 @@
 // dictionary tokenizer + wanakana. Output is plain ASCII with long vowels doubled ("arigatou").
 //
 // The dictionary (~17 MB) is loaded by a host-specific loader: Node reads it from disk
-// (server/src/romaji-node.ts), the app fetches it from its own bundle (src/romaji-browser.ts).
+// (src/test/romaji-node.ts), the app downloads it once on demand and reads it from the phone's storage (src/romaji-browser.ts).
 
 import type kuromoji from 'kuromoji'
 import { toRomaji } from 'wanakana'
 import { stripMacrons } from './lang'
 
 export type Tokenizer = kuromoji.Tokenizer<kuromoji.IpadicFeatures>
+
+/** The dictionary isn't on this device yet (Google Translate needs it for romaji; it is downloaded after the key is accepted). */
+export class RomajiNotInstalledError extends Error {
+  constructor() {
+    super('The romaji dictionary is not downloaded yet. Open Settings to download it.')
+  }
+}
 
 let loader: (() => Promise<Tokenizer>) | undefined
 let tokenizer: Promise<Tokenizer> | undefined
