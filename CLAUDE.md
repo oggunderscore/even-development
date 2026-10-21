@@ -4,7 +4,7 @@ This folder (`Desktop/Even/`) is a platform workspace for building apps on the *
 
 ## Shipping to Even Hub: read this first
 
-**[`SUBMISSION-CHECKLIST.md`](SUBMISSION-CHECKLIST.md)** holds every requirement that decides whether a build is approved (manifest, permissions, network/CORS, secrets, packaging and the ~10 MB size cap, display limits, gestures, the exit contract, the contextual menu, lifecycle and the 5-minute locked-phone test, first run, store assets, privacy, release notes) plus the reviewer rejections we have received. Read it before starting an app and before every submission. Copy `private-project/src/compliance.test.ts` into a new project so the machine-checkable rules run with `npm test`. **A version number can be uploaded only once: every resubmission needs a new patch version.**
+**[`SUBMISSION-CHECKLIST.md`](SUBMISSION-CHECKLIST.md)** holds every requirement that decides whether a build is approved (manifest, permissions, network/CORS, secrets, packaging and the ~10 MB size cap, display limits, gestures, the exit contract, the contextual menu, lifecycle and the 5-minute locked-phone test, first run, store assets, privacy, release notes) plus the reviewer rejections we have received. Read it before starting an app and before every submission. Give each project a compliance test so the machine-checkable rules run with `npm test`. **A version number can be uploaded only once: every resubmission needs a new patch version.**
 
 ## Naming Convention
 
@@ -32,7 +32,6 @@ Quick facts (full detail in the docs mirror):
 - **`even-pilot/`** — Driving HUD: speed, speed limit, compass direction, location via GPS + Overpass + Nominatim.
 - **`even-terminal/`** — SSH/terminal/voice app.
 - **`even-notifications/`** — Phone notification bridge to G2 via APPS Bridge.
-- **`private-project/`** (git submodule → oggunderscore/private-project, **private**, proprietary license) — Live English ⇄ Japanese translation (翻訳). Speak English → romaji on the glasses to read aloud; Japanese speech → English on the glasses. Phone hold-to-talk button; no server — the engine runs in the WebView with the user's own Deepgram + translation keys. See its own `CLAUDE.md`. It has its own repo, issues and releases: work inside the submodule and commit there; this repo only records which commit it points at. After cloning run `git submodule update --init private-project` (needs access to the private repo).
 - **`even-flipper/`** (git submodule → cola-collabs/even-flipper) — "Flipper-Zero-on-G2-Glasses": Bluetooth bridge that mirrors a Flipper Zero's screen onto G2 glasses with temple-touch gesture control. Has `flipper-bridge/` (BLE relay), `linux-bridge/`, and `g2-starter/` (the actual G2 webapp/plugin, built with Vite + the SDK). Check its README for current validation status.
 
 ### Shared Libraries

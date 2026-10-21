@@ -15,7 +15,6 @@ even-<project-name>/
 ```
 even/
 ├── even-flipper/             # Flipper Zero → G2 BLE mirror (git submodule)
-├── private-project/             # EN⇄JP live translation (romaji on glasses)
 ├── even-notifications/       # Phone notification bridge to G2
 ├── even-pilot/               # Driving HUD (GPS, speed, compass)
 ├── even-stands/              # G2 plugin (active development)
@@ -46,7 +45,6 @@ even/
 | Project              | Description                                                | Stack                    |
 | -------------------- | ---------------------------------------------------------- | ------------------------ |
 | `even-flipper`       | Flipper Zero screen mirror on G2 via BLE                   | TypeScript + Vite + SDK  |
-| `private-project`       | EN⇄JP live translation — romaji on glasses, Claude + STT   | TypeScript + Vite + SDK  |
 | `even-notifications` | Phone notification bridge to G2                            | TypeScript + Vite + SDK  |
 | `even-pilot`         | Driving HUD — speed, compass, location                     | TypeScript + Vite + SDK  |
 | `even-stands`        | G2 plugin (active development)                             | TypeScript + Vite + SDK  |

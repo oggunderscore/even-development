@@ -1,8 +1,8 @@
 # Even Hub submission requirements (all projects)
 
 Everything that decides whether an Even Hub build is approved, in one place. Read it before starting a G2 app and again
-before every submission. Items tagged **[auto]** are enforced by `src/compliance.test.ts` in `private-project` (copy that
-file into a new project: it runs with `npm test`). Items tagged **[you]** need a person with a phone and glasses.
+before every submission. Items tagged **[auto]** are worth enforcing with a compliance test in each project (read
+the manifest and source, fail `npm test` on a violation). Items tagged **[you]** need a person with a phone and glasses.
 
 **Sources and freshness.** Rules come from `even-realities-docs/` (the local mirror, synced 2026-10-16) and from the live
 pages at hub.evenrealities.com/docs, read on 2026-10-19: `ship/app-submission`, `ship/packaging`, `test/beta-testing`,
@@ -71,14 +71,14 @@ Allowed names: `network`, `location`, `g2-microphone`, `phone-microphone`, `albu
 ## 5. Secrets, keys and logging  [auto]
 
 - **Never bundle an API key**: a Released `.ehpk` can be unpacked by anyone. The official guidance is a server-side proxy
-  you control. private project instead has **users enter their own keys** (kept in bridge storage + localStorage, sent only to the
+  you control. An alternative is to have **users enter their own keys** (kept in bridge storage + localStorage, sent only to the
   provider they chose, nothing bundled); say so in the privacy policy and in the review notes.
 - **Never log secrets or user content.** The phone app's Developer-Mode console is visible to reviewers. Our code makes
   no `console.*` calls (tested). The SDK itself logs bridge events, **including mic audio payloads**, and its own init
   lines; that is outside our control but is why we log nothing ourselves.
 - **Errors shown to users are a code plus a generic sentence**, never parser, HTTP or provider text (a raw "Expected ',' or
   ']' after array element in JSON" reached a user once and confused them). Keep the cause in a memory-only diagnostics log the
-  user can copy on request (private project: `src/core/errors.ts`, `src/diagnostics.ts`), and do not ask an LLM for JSON on a live
+  user can copy on request (for example an `errors` module plus an in-memory diagnostics log), and do not ask an LLM for JSON on a live
   path: use plain lines and parse leniently.
 - **No console errors at boot**: the buffer must be clean right after launch [you; checked in the simulator against the
   production build, not the dev server].
@@ -95,7 +95,7 @@ evenhub pack app.json dist -o app.ehpk --sdk-ver <exact SDK version> -c
 - **Size: the FAQ says the practical cap is about 10 MB**: larger packages still upload but install worse. Check
   `ls -l app.ehpk` every release, and keep `public/` small [auto]. **Pattern for big optional assets:** don't bundle them,
   download them on demand (whitelist the origin, pin an immutable URL such as a versioned npm file on jsDelivr, verify
-  size + SHA-256, store in IndexedDB, show progress and a retry, never start the download mid-task). private project does this for its 17.8 MB kuromoji romaji dictionary (Google provider only). Data only, never code, and the CDN domain must be in the whitelist **and** the privacy policy.
+  size + SHA-256, store in IndexedDB, show progress and a retry, never start the download mid-task). One of our apps does this for a 17.8 MB tokenizer dictionary. Data only, never code, and the CDN domain must be in the whitelist **and** the privacy policy.
 - **Pin the SDK exactly** in `package.json` (`"0.0.16"`, not `^`, `~` or `latest`) for shipped apps [auto]. Read the changelog
   for every `0.0.x` release before upgrading: patch releases add public surface. Run the simulator, then QR, then a beta
   build after any SDK bump.
@@ -192,7 +192,7 @@ Needs SDK 0.0.14+ / Even App 2.2.9+ (older apps: items silently absent; the CLI 
 - **Screenshots** must match the device: capture them with the simulator's screenshot function (`GET /api/screenshot/glasses`;
   exactly **576 x 288 RGBA PNG**, uploaded unmodified; converting to RGB fuses the text and background). With no keys or
   hardware, serve the production build on :5173 with a harness that fakes the network and drive `npm run simulator`
-  (`private-project/scripts/screenshots/`, `private-project/store-assets/README.md`).
+  (a small static server plus a script that drives the simulator).
 - No impersonation of existing apps, no unauthorised brand logos, no keyword stuffing in name or description.
 - **Release notes**: 1–3 lines per locale, what changed **for the user** (name the symptom for hotfixes: "Fix occasional
   blank screen after returning from lock"). First version: say what the app does, not "initial release".
@@ -224,7 +224,7 @@ with `up|down|click|double_click|long_press|long_press_release|context_menu`. Al
 toggles the OS menu. The simulator **cannot** show the exit dialog (the framebuffer simply goes blank), which system
 slots appear, or real lock behaviour. Don't kill it with `pkill -f` (it matches your own shell); use the PID.
 
-## 17. Reviewer rejection log (private project)
+## 17. Reviewer rejection log (our own submissions)
 
 | Version | Reviewer note | Cause | Fix |
 | --- | --- | --- | --- |
