@@ -7,3 +7,7 @@
 [submodule "even-bridge"]
 	path = reference/even-bridge
 	url = git@gitlab.com:homeauto.cc/appsbridge.git
+[submodule "even-honyaku"]
+	path = even-honyaku
+	url = git@github.com:oggunderscore/even-honyaku.git
+	branch = main

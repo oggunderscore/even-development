@@ -32,7 +32,7 @@ Quick facts (full detail in the docs mirror):
 - **`even-pilot/`** — Driving HUD: speed, speed limit, compass direction, location via GPS + Overpass + Nominatim.
 - **`even-terminal/`** — SSH/terminal/voice app.
 - **`even-notifications/`** — Phone notification bridge to G2 via APPS Bridge.
-- **`even-honyaku/`** — Live English ⇄ Japanese translation (翻訳). Speak English → romaji on the glasses to read aloud; Japanese speech → English on the glasses. Phone hold-to-talk button; no server — the engine runs in the WebView with the user's own Deepgram + translation keys. See its own `CLAUDE.md`.
+- **`even-honyaku/`** (git submodule → oggunderscore/even-honyaku, **private**, proprietary license) — Live English ⇄ Japanese translation (翻訳). Speak English → romaji on the glasses to read aloud; Japanese speech → English on the glasses. Phone hold-to-talk button; no server — the engine runs in the WebView with the user's own Deepgram + translation keys. See its own `CLAUDE.md`. It has its own repo, issues and releases: work inside the submodule and commit there; this repo only records which commit it points at. After cloning run `git submodule update --init even-honyaku` (needs access to the private repo).
 - **`even-flipper/`** (git submodule → cola-collabs/even-flipper) — "Flipper-Zero-on-G2-Glasses": Bluetooth bridge that mirrors a Flipper Zero's screen onto G2 glasses with temple-touch gesture control. Has `flipper-bridge/` (BLE relay), `linux-bridge/`, and `g2-starter/` (the actual G2 webapp/plugin, built with Vite + the SDK). Check its README for current validation status.
 
 ### Shared Libraries
